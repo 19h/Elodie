@@ -170,6 +170,10 @@ The **⋯** menu holds everything else:
 | Forget the last 5 minutes… | Permanently deletes the 5 minutes before now, wherever the playhead is. It asks first. |
 | Settings… | Opens Settings. |
 
+<p align="center">
+  <img src="docs/images/overflow-menu.png" width="320" alt="The timeline's more menu: Star moment, Save image, Copy image, Copy text, Copy link to this moment, Export 5 minutes as video, switches for screen and audio capture, Exclude this app from recording, Forget the last 5 minutes, and Settings">
+</p>
+
 ### Working with a stretch of time
 
 The strip is also where you manage your history. Click a run to go to that moment and select the whole run. Drag to select any stretch, and drag either end of a selection to trim it. The ends snap to where an app starts or stops, because a stretch that ends where an app ends takes nothing from the next one. Esc clears the selection.
@@ -618,8 +622,8 @@ A clean first run spent 31 s compiling Vision's models, and a slower Mac will ta
 
 | How long each window stayed open | Allowed frames showing it |
 |---|---|
-| 250 to 700 ms | 0 of 13,561 |
-| Under 120 ms | 3 of 49 |
+| 250 to 700 ms | 0 of 22,897 |
+| Under 120 ms | 3 of 49, then 2 of 57 |
 
 The first row leaves out one English run, where the control never saw the marker. The run before the last fix leaked 1 frame in 4,254. About half of all frames are dropped in this test, because a private window is opening or closing almost constantly, far more than in real use.
 
@@ -706,8 +710,8 @@ open -n $APP --args --spike capture --out /path/to/report.txt
 open -n $APP --args --sandbox /path/to/folder
 ```
 
-- **Scenarios:** `timeline`, `timeline-zoom`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
-- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it, including with the system's `screencapture` tool. It counts only marker-coloured pixels where the panel sits. It examines frames in memory, except that the tool's picture goes in a temporary file that's deleted straight away. `login-item` needs no permission and captures nothing. It reports the login item's status and which permissions the app has, and `--action on` or `--action off` registers or unregisters the login item for real.
+- **Scenarios:** `timeline`, `timeline-zoom`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `overflow-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
+- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it, including with the system's `screencapture` tool. It counts only marker-coloured pixels where the panel sits. It examines frames in memory, except that the tool's picture goes in a temporary file that's deleted straight away. `login-item` needs no permission and captures nothing. It reports the login item's status and which permissions the app has, and `--action on` or `--action off` registers or unregisters the login item for real, which starts the real app rather than a sandbox. `sharing-hold` also needs no permission. It holds up a marker panel on every display, ordinary and then with the overlay's setting, for 8 seconds each, so that something outside the app can try capturing them.
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
 
@@ -717,13 +721,13 @@ A `--sandbox` run can also be driven from outside, without taking your keyboard 
 - **Search:** `search <words>`, `choose`, `filterStarred`, `hits`
 - **The key:** `recoveryKey`, `restore <recovery key>`, `startOver`
 - **Everything else:** `listen`, `pause`, `recap`, `ask`, `transcripts`, `settings`, `quit`
-- **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote. `state` also says which permissions the app has, whether the event tap is running, what the Control Center switch would read, and how many microphone buffers have arrived and how loud they were
+- **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote. `state` also says which permissions the app has, whether the event tap is running, what the Control Center switch would read, what has arrived from the microphone, and what has reached speech recognition
 
 ### Working rules
 
 These protect people's data, and several are enforced by a test or a check:
 
-- **Keep real data out of tests.** Test vaults go in a scratch directory, stay under 5 GB, and are deleted afterwards. Live capture tests look only at windows the harness draws. Recorded data and keys never go in the repository.
+- **Keep real data out of tests.** Test vaults go in a scratch directory, stay under 5 GB, and are deleted afterwards. Live capture tests look only at windows the harness draws. Recorded data and keys never go in the repository. Anything that starts the app without `--sandbox` has to be treated as real, and a running copy may not be yours.
 - **Never create a new key for an existing vault.** It would orphan all recorded history, so a missing key is an error to show.
 - **Never change how keys are derived.** Known-answer tests guard this, because existing vaults depend on those values.
 - **Never edit a released migration.** Add a new one.
@@ -775,7 +779,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 **Check these before relying on Remind:**
 
-- **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and an ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release. Chrome's real `getDisplayMedia`, which web call apps use, doesn't see it either: 0 in 28 frames, while an ordinary panel shows up in every one.
+- **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and neither does the system's `screencapture` tool. Chrome's real `getDisplayMedia`, which web call apps use, doesn't see it either: 0 in 28 frames. An ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
 - **A real first run has only happened on one Mac, with other apps excluded.** It recorded two real displays into a scratch vault, and [docs/spikes.md](docs/spikes.md) has what it covered. Normal daily use, and energy use, haven't been measured.
 - **Very brief private windows can reach a recording.** Spike 2 found no marker in 22,897 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 2 to 3 of about 50 allowed frames. Remind only promises to catch windows open for at least 0.25 seconds.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
