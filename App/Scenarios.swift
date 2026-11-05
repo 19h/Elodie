@@ -293,6 +293,7 @@ enum Scenarios {
     @MainActor
     private static func captureStatusMenu(to output: URL) async throws {
         let controller = AppController()
+        controller.debugPretendsSetUp = true
         let status = StatusMenu(controller: controller)
         var failure: (any Error)?
         var finished = false

@@ -1,3 +1,4 @@
+import TestKit
 import CoreGraphics
 import Foundation
 @testable import Ingest
@@ -38,9 +39,7 @@ import Testing
 
 @Suite struct CrashLoops {
     private func freshDefaults() -> UserDefaults {
-        let name = "remind-test-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
+        let defaults = ScratchDefaults.make()
         return defaults
     }
 

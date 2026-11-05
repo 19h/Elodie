@@ -1,3 +1,4 @@
+import TestKit
 import DesignSystem
 import Foundation
 import Metal
@@ -595,9 +596,7 @@ import FeatureSettings
 @MainActor
 @Suite struct Settings {
     private func fresh() -> UserDefaults {
-        let name = "remind-test-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
+        let defaults = ScratchDefaults.make()
         return defaults
     }
 
@@ -640,9 +639,7 @@ private actor CheckCounter {
 @MainActor
 @Suite struct PermissionStates {
     private func defaults(asked: Bool) -> UserDefaults {
-        let name = "remind-tests-\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: name)!
-        defaults.removePersistentDomain(forName: name)
+        let defaults = ScratchDefaults.make()
         defaults.set(asked, forKey: "hasAskedForScreenRecording")
         return defaults
     }

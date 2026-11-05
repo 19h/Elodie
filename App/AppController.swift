@@ -147,8 +147,15 @@ final class AppController: NSObject {
     private var defaults: UserDefaults { AppEnvironment.defaults }
 
     /// Whether recordings can be read yet. Menu rows that need them stay disabled until then.
+    #if DEBUG
+    /// Draws the everyday menu in a screenshot, with nothing set up and no settings changed.
+    var debugPretendsSetUp = false
+    var isVaultOpen: Bool { core != nil || debugPretendsSetUp }
+    var hasFinishedOnboarding: Bool { settings.hasFinishedOnboarding || debugPretendsSetUp }
+    #else
     var isVaultOpen: Bool { core != nil }
     var hasFinishedOnboarding: Bool { settings.hasFinishedOnboarding }
+    #endif
 
     /// Whether frames are really being captured at this moment.
     var isRecording: Bool {
