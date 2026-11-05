@@ -10,7 +10,10 @@ public final class WindowInventory: @unchecked Sendable {
 
     /// Windows on screen, front to back. Titles need the Screen Recording permission.
     public func onScreenWindows() -> [WindowInfo] {
-        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        windows(options: [.optionOnScreenOnly, .excludeDesktopElements])
+    }
+
+    private func windows(options: CGWindowListOption) -> [WindowInfo] {
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[CFString: Any]] else {
             return []
         }
@@ -32,6 +35,23 @@ public final class WindowInventory: @unchecked Sendable {
         }
     }
 
+    /// Every window, including those on other Spaces and minimized ones.
+    public func allWindows() -> [WindowInfo] {
+        windows(options: [.optionAll, .excludeDesktopElements])
+    }
+
+    /// Just the IDs of the windows on screen, front to back, which is far cheaper than
+    /// reading their details.
+    public func onScreenWindowIDs() -> [CGWindowID] {
+        guard let list = windowListCreate(.optionOnScreenOnly, kCGNullWindowID)?.takeRetainedValue() else {
+            return []
+        }
+        // The array holds window IDs directly, not objects.
+        return (0..<CFArrayGetCount(list)).map { index in
+            CGWindowID(truncatingIfNeeded: Int(bitPattern: CFArrayGetValueAtIndex(list, index)))
+        }
+    }
+
     /// Identifies a process, caching the answer because reading a bundle is slow.
     public func identify(_ pid: pid_t) -> AppIdentity {
         if let known = lock.withLock({ identities[pid] }) {
@@ -43,8 +63,19 @@ public final class WindowInventory: @unchecked Sendable {
             bundleID: bundleID,
             family: BrowserFamily.detect(bundleID: bundleID, bundleURL: app?.bundleURL)
         )
-        lock.withLock { identities[pid] = identity }
+        // An app still launching may not be identifiable yet, so that isn't remembered.
+        if bundleID != nil {
+            lock.withLock { identities[pid] = identity }
+        }
         return identity
+    }
+
+    /// Forgets processes with no windows, because macOS can reuse an ID after a process
+    /// exits, and an excluded app mustn't be mistaken for another.
+    public func forgetProcesses(except running: Set<pid_t>) {
+        lock.withLock {
+            identities = identities.filter { running.contains($0.key) }
+        }
     }
 
     /// Forgets a process, because macOS can reuse its ID after it exits.
@@ -52,3 +83,7 @@ public final class WindowInventory: @unchecked Sendable {
         lock.withLock { _ = identities.removeValue(forKey: pid) }
     }
 }
+
+/// `CGWindowListCreate` is public API that the SDK hides from Swift, with nothing to replace it.
+@_silgen_name("CGWindowListCreate")
+private func windowListCreate(_ option: CGWindowListOption, _ relativeTo: CGWindowID) -> Unmanaged<CFArray>?

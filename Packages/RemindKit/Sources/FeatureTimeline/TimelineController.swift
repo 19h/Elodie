@@ -12,14 +12,16 @@ import SwiftUI
 @MainActor
 public final class TimelineController: NSObject, NSDraggingSource {
     private let core: any RemindCore
-    private let display: UUID
-    private let scrub: ScrubEngine
+    /// The display whose history is being shown, which needn't be the one this is on.
+    public private(set) var display: UUID
+    private var scrub: ScrubEngine
     public let model = TimelineModel()
 
     public let rootView: NSView
     private let frameView: FrameLayerView
     private let inputView = OverlayInputView()
     private let stripView: StripView?
+    private let stripInput: StripInteractionView
     private let playheadView: PlayheadView
     private var chromeHost: NSHostingView<AnyView>?
 
@@ -36,7 +38,15 @@ public final class TimelineController: NSObject, NSDraggingSource {
     private var displayLink: CADisplayLink?
     private var shownFrameID: Int64?
     private var shownBuffer: CVPixelBuffer?
+    /// The first moment recorded on this display, once it's known. Nothing before it exists.
     private var earliest: Date?
+    /// What the strip is drawing, for working out what the pointer is over.
+    private var runs: [TimelineRun] = []
+    private var apps: [String?] = []
+    private var stars: [StarredFrame] = []
+    private var speech: [DateInterval] = []
+    private var editor = SliceEditor()
+    private var hoverGeneration = 0
     /// The lines on the frame being shown, once something has asked for them.
     private var lines: [RecognizedLine]?
     private var selected: [RecognizedLine] = []
@@ -62,18 +72,22 @@ public final class TimelineController: NSObject, NSDraggingSource {
 
     /// Called when a frame is shown, for anything drawn over it, such as highlights.
     public var onFrameShown: ((Int64, CVPixelBuffer) -> Void)?
+    /// Called when someone moves the playhead themselves, as opposed to being taken somewhere.
+    public var onUserMoved: (() -> Void)?
 
     public init(core: any RemindCore, display: UUID, frame: NSRect) {
         self.core = core
         self.display = display
         scrub = ScrubEngine(core: core, display: display)
         frameView = FrameLayerView(frame: frame)
-        stripView = StripView(stripFrame: NSRect(
+        let stripFrame = NSRect(
             x: 0,
             y: TimelineMetrics.stripBottom,
             width: frame.width,
             height: TimelineMetrics.stripHeight
-        ))
+        )
+        stripView = StripView(stripFrame: stripFrame)
+        stripInput = StripInteractionView(frame: stripFrame)
         playheadView = PlayheadView(frame: NSRect(
             x: (frame.width - 3) / 2,
             y: 0,
@@ -94,6 +108,14 @@ public final class TimelineController: NSObject, NSDraggingSource {
         inputView.onMouse = { [weak self] mouse in self?.handle(mouse) }
         root.addSubview(inputView)
 
+        stripInput.onEvent = { [weak self] event in self?.handle(strip: event) }
+        stripInput.onScroll = { [weak self] event in self?.inputView.scrollWheel(with: event) }
+        stripInput.onMagnify = { [weak self] event in self?.inputView.magnify(with: event) }
+
+        connectScrub()
+    }
+
+    private func connectScrub() {
         scrub.onUpdate = { [weak self] update in
             DispatchQueue.main.async {
                 self?.show(update)
@@ -113,8 +135,10 @@ public final class TimelineController: NSObject, NSDraggingSource {
             stripView.autoresizingMask = [.width]
             rootView.addSubview(stripView, positioned: .above, relativeTo: host)
         }
+        stripInput.autoresizingMask = [.width]
+        rootView.addSubview(stripInput, positioned: .above, relativeTo: stripView ?? host)
         playheadView.autoresizingMask = [.minXMargin, .maxXMargin]
-        rootView.addSubview(playheadView, positioned: .above, relativeTo: stripView ?? host)
+        rootView.addSubview(playheadView, positioned: .above, relativeTo: stripInput)
         setStripVisible(false)
     }
 
@@ -131,6 +155,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
     public func present(at time: Date, immediate: CVPixelBuffer? = nil, onFirstFrame: (() -> Void)? = nil) {
         interpreter.reset()
         model.isEmpty = false
+        model.zoomFraction = TimelineZoom.fraction(for: interpreter.pointsPerSecond)
         if let immediate {
             frameView.show(immediate)
             onFirstFrame?()
@@ -147,6 +172,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
             guard let self, self.displayLink != nil else { return }
             if self.shownFrameID == nil { self.model.isEmpty = true }
         }
+        loadBounds()
         playhead = clamped(time)
         model.playheadMoved(to: playhead)
         reloadStrip()
@@ -164,10 +190,11 @@ public final class TimelineController: NSObject, NSDraggingSource {
         lines = nil
         selected = []
         firstFrameHandler = nil
-        model.isJumpToDateOpen = false
+        editor.clear()
         // Hidden now, so nothing from this time can flash up at the start of the next.
-        model.isChromeVisible = false
+        model.reset()
         setStripVisible(false)
+        applyOverlays()
         // Decoded frames can run to a gigabyte, and this may not open again for hours.
         scrub.purge()
     }
@@ -202,6 +229,61 @@ public final class TimelineController: NSObject, NSDraggingSource {
         scrub.purge()
     }
 
+    // MARK: Which display
+
+    /// Shows the history of another display here. Recording follows the pointer, so what
+    /// someone's looking for can be from a different display than the one they're at.
+    public func showDisplay(_ newDisplay: UUID) {
+        guard newDisplay != display else { return }
+        display = newDisplay
+        scrub.onUpdate = nil
+        scrub = ScrubEngine(core: core, display: newDisplay)
+        connectScrub()
+        earliest = nil
+        runs = []
+        apps = []
+        stars = []
+        speech = []
+        shownFrameID = nil
+        // What was loaded belongs to the other display.
+        loadedRange = nil
+        clearSlice()
+        loadBounds()
+    }
+
+    /// Moves to another display from the picker, keeping to the same moment if it can.
+    public func chooseDisplay(_ newDisplay: UUID) {
+        onUserMoved?()
+        showDisplay(newDisplay)
+        move(to: playhead)
+    }
+
+    /// What a display is called, supplied by whoever knows what's connected.
+    public var displayName: (RecordedDisplay) -> String = { "\($0.width) × \($0.height)" }
+
+    private func loadBounds() {
+        let core = self.core
+        let display = self.display
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let displays = (try? core.displays()) ?? []
+            await self?.setDisplays(displays, for: display)
+        }
+    }
+
+    private func setDisplays(_ displays: [RecordedDisplay], for forDisplay: UUID) {
+        guard forDisplay == display else { return }
+        earliest = displays.first { $0.id == display }?.first
+        model.shownDisplay = display
+        model.recordedDisplays = displays.count > 1
+            ? displays.map { DisplayChoice(id: $0.id, name: displayName($0)) }
+            : []
+    }
+
+    /// Hands the keyboard back to the timeline, after something that had it has closed.
+    public func restoreKeyFocus() {
+        rootView.window?.makeFirstResponder(inputView)
+    }
+
     // MARK: Moving through time
 
     /// Moves the playhead, which updates everything on the next display refresh.
@@ -226,24 +308,251 @@ public final class TimelineController: NSObject, NSDraggingSource {
             let seconds = interpreter.seconds(for: input)
             // In frames per second, since frames are about 2 seconds apart.
             let framesPerSecond = interpreter.velocity / 2
+            onUserMoved?()
             move(to: playhead.addingTimeInterval(seconds), velocity: framesPerSecond)
         case .scrollEnded:
             interpreter.reset()
         case .zoom(let magnification):
-            interpreter.pointsPerSecond = TimelineZoom.applying(
+            setZoom(pointsPerSecond: TimelineZoom.applying(
                 magnification: magnification,
                 to: interpreter.pointsPerSecond
-            )
-            needsStripDraw = true
-            reloadStripIfNeeded()
+            ))
+        case .zoomIn:
+            setZoom(pointsPerSecond: interpreter.pointsPerSecond * 1.5)
+        case .zoomOut:
+            setZoom(pointsPerSecond: interpreter.pointsPerSecond / 1.5)
         case .stepFrame(let forward):
+            onUserMoved?()
             step(forward: forward)
         case .stepRun(let forward):
+            onUserMoved?()
             stepRun(forward: forward)
         case .copy:
             copySelection()
+        case .deleteSelection:
+            if model.slice != nil {
+                model.isConfirmingDelete = true
+            }
         default:
             onAction?(action)
+        }
+    }
+
+    // MARK: Zoom
+
+    /// Sets the zoom from the control, where 0 is widest and 1 is closest.
+    public func setZoom(fraction: Double) {
+        setZoom(pointsPerSecond: TimelineZoom.pointsPerSecond(forFraction: fraction))
+    }
+
+    private func setZoom(pointsPerSecond: Double) {
+        interpreter.pointsPerSecond = min(
+            max(pointsPerSecond, TimelineZoom.minimumPointsPerSecond),
+            TimelineZoom.maximumPointsPerSecond
+        )
+        model.zoomFraction = TimelineZoom.fraction(for: interpreter.pointsPerSecond)
+        needsStripDraw = true
+        reloadStripIfNeeded()
+    }
+
+    /// Fills the strip with what's selected.
+    public func zoomToSlice() {
+        guard let slice = model.slice, slice.duration > 0 else { return }
+        setZoom(pointsPerSecond: Double(rootView.bounds.width) * 0.7 / slice.duration)
+        move(to: slice.start.addingTimeInterval(slice.duration / 2))
+    }
+
+    // MARK: The strip, under the mouse
+
+    private var geometry: StripGeometry {
+        StripGeometry(
+            center: playhead,
+            pointsPerSecond: interpreter.pointsPerSecond,
+            width: Double(rootView.bounds.width)
+        )
+    }
+
+    private var selectableRange: ClosedRange<Date> {
+        let now = model.now()
+        return min(earliest ?? .distantPast, now)...now
+    }
+
+    private func handle(strip event: StripInteractionView.Event) {
+        switch event {
+        case .moved(let x):
+            (editor.isOverHandle(x: x, geometry: geometry) ? NSCursor.resizeLeftRight : NSCursor.arrow).set()
+            updateHover(x: x)
+        case .exited:
+            hoverGeneration += 1
+            NSCursor.arrow.set()
+            model.hover = nil
+            applyOverlays()
+        case .down(let x, _):
+            model.hover = nil
+            editor.mouseDown(x: x, geometry: geometry)
+        case .dragged(let x):
+            editor.mouseDragged(x: x, geometry: geometry, runs: runs, limits: selectableRange)
+            model.setSlice(editor.selection)
+            applyOverlays()
+        case .up(let x):
+            let outcome = editor.mouseUp(x: x, geometry: geometry)
+            switch outcome {
+            case .clicked(let time):
+                click(at: time)
+            case .selected:
+                sliceChanged()
+            case .nothing:
+                break
+            }
+        }
+    }
+
+    /// A click goes to that moment, and picks out the run it's in, ready to be managed.
+    private func click(at time: Date) {
+        onUserMoved?()
+        move(to: time)
+        if let run = SliceEditor.run(at: time, in: runs) {
+            let now = model.now()
+            editor.select(DateInterval(start: run.start, end: max(min(run.end, now), run.start)))
+        } else {
+            editor.clear()
+        }
+        sliceChanged()
+    }
+
+    private func sliceChanged() {
+        model.setSlice(editor.selection)
+        applyOverlays()
+        guard let slice = editor.selection else { return }
+        let core = self.core
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let summary = try? core.sliceSummary(from: slice.start, to: slice.end)
+            await self?.showSummary(summary, for: slice)
+        }
+    }
+
+    private func showSummary(_ summary: SliceSummary?, for slice: DateInterval) {
+        guard model.slice == slice else { return }
+        model.setSliceSummary(summary)
+    }
+
+    /// Picks out a stretch from outside the strip.
+    public func select(_ slice: DateInterval) {
+        editor.select(slice)
+        sliceChanged()
+    }
+
+    public func clearSlice() {
+        editor.clear()
+        model.setSlice(nil)
+        applyOverlays()
+    }
+
+    private func updateHover(x: Double) {
+        let time = geometry.time(atX: x)
+        guard let run = SliceEditor.run(at: time, in: runs) else {
+            hoverGeneration += 1
+            if model.hover != nil {
+                model.hover = nil
+                applyOverlays()
+            }
+            return
+        }
+        let bundleID = apps.indices.contains(run.app) ? apps[run.app] : nil
+        // Keep what's known about this run while the details for this spot are read.
+        let previous = model.hover
+        let sameRun = previous?.start == run.start
+        model.hover = StripHover(
+            x: x,
+            start: run.start,
+            end: run.end,
+            bundleID: bundleID,
+            window: sameRun ? previous?.window : nil,
+            url: sameRun ? previous?.url : nil
+        )
+        applyOverlays()
+
+        hoverGeneration += 1
+        let generation = hoverGeneration
+        let core = self.core
+        let display = self.display
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let segment = try? core.segment(display: display, at: time)
+            await self?.showHoverDetails(segment, generation: generation)
+        }
+    }
+
+    private func showHoverDetails(_ segment: SegmentDetails?, generation: Int) {
+        guard generation == hoverGeneration, let segment else { return }
+        model.hover?.window = segment.window
+        model.hover?.url = segment.url
+    }
+
+    private func applyOverlays() {
+        func seconds(_ date: Date) -> Float { Float(date.timeIntervalSince(timelineOrigin)) }
+        func range(_ start: Date, _ end: Date) -> ClosedRange<Float> {
+            let from = seconds(start)
+            return from...max(from, seconds(end))
+        }
+        stripView?.setOverlays(StripOverlays(
+            hovered: model.hover.map { range($0.start, $0.end) },
+            selection: editor.selection.map { range($0.start, $0.end) },
+            stars: stars.map { seconds($0.time) },
+            speech: speech.map { range($0.start, $0.end) }
+        ))
+        needsStripDraw = true
+    }
+
+    /// Stars were added or removed, so the strip's marks need reading again.
+    public func reloadMarks() {
+        reloadStrip()
+    }
+
+    /// Forgets decoded pictures, for a display that's not on show.
+    public func forgetFrames() {
+        scrub.forgetEverything()
+    }
+
+    /// Recordings were deleted, so what's on show may no longer exist.
+    public func recordingsChanged() {
+        scrub.forgetEverything()
+        shownFrameID = nil
+        shownBuffer = nil
+        lines = nil
+        editor.clear()
+        model.setSlice(nil)
+        loadedRange = nil
+        loadBounds()
+        reloadStrip()
+        scrub.seek(.init(time: playhead, velocity: 0))
+        applyOverlays()
+    }
+
+    private func step(forward: Bool) {
+        guard let current = shownFrameID,
+              let next = try? core.neighbour(of: current, forward: forward)
+        else { return }
+        move(to: next.capturedAt)
+    }
+
+    private func stepRun(forward: Bool) {
+        let end = playhead.addingTimeInterval(forward ? 86_400 : -86_400)
+        guard let data = try? core.timeline(
+            display: display,
+            from: min(playhead, end),
+            to: max(playhead, end),
+            minimumDuration: 0
+        ) else { return }
+        if forward {
+            if let next = data.runs.first(where: { $0.start > playhead }) {
+                move(to: next.start)
+            }
+        } else if let current = data.runs.last(where: { $0.start < playhead }) {
+            // Going back first returns to the start of the current run.
+            let target = playhead.timeIntervalSince(current.start) > 1
+                ? current.start
+                : data.runs.last(where: { $0.start < current.start })?.start
+            if let target { move(to: target) }
         }
     }
 
@@ -274,6 +583,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
             dragStart = start
             setSelection([])
             model.isJumpToDateOpen = false
+            model.isZoomOpen = false
             dragKind = TextSelection.line(at: start, in: currentLines()) != nil ? .selecting : .pending
         case .dragged(let point, let event):
             guard let dragStart else { return }
@@ -291,6 +601,10 @@ public final class TimelineController: NSObject, NSDraggingSource {
                 break
             }
         case .up:
+            // A click on the picture itself lets go of what's picked out on the strip.
+            if dragKind == .pending, model.slice != nil, !model.isConfirmingDelete {
+                clearSlice()
+            }
             dragStart = nil
             dragKind = .none
         }
@@ -304,9 +618,13 @@ public final class TimelineController: NSObject, NSDraggingSource {
     /// Copies what's selected, or everything on the frame when nothing is.
     public func copySelection() {
         let text = TextSelection.text(of: selected.isEmpty ? currentLines() : selected)
-        guard !text.isEmpty else { return }
+        guard !text.isEmpty else {
+            model.showToast(String(localized: "There's no text on this frame to copy"))
+            return
+        }
         pasteboard.clearContents()
         pasteboard.setString(text, forType: .string)
+        model.showToast(String(localized: "Copied text"))
     }
 
     /// The frame on screen as an image.
@@ -316,6 +634,9 @@ public final class TimelineController: NSObject, NSDraggingSource {
         guard let cgImage = Self.imageContext.createCGImage(image, from: image.extent) else { return nil }
         return NSImage(cgImage: cgImage, size: .zero)
     }
+
+    /// The frame on screen, if there is one.
+    public var currentFrameID: Int64? { shownFrameID }
 
     private static let imageContext = CIContext()
 
@@ -387,34 +708,6 @@ public final class TimelineController: NSObject, NSDraggingSource {
         ))
     }
 
-    private func step(forward: Bool) {
-        guard let current = shownFrameID,
-              let next = try? core.neighbour(of: current, forward: forward)
-        else { return }
-        move(to: next.capturedAt)
-    }
-
-    private func stepRun(forward: Bool) {
-        let end = playhead.addingTimeInterval(forward ? 86_400 : -86_400)
-        guard let data = try? core.timeline(
-            display: display,
-            from: min(playhead, end),
-            to: max(playhead, end),
-            minimumDuration: 0
-        ) else { return }
-        if forward {
-            if let next = data.runs.first(where: { $0.start > playhead }) {
-                move(to: next.start)
-            }
-        } else if let current = data.runs.last(where: { $0.start < playhead }) {
-            // Going back first returns to the start of the current run.
-            let target = playhead.timeIntervalSince(current.start) > 1
-                ? current.start
-                : data.runs.last(where: { $0.start < current.start })?.start
-            if let target { move(to: target) }
-        }
-    }
-
     private func show(_ update: ScrubUpdate) {
         frameView.show(update.frame.buffer)
         shownBuffer = update.frame.buffer
@@ -430,7 +723,16 @@ public final class TimelineController: NSObject, NSDraggingSource {
         let frameID = update.frame.frameID
         Task.detached(priority: .userInitiated) { [weak self] in
             let context = try? core.frameContext(of: frameID)
-            await self?.model.showContext(context ?? nil)
+            let isStarred = (try? core.isStarred(frameID: frameID)) ?? false
+            await self?.showDetails(context: context ?? nil, isStarred: isStarred, frameID: frameID)
+        }
+    }
+
+    private func showDetails(context: FrameContext?, isStarred: Bool, frameID: Int64) {
+        guard frameID == shownFrameID else { return }
+        model.showContext(context)
+        if model.isStarred != isStarred {
+            model.isStarred = isStarred
         }
     }
 
@@ -508,28 +810,40 @@ public final class TimelineController: NSObject, NSDraggingSource {
             guard let data = try? core.timeline(
                 display: display, from: from, to: to, minimumDuration: 1 / pointsPerSecond
             ) else { return }
-            await self?.apply(data, origin: from)
+            let stars = (try? core.stars(display: display, from: from, to: to)) ?? []
+            let speech = ((try? core.transcriptSessions(from: from, to: to, limit: 500)) ?? [])
+                .map { DateInterval(start: $0.start, end: max($0.end, $0.start)) }
+            await self?.apply(data, stars: stars, speech: speech, origin: from, for: display)
         }
     }
 
-    private func apply(_ data: TimelineData, origin: Date) {
+    private func apply(
+        _ data: TimelineData,
+        stars: [StarredFrame],
+        speech: [DateInterval],
+        origin: Date,
+        for forDisplay: UUID
+    ) {
+        guard forDisplay == display else { return }
         timelineOrigin = origin
+        runs = data.runs
+        apps = data.apps
+        self.stars = stars
+        self.speech = speech
         let palette = data.apps.map(color(for:))
         let images = data.apps.map(icon(for:))
-        let runs = data.runs.map { run in
+        let stripRuns = data.runs.map { run in
             StripRun(
                 start: Float(run.start.timeIntervalSince(origin)),
                 end: Float(run.end.timeIntervalSince(origin)),
                 color: palette[run.app]
             )
         }
-        let icons = zip(runs, data.runs).compactMap { strip, run in
+        let icons = zip(stripRuns, data.runs).compactMap { strip, run in
             images[run.app].map { StripIcon(start: strip.start, end: strip.end, image: $0) }
         }
-        stripView?.setRuns(runs, icons: icons)
-        if let first = data.runs.first, earliest == nil {
-            earliest = first.start
-        }
+        stripView?.setRuns(stripRuns, icons: icons)
+        applyOverlays()
         needsStripDraw = true
     }
 

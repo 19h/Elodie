@@ -55,6 +55,21 @@ final class OverlayCoordinator {
 
     /// Tells whoever is routing scroll events.
     var onOpenChange: (Bool) -> Void = { _ in }
+    /// Opens what was said at a moment.
+    var onOpenTranscript: (Date) -> Void = { _ in }
+    var settings: () -> Void = {}
+    var isCapturing: () -> Bool = { true }
+    var isListening: () -> Bool = { false }
+    var setCapturing: (Bool) -> Void = { _ in }
+    var toggleListening: () -> Void = {}
+    /// Called before a stretch is deleted, so what's in progress can't bring it back.
+    var prepareToDelete: (DateInterval) -> Void = { _ in }
+    /// Tells whoever else is showing recordings that some are gone.
+    var onRecordingsDeleted: () -> Void = {}
+    /// Why search might be missing things right now.
+    var searchNote: () -> String? = { nil } {
+        didSet { search.note = searchNote }
+    }
 
     private(set) var isOpen = false {
         didSet { onOpenChange(isOpen) }
@@ -90,6 +105,7 @@ final class OverlayCoordinator {
         let overlay = Prepared(display: display, uuid: uuid, panel: panel, timeline: controller)
         controller.onAction = { [weak self] action in self?.handle(action) }
         controller.isSearchFocused = { [weak self] in self?.isSearchEditing ?? false }
+        controller.displayName = { Self.name(of: $0) }
         controller.onFrameShown = { [weak self] frameID, _ in
             self?.highlights.frameChanged(to: frameID)
         }
@@ -101,6 +117,7 @@ final class OverlayCoordinator {
             onOpen: { [weak self] in self?.openCurrent() },
             onDismiss: { [weak self] in self?.dismiss() },
             actions: OverflowActions(
+                isStarred: { [weak controller] in controller?.model.isStarred ?? false },
                 star: { [weak self] in self?.starCurrent() },
                 copyText: { [weak self] in self?.timeline?.copySelection() },
                 copyImage: { [weak self] in self?.copyImage() },
@@ -108,14 +125,30 @@ final class OverlayCoordinator {
                 copyLink: { [weak self] in self?.copyLink() },
                 exportClip: { [weak self] in self?.exportClip() },
                 forget: { [weak self] in self?.forgetRecent() },
-                exclude: { [weak self] in self?.excludeCurrentApp() }
+                exclude: { [weak self] in self?.excludeCurrentApp() },
+                isCapturing: { [weak self] in self?.isCapturing() ?? true },
+                isListening: { [weak self] in self?.isListening() ?? false },
+                setCapturing: { [weak self] in self?.setCapturing($0) },
+                toggleListening: { [weak self] in self?.toggleListening() },
+                settings: { [weak self] in
+                    self?.dismiss()
+                    self?.settings()
+                }
+            ),
+            sliceActions: SliceActions(
+                star: { [weak self] slice in self?.starStart(of: slice) },
+                export: { [weak self] slice in self?.export(slice) },
+                exclude: { [weak self] bundleID in self?.excludeSliceApp(bundleID) },
+                delete: { [weak self] slice in try await self?.delete(slice) }
             ),
             onSelectHit: { [weak self] hit, cardFrame in self?.select(hit, from: cardFrame) },
             onOpenHit: { [weak self] hit in self?.openExternally(hit) },
             fieldCreated: { [weak overlay] field in overlay?.field = field },
             searchEditing: { [weak self] editing in self?.isSearchEditing = editing },
-            searchCancelled: { [weak self] in self?.cancelSearch() }
+            searchCancelled: { [weak self] in self?.escape() },
+            searchSubmitted: { [weak self] in self?.chooseResult() }
         ))
+        controller.onUserMoved = { [weak self] in self?.highlights.clear() }
         panel.contentView = controller.rootView
         return overlay
     }
@@ -128,22 +161,29 @@ final class OverlayCoordinator {
         }
     }
 
-    func open(at time: Date = Date(), focusSearch: Bool = false) {
+    func open(at time: Date = Date(), display: UUID? = nil, focusSearch: Bool = false) {
         guard !isOpen else {
-            if focusSearch { focusSearchField() }
+            if let display { timeline?.showDisplay(display) }
+            timeline?.move(to: time)
+            if focusSearch {
+                timeline?.model.isSearchVisible = true
+                focusSearchField()
+            }
             return
         }
+        let displayOverride = display
         let display = activeDisplayID()
         guard let overlay = prepared[display] ?? makeMissingOverlay(for: display) else { return }
         active = overlay
         isOpen = true
         openedForSearch = focusSearch
+        overlay.timeline.showDisplay(displayOverride ?? overlay.uuid)
         overlay.timeline.model.isSearchVisible = focusSearch
 
         // The picture goes in before the window comes up, so the first thing to reach the
         // screen is the frame, in the right place, with no black refresh in between. That's
         // what makes it look like your screen stopping, instead of a window opening.
-        let immediate = latestFrame(display)
+        let immediate = displayOverride == nil ? latestFrame(display) : nil
         overlay.timeline.present(at: time, immediate: immediate) { [weak self, weak overlay] in
             guard let self, let overlay, self.active === overlay else { return }
             CATransaction.flush()
@@ -231,6 +271,8 @@ final class OverlayCoordinator {
             openCurrent()
         case .star:
             starCurrent()
+        case .copyImage:
+            copyImage()
         default:
             break
         }
@@ -240,8 +282,26 @@ final class OverlayCoordinator {
     private func escape() {
         if let model = timeline?.model, model.isJumpToDateOpen {
             model.isJumpToDateOpen = false
+        } else if let model = timeline?.model, model.isConfirmingForget {
+            model.isConfirmingForget = false
+        } else if let model = timeline?.model, model.isConfirmingDelete {
+            model.isConfirmingDelete = false
+        } else if timeline?.model.slice != nil {
+            timeline?.clearSlice()
+        } else if timeline?.model.isZoomOpen == true {
+            timeline?.model.isZoomOpen = false
+        } else if search.isAppsOpen {
+            search.isAppsOpen = false
+        } else if !search.text.isEmpty, search.layout == .compact {
+            // Back to the results after looking at one.
+            search.layout = .expanded
+            highlights.clear()
         } else if !search.text.isEmpty {
             cancelSearch()
+        } else if search.isBrowsing {
+            search.clear()
+            timeline?.model.isSearchVisible = openedForSearch
+            if let key = timeline?.keyView { panel?.makeFirstResponder(key) }
         } else if search.layout == .expanded {
             search.layout = .compact
         } else if let model = timeline?.model, model.isSearchVisible, !openedForSearch {
@@ -271,15 +331,37 @@ final class OverlayCoordinator {
         }
     }
 
+    private func chooseResult() {
+        guard let hit = search.chosenHit else { return }
+        select(hit, from: search.cardFrames[hit.id] ?? .zero)
+    }
+
     private func select(_ hit: SearchHit, from cardFrame: CGRect) {
+        // What was said has no frame to show, but it does have a transcript to read.
+        if hit.isTranscript {
+            let time = hit.capturedAt
+            dismiss()
+            onOpenTranscript(time)
+            return
+        }
+        // Recording follows the pointer, so this can be from another display.
+        if let display = hit.display {
+            timeline?.showDisplay(display)
+        }
         highlights.show(hit.rects, frameID: hit.frameID)
         search.layout = .compact
         timeline?.move(to: hit.capturedAt)
-        timeline?.flyIn(from: cardFrame)
+        if cardFrame != .zero {
+            timeline?.flyIn(from: cardFrame)
+        }
         if let key = timeline?.keyView { panel?.makeFirstResponder(key) }
     }
 
     private func openExternally(_ hit: SearchHit) {
+        if hit.isTranscript {
+            select(hit, from: .zero)
+            return
+        }
         open(url: hit.url, bundleID: hit.bundleID)
     }
 
@@ -289,6 +371,12 @@ final class OverlayCoordinator {
     }
 
     private func open(url: String?, bundleID: String?) {
+        // Check before closing, so a moment that can't be reopened doesn't just vanish.
+        let canOpenApp = bundleID.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) } != nil
+        guard url.flatMap(Self.webURL(from:)) != nil || canOpenApp else {
+            timeline?.model.showToast(String(localized: "That app isn't on this Mac any more"))
+            return
+        }
         dismiss()
         if let url, let target = Self.webURL(from: url) {
             if let bundleID, let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
@@ -310,10 +398,66 @@ final class OverlayCoordinator {
         return URL(string: "https://\(text)")
     }
 
+    /// Stars the moment on screen, or takes the star away if it has one.
     private func starCurrent() {
-        guard let frameID = highlights.currentFrameID else { return }
+        guard let timeline, let frameID = timeline.currentFrameID else { return }
+        let starring = !timeline.model.isStarred
         let core = self.core
-        Task.detached { try? core.setStarred(true, frameID: frameID) }
+        Task { [weak timeline] in
+            do {
+                try await Task.detached(priority: .userInitiated) {
+                    try core.setStarred(starring, frameID: frameID)
+                }.value
+                timeline?.model.isStarred = starring
+                timeline?.model.showToast(starring ? String(localized: "Starred") : String(localized: "Star removed"))
+                timeline?.reloadMarks()
+            } catch {
+                timeline?.model.showToast(String(localized: "That couldn't be starred"))
+            }
+        }
+    }
+
+    /// Stars the first frame of a stretch, so it can be found again in the Starred filter.
+    private func starStart(of slice: DateInterval) {
+        guard let timeline else { return }
+        let core = self.core
+        let display = timeline.display
+        Task { [weak timeline] in
+            let starred: Bool = await Task.detached(priority: .userInitiated) {
+                guard let frame = try? core.lookup(display: display, at: slice.start.addingTimeInterval(1)) else { return false }
+                return (try? core.setStarred(true, frameID: frame.id)) != nil
+            }.value
+            timeline?.model.showToast(starred ? String(localized: "Starred") : String(localized: "That couldn't be starred"))
+            timeline?.reloadMarks()
+        }
+    }
+
+    private func delete(_ slice: DateInterval) async throws {
+        prepareToDelete(slice)
+        let core = self.core
+        try await Task.detached(priority: .userInitiated) {
+            try core.deleteRange(from: slice.start, to: slice.end)
+        }.value
+        recordingsChanged()
+        onRecordingsDeleted()
+    }
+
+    /// Recordings were deleted somewhere, so nothing on show may still exist.
+    func recordingsChanged() {
+        timeline?.recordingsChanged()
+        for overlay in prepared.values where overlay !== active {
+            overlay.timeline.forgetFrames()
+        }
+        if !search.text.isEmpty || search.isBrowsing {
+            search.refresh()
+        }
+    }
+
+    private func excludeSliceApp(_ bundleID: String) {
+        excludeApp(bundleID)
+        let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
+            .deletingPathExtension().lastPathComponent ?? bundleID
+        timeline?.model.showToast(String(localized: "\(name) won't be recorded from now on"))
     }
 
     private func currentImage() -> NSImage? {
@@ -324,6 +468,7 @@ final class OverlayCoordinator {
         guard let image = currentImage() else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.writeObjects([image])
+        timeline?.model.showToast(String(localized: "Copied image"))
     }
 
     private func saveImage() {
@@ -337,55 +482,107 @@ final class OverlayCoordinator {
               let data = image.tiffRepresentation,
               let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:])
         else { return }
-        try? png.write(to: url)
+        do {
+            try png.write(to: url)
+        } catch {
+            showResult(String(localized: "The image couldn't be saved"), detail: error.localizedDescription)
+        }
+    }
+
+    private func showResult(_ title: String, detail: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        NSApp.activate()
+        alert.runModal()
     }
 
     private func copyLink() {
         guard let time = timeline?.playhead else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(DeepLink.url(for: time).absoluteString, forType: .string)
+        timeline?.model.showToast(String(localized: "Copied link"))
     }
 
     /// Exports the 5 minutes around the playhead as a video file.
     private func exportClip() {
-        guard let time = timeline?.playhead, let display = currentDisplay else { return }
+        guard let time = timeline?.playhead else { return }
+        export(DateInterval(start: time.addingTimeInterval(-150), end: min(time.addingTimeInterval(150), Date())))
+    }
+
+    /// Exports a stretch as an ordinary video, and says how it went.
+    private func export(_ slice: DateInterval) {
+        guard let display = timeline?.display else { return }
         dismiss()
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]
         panel.nameFieldStringValue = "Remind \(Self.fileDate()).mp4"
-        panel.message = "This saves an unencrypted copy of about 5 minutes of your screen."
+        panel.message = String(localized: "This saves an unencrypted copy of this stretch of your screen.")
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let core = self.core
-        Task.detached(priority: .userInitiated) {
-            try? await MP4Exporter.export(
-                core: core,
-                display: display,
-                from: time.addingTimeInterval(-150),
-                to: time.addingTimeInterval(150),
-                to: url
-            )
+        Task { [weak self] in
+            do {
+                let summary = try await Task.detached(priority: .userInitiated) {
+                    try await MP4Exporter.export(
+                        core: core,
+                        display: display,
+                        from: slice.start,
+                        to: slice.end,
+                        to: url
+                    )
+                }.value
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+                if let stopped = summary.stoppedEarlyAt {
+                    self?.showResult(
+                        String(localized: "The video stops early"),
+                        detail: String(localized: "The display changed resolution at \(stopped.formatted(date: .omitted, time: .shortened)), and one video can't hold both. Export from that moment on to get the rest.")
+                    )
+                }
+            } catch ExportError.nothingRecorded {
+                self?.showResult(
+                    String(localized: "There's nothing to export"),
+                    detail: String(localized: "Nothing was recorded on this display in that stretch.")
+                )
+            } catch {
+                self?.showResult(
+                    String(localized: "The video couldn't be saved"),
+                    detail: error.localizedDescription
+                )
+            }
         }
     }
 
     /// Permanently deletes the last 5 minutes. Recording carries on from now.
     private func forgetRecent() {
-        let core = self.core
         let now = Date()
-        dismiss()
-        Task.detached(priority: .userInitiated) {
-            try? core.deleteRange(from: now.addingTimeInterval(-5 * 60), to: now)
+        let slice = DateInterval(start: now.addingTimeInterval(-5 * 60), end: now)
+        Task { [weak self] in
+            do {
+                try await self?.delete(slice)
+                self?.timeline?.model.showToast(String(localized: "Forgot the last 5 minutes"))
+            } catch {
+                self?.timeline?.model.showToast(String(localized: "The last 5 minutes couldn't be deleted"))
+            }
         }
     }
 
     private func excludeCurrentApp() {
         guard let bundleID = timeline?.model.currentContext?.bundleID else { return }
-        excludeApp(bundleID)
+        excludeSliceApp(bundleID)
     }
 
     private static func fileDate() -> String {
         Date().formatted(.iso8601.year().month().day().dateTimeSeparator(.space).time(includingFractionalSeconds: false))
             .replacingOccurrences(of: ":", with: "-")
+    }
+
+    /// A display's own name if it's still connected, or its size if it isn't.
+    private static func name(of display: RecordedDisplay) -> String {
+        let connected = NSScreen.screens.first { screen in
+            Self.displayID(of: screen).flatMap(ScreenContent.stableID(of:)) == display.id
+        }
+        return connected?.localizedName ?? String(localized: "Display, \(display.width) × \(display.height)")
     }
 
     private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
@@ -411,26 +608,29 @@ final class OverlayCoordinator {
 @MainActor
 @Observable
 final class HighlightModel {
-    private(set) var rects: [CGRect] = []
+    private var matches: [CGRect] = []
     private(set) var currentFrameID: Int64?
     private var highlightedFrame: Int64?
 
+    /// Highlights belong to one frame, so they only show on that frame.
+    var rects: [CGRect] {
+        currentFrameID == highlightedFrame ? matches : []
+    }
+
     func show(_ rects: [CGRect], frameID: Int64) {
-        self.rects = rects
+        matches = rects
         highlightedFrame = frameID
     }
 
-    /// Highlights belong to one frame, and moving on clears them.
+    /// Getting to a result can show a nearby picture first, so this has to wait for the right
+    /// one instead of giving up at the first frame that isn't it.
     func frameChanged(to frameID: Int64) {
         currentFrameID = frameID
-        if let highlightedFrame, frameID != highlightedFrame {
-            rects = []
-            self.highlightedFrame = nil
-        }
     }
 
+    /// Moving on by hand is what ends them.
     func clear() {
-        rects = []
+        matches = []
         highlightedFrame = nil
     }
 }
@@ -444,12 +644,14 @@ struct OverlayContent: View {
     let onOpen: () -> Void
     let onDismiss: () -> Void
     var actions = OverflowActions()
+    var sliceActions = SliceActions()
     let onSelectHit: (SearchHit, CGRect) -> Void
     let onOpenHit: (SearchHit) -> Void
     let fieldCreated: (NSTextField) -> Void
     let searchEditing: (Bool) -> Void
     let searchCancelled: () -> Void
     var coachMarks = CoachMarkProgress()
+    var searchSubmitted: () -> Void = {}
 
     private var isSearchShowing: Bool {
         let model = timeline.model
@@ -474,9 +676,17 @@ struct OverlayContent: View {
                 TimelineChrome(
                     model: timeline.model,
                     onOpen: onOpen,
-                    onJumpToNow: { timeline.move(to: Date()) },
+                    onJumpToNow: {
+                        timeline.onUserMoved?()
+                        timeline.move(to: Date())
+                    },
+                    onZoom: { timeline.setZoom(fraction: $0) },
+                    onZoomToSlice: { timeline.zoomToSlice() },
+                    onClearSlice: { timeline.clearSlice() },
+                    onChooseDisplay: { timeline.chooseDisplay($0) },
+                    sliceActions: sliceActions,
                     overflow: {
-                        OverflowMenu(actions: actions)
+                        OverflowMenu(model: timeline.model, actions: actions)
                     }
                 )
                 .offset(y: timeline.model.isChromeVisible ? 0 : 12)
@@ -488,10 +698,15 @@ struct OverlayContent: View {
                         JumpToDateView(
                             core: core,
                             current: timeline.playhead,
-                            onJump: { timeline.move(to: $0) },
+                            onJump: {
+                                timeline.onUserMoved?()
+                                timeline.move(to: $0)
+                            },
                             onClose: { timeline.model.isJumpToDateOpen = false }
                         )
                         .padding(.bottom, 80 + 36 + 2)
+                        // Otherwise the keyboard stays with a field that's gone.
+                        .onDisappear { timeline.restoreKeyFocus() }
                     }
                 }
 
@@ -502,7 +717,9 @@ struct OverlayContent: View {
                             text: $search.text,
                             onCancel: searchCancelled,
                             onEditingChanged: searchEditing,
-                            onCreated: fieldCreated
+                            onCreated: fieldCreated,
+                            onMove: { search.move($0) },
+                            onSubmit: searchSubmitted
                         )),
                         thumbnail: { hit in AnyView(HitThumbnail(core: core, hit: hit)) },
                         onSelect: onSelectHit,
@@ -614,6 +831,7 @@ struct MatchHighlight: View {
 
 /// What the overflow menu can do.
 struct OverflowActions {
+    var isStarred: () -> Bool = { false }
     var star: () -> Void = {}
     var copyText: () -> Void = {}
     var copyImage: () -> Void = {}
@@ -622,11 +840,16 @@ struct OverflowActions {
     var exportClip: () -> Void = {}
     var forget: () -> Void = {}
     var exclude: () -> Void = {}
+    var isCapturing: () -> Bool = { true }
+    var isListening: () -> Bool = { false }
+    var setCapturing: (Bool) -> Void = { _ in }
+    var toggleListening: () -> Void = {}
+    var settings: () -> Void = {}
 }
 
 struct OverflowMenu: View {
+    @Bindable var model: TimelineModel
     let actions: OverflowActions
-    @State private var confirmingForget = false
 
     var body: some View {
         Button(action: showMenu) {
@@ -638,7 +861,7 @@ struct OverflowMenu: View {
         // Deleting can't be undone, so this asks in place. A separate alert window
         // wouldn't work over a panel that never activates.
         .overlay(alignment: .bottomTrailing) {
-            if confirmingForget {
+            if model.isConfirmingForget {
                 ReadingSurface(cornerRadius: 14) {
                     VStack(alignment: .leading, spacing: 10) {
                         Text("Forget the last 5 minutes?")
@@ -649,9 +872,9 @@ struct OverflowMenu: View {
                             .foregroundStyle(.white.opacity(0.7))
                             .fixedSize(horizontal: false, vertical: true)
                         HStack {
-                            Button("Cancel") { confirmingForget = false }
+                            Button("Cancel") { model.isConfirmingForget = false }
                             Button("Forget", role: .destructive) {
-                                confirmingForget = false
+                                model.isConfirmingForget = false
                                 actions.forget()
                             }
                             .buttonStyle(.borderedProminent)
@@ -669,23 +892,53 @@ struct OverflowMenu: View {
     /// A plain menu, which shows above the overlay and works without activating the app.
     private func showMenu() {
         let menu = NSMenu()
-        func add(_ title: String, _ symbol: String, _ action: @escaping () -> Void) {
+        func add(
+            _ title: String,
+            _ symbol: String,
+            key: String = "",
+            modifiers: NSEvent.ModifierFlags = [.command, .shift],
+            _ action: @escaping () -> Void
+        ) {
             let item = ActionMenuItem(title: title, action: action)
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            item.keyEquivalent = key
+            item.keyEquivalentModifierMask = key.isEmpty ? [] : modifiers
             if #available(macOS 27, *) {
                 item.preferredImageVisibility = .visible
             }
             menu.addItem(item)
         }
-        add(String(localized: "Star this moment"), "star", actions.star)
-        add(String(localized: "Copy text on screen"), "text.viewfinder", actions.copyText)
-        add(String(localized: "Copy image"), "doc.on.clipboard", actions.copyImage)
+        if actions.isStarred() {
+            add(String(localized: "Remove star"), "star.slash", key: "s", actions.star)
+        } else {
+            add(String(localized: "Star moment"), "star", key: "s", actions.star)
+        }
         add(String(localized: "Save image…"), "square.and.arrow.down", actions.saveImage)
+        add(String(localized: "Copy image"), "doc.on.doc", key: "c", actions.copyImage)
+        add(String(localized: "Copy text"), "text.viewfinder", key: "c", modifiers: .command, actions.copyText)
         add(String(localized: "Copy link to this moment"), "link", actions.copyLink)
         add(String(localized: "Export 5 minutes as video…"), "film", actions.exportClip)
         menu.addItem(.separator())
+        let screen = NSMenuItem()
+        screen.view = SwitchRowView(
+            title: String(localized: "Screen capture"),
+            symbol: "rectangle.dashed.badge.record",
+            isOn: actions.isCapturing(),
+            onChange: actions.setCapturing
+        )
+        menu.addItem(screen)
+        let audio = NSMenuItem()
+        audio.view = SwitchRowView(
+            title: String(localized: "Audio capture"),
+            symbol: "waveform",
+            isOn: actions.isListening(),
+            onChange: { _ in actions.toggleListening() }
+        )
+        menu.addItem(audio)
+        menu.addItem(.separator())
         add(String(localized: "Exclude this app from recording"), "eye.slash", actions.exclude)
-        add(String(localized: "Forget the last 5 minutes…"), "clock.arrow.circlepath") { confirmingForget = true }
+        add(String(localized: "Forget the last 5 minutes…"), "clock.arrow.circlepath") { [model] in model.isConfirmingForget = true }
+        add(String(localized: "Settings…"), "gearshape", actions.settings)
         menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
     }
 }
@@ -711,6 +964,7 @@ struct HitThumbnail: View {
     let core: any RemindCore
     let hit: SearchHit
     @State private var image: CGImage?
+    @State private var didFail = false
 
     var body: some View {
         ZStack {
@@ -732,6 +986,11 @@ struct HitThumbnail: View {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+            } else if didFail {
+                Image(systemName: "photo")
+                    .font(.system(size: 22))
+                    .foregroundStyle(.white.opacity(0.3))
+                    .accessibilityLabel("This picture can't be shown")
             } else {
                 ProgressView().controlSize(.small)
             }
@@ -739,7 +998,9 @@ struct HitThumbnail: View {
         .clipped()
         .task(id: hit.frameID) {
             guard !hit.isTranscript else { return }
+            didFail = false
             image = await ThumbnailLoader.crop(core: core, hit: hit)
+            didFail = image == nil
         }
     }
 }

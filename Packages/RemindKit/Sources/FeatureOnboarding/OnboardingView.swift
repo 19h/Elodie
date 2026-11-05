@@ -6,6 +6,8 @@ public enum OnboardingStep: String, Sendable {
     case welcome
     case howItWorks
     case permissions
+    /// Everything's ready, and this says how to use it.
+    case ready
 }
 
 /// First run: what Remind is, how it works, and the permissions it needs.
@@ -16,7 +18,8 @@ public struct OnboardingView: View {
     private let onStepChange: (OnboardingStep) -> Void
     private let onRelaunch: () -> Void
     private let onFinish: (_ openAtLogin: Bool) -> Void
-    @State private var openAtLogin = true
+    /// Kept across the relaunch that Screen Recording needs, so a choice isn't lost to it.
+    @AppStorage("onboardingOpenAtLogin") private var openAtLogin = true
 
     public init(
         permissions: PermissionMonitor,
@@ -48,6 +51,7 @@ public struct OnboardingView: View {
             case .welcome: welcome
             case .howItWorks: howItWorks
             case .permissions: permissionsStep
+            case .ready: ready
             }
         }
         .frame(width: 800, height: 628)
@@ -179,9 +183,52 @@ public struct OnboardingView: View {
                 .font(.system(size: 13))
                 .padding(.top, 14)
 
-            primaryButton("Continue", isEnabled: permissions.allRequiredGranted) { onFinish(openAtLogin) }
+            primaryButton("Continue", isEnabled: permissions.allRequiredGranted) { go(to: .ready) }
                 .padding(.top, 12)
                 .padding(.bottom, 36)
+        }
+    }
+
+    // MARK: Ready
+
+    private var ready: some View {
+        VStack(spacing: 0) {
+            Spacer()
+            Text("You're ready")
+                .font(.system(size: 26, weight: .bold))
+            Text("Remind is in your menu bar from now on, recording what's on your screen.")
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 8)
+                .padding(.horizontal, 90)
+            VStack(alignment: .leading, spacing: 18) {
+                shortcut("⌘⇧ and scroll up", "Go back in time, from anywhere.")
+                shortcut("⇧⌘Space", "Search everything you've seen.")
+                shortcut("Esc", "Come straight back to what you were doing.")
+            }
+            .padding(.top, 34)
+            .frame(width: 500)
+            Spacer()
+            Text("Text from your screen becomes searchable a little while after you see it, and the first time takes up to a minute.")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 90)
+            primaryButton("Start recording") { onFinish(openAtLogin) }
+                .padding(.top, 18)
+                .padding(.bottom, 44)
+        }
+    }
+
+    private func shortcut(_ keys: LocalizedStringKey, _ meaning: LocalizedStringKey) -> some View {
+        HStack(spacing: 16) {
+            Text(keys)
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 170, alignment: .trailing)
+            Text(meaning)
+                .font(.system(size: 15))
+                .foregroundStyle(.secondary)
         }
     }
 

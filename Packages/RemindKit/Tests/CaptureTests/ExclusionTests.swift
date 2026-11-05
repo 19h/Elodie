@@ -140,6 +140,21 @@ import Testing
         #expect(required.isEmpty)
     }
 
+    /// A new window can exist for a moment before it has a title.
+    @Test func aBrowserWindowWithNoTitleYetCountsAsPrivate() {
+        let policy = ExclusionPolicy(excludedBundleIDs: [])
+        var untitled = window(22, pid: 2, title: nil)
+        untitled.bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        var tooltip = window(23, pid: 2, title: nil)
+        tooltip.bounds = CGRect(x: 0, y: 0, width: 120, height: 30)
+        var otherApp = window(31, pid: 3, title: nil)
+        otherApp.bounds = CGRect(x: 0, y: 0, width: 800, height: 600)
+        let required = policy.requiredExclusions(in: [untitled, tooltip, otherApp]) {
+            apps[$0] ?? AppIdentity(bundleID: nil, family: nil)
+        }
+        #expect(required == [22])
+    }
+
     /// Non-browsers can have any title they like.
     @Test func titlesOnlyMatterForBrowsers() {
         let policy = ExclusionPolicy(excludedBundleIDs: [])
@@ -152,14 +167,15 @@ import Testing
 
 @Suite struct Gate {
     @Test func nothingIsAllowedBeforeTheFirstFilter() {
-        #expect(ExclusionGate().check(required: [], frameDisplayTime: 100) == .dropNoFilter)
+        var gate = ExclusionGate()
+        #expect(gate.check(required: [], frameDisplayTime: 100, now: 100) == .dropNoFilter)
     }
 
     @Test func aFrameAfterTheFilterIsAllowed() {
         var gate = ExclusionGate()
         gate.commit([1, 2], at: 100)
-        #expect(gate.check(required: [1], frameDisplayTime: 101) == .allow)
-        #expect(gate.check(required: [], frameDisplayTime: 101) == .allow)
+        #expect(gate.check(required: [1], frameDisplayTime: 101, now: 210) == .allow)
+        #expect(gate.check(required: [], frameDisplayTime: 101, now: 210) == .allow)
     }
 
     /// The window opened, and the filter hasn't caught up. This is the race the
@@ -167,24 +183,61 @@ import Testing
     @Test func aNewPrivateWindowDropsFramesUntilTheFilterCoversIt() {
         var gate = ExclusionGate()
         gate.commit([], at: 100)
-        #expect(gate.check(required: [7], frameDisplayTime: 200) == .dropNeedsFilter([7]))
+        #expect(gate.check(required: [7], frameDisplayTime: 200, now: 210) == .dropNeedsFilter([7]))
         gate.commit([7], at: 300)
         // Composed before the new filter applied, so it may still show the window.
-        #expect(gate.check(required: [7], frameDisplayTime: 250) == .dropFrameTooOld)
-        #expect(gate.check(required: [7], frameDisplayTime: 300) == .dropFrameTooOld)
-        #expect(gate.check(required: [7], frameDisplayTime: 301) == .allow)
+        #expect(gate.check(required: [7], frameDisplayTime: 250, now: 310) == .dropFrameTooOld)
+        #expect(gate.check(required: [7], frameDisplayTime: 300, now: 310) == .dropFrameTooOld)
+        #expect(gate.check(required: [7], frameDisplayTime: 301, now: 310) == .allow)
     }
 
     @Test func ordinaryWindowsCostNoFrames() {
         // Required is what must be hidden, so an ordinary window never appears in it.
         var gate = ExclusionGate()
         gate.commit([7], at: 100)
-        #expect(gate.check(required: [7], frameDisplayTime: 200) == .allow)
+        #expect(gate.check(required: [7], frameDisplayTime: 200, now: 210) == .allow)
+    }
+
+    /// The race spike 2 caught in real use. The window was seen, and it closed before the
+    /// filter caught up, so by the time a frame showing it is checked, it's no longer
+    /// on screen to warn anyone.
+    @Test func aWindowThatClosesBeforeTheFilterCoversItCantLeak() {
+        var gate = ExclusionGate()
+        gate.commit([], at: 100)
+        #expect(gate.check(required: [7], frameDisplayTime: 200, now: 210) == .dropNeedsFilter([7]))
+        // Now it's gone, and this frame was composed while it was still open.
+        #expect(gate.check(required: [], frameDisplayTime: 220, now: 230) == .dropFrameTooOld)
+        // Composed before anyone noticed it had gone, so it can't be trusted either.
+        #expect(gate.check(required: [], frameDisplayTime: 229, now: 240) == .dropFrameTooOld)
+        // Composed after that, when the window was certainly gone.
+        #expect(gate.check(required: [], frameDisplayTime: 231, now: 250) == .allow)
+    }
+
+    @Test func theWatcherSeeingAWindowProtectsLaterFrames() {
+        var gate = ExclusionGate()
+        gate.commit([], at: 100)
+        // Seen between frames.
+        #expect(gate.observe(required: [7], now: 150) == [7])
+        // Closed between frames, before any frame was checked.
+        #expect(gate.observe(required: [], now: 180).isEmpty)
+        // A frame composed while it was open.
+        #expect(gate.check(required: [], frameDisplayTime: 160, now: 200) == .dropFrameTooOld)
+        #expect(gate.check(required: [], frameDisplayTime: 181, now: 200) == .allow)
+    }
+
+    @Test func aCoveredWindowClosingCostsNothing() {
+        var gate = ExclusionGate()
+        gate.commit([], at: 100)
+        _ = gate.check(required: [7], frameDisplayTime: 200, now: 210)
+        gate.commit([7], at: 300)
+        #expect(gate.check(required: [7], frameDisplayTime: 301, now: 310) == .allow)
+        // The filter hid it the whole time, so its closing tells us nothing about frames.
+        #expect(gate.check(required: [], frameDisplayTime: 305, now: 320) == .allow)
     }
 
     @Test func windowsThatClosedDoNotBlockAnything() {
         var gate = ExclusionGate()
         gate.commit([7, 8], at: 100)
-        #expect(gate.check(required: [8], frameDisplayTime: 200) == .allow)
+        #expect(gate.check(required: [8], frameDisplayTime: 200, now: 210) == .allow)
     }
 }

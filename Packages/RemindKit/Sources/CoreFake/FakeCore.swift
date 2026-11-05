@@ -37,6 +37,27 @@ public final class FakeCore: RemindCore, @unchecked Sendable {
         }
     }
 
+    public func moments(facets: SearchFacets, before: Date?, limit: Int) throws -> [SearchHit] {
+        lock.withLock {
+            samples.indices.reversed()
+                .filter { samples[$0].capturedAt < before ?? .distantFuture }
+                .prefix(limit)
+                .map { index in
+                    let sample = samples[index]
+                    return SearchHit(
+                        frameID: Int64(index),
+                        runID: Int64(index),
+                        capturedAt: sample.capturedAt,
+                        bundleID: sample.context.bundleID,
+                        window: sample.context.window,
+                        url: sample.context.url,
+                        rects: [],
+                        snippet: recognized[Int64(index)]?.first?.text ?? ""
+                    )
+                }
+        }
+    }
+
     public func readGroup(containing frameID: Int64) throws -> GroupOfPictures {
         try lock.withLock {
             let index = Int(frameID)

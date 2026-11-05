@@ -273,23 +273,24 @@ import AVFoundation
         defer { try? FileManager.default.removeItem(at: directory) }
         let url = directory.appending(path: "clip.mp4")
 
-        let frames = try await MP4Exporter.export(
+        let summary = try await MP4Exporter.export(
             core: core,
             display: recording.display,
             from: recording.time(of: 5),
             to: recording.time(of: 34),
             to: url
         )
-        // It starts at the keyframe before frame 5, which is frame 0.
-        #expect(frames == 35)
+        // Frames 5 to 34 play. The keyframe before 5 is in the file too, so 5 can decode.
+        #expect(summary.frames == 30)
+        #expect(summary.stoppedEarlyAt == nil)
 
         let asset = AVURLAsset(url: url)
         let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
         let size = try await track.load(.naturalSize)
         #expect(size.width == 1280 && size.height == 800)
-        // 35 frames, 2 seconds apart, with the last held for 2 seconds.
+        // 30 frames, 2 seconds apart, with the last held briefly: the stretch ends on it.
         let duration = try await asset.load(.duration).seconds
-        #expect(abs(duration - 70) < 1, "duration \(duration)")
+        #expect(abs(duration - 59) < 1.5, "duration \(duration)")
 
         // AVFoundation can read it back, and the barcode proves it's the right frame.
         let reader = try AVAssetReader(asset: asset)
@@ -305,7 +306,75 @@ import AVFoundation
                 numbers.append(number)
             }
         }
-        #expect(numbers == Array(0..<35))
+        // The file holds what it needs to decode, and plays only what was asked for.
+        let played = numbers.filter { $0 >= 5 }
+        #expect(played == Array(5..<35))
+        #expect(numbers.count == played.count || numbers.prefix(5) == [0, 1, 2, 3, 4])
+    }
+
+    /// Only keyframes are marked as places to seek to, so seeking shows the right picture.
+    @Test func framesThatNeedOthersAreMarked() async throws {
+        let (core, recording, directory) = try await fixture(count: 40)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "clip.mp4")
+        try await MP4Exporter.export(
+            core: core, display: recording.display,
+            from: recording.time(of: 0), to: recording.time(of: 39), to: url
+        )
+        let asset = AVURLAsset(url: url)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        reader.add(output)
+        #expect(reader.startReading())
+        var sync = 0, total = 0
+        while let sample = output.copyNextSampleBuffer() {
+            guard CMSampleBufferGetNumSamples(sample) > 0 else { continue }
+            total += 1
+            let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: false) as? [[CFString: Any]]
+            if attachments?.first?[kCMSampleAttachmentKey_NotSync] as? Bool != true { sync += 1 }
+        }
+        #expect(total == 40)
+        #expect(sync < total / 2, "\(sync) of \(total) were marked as keyframes")
+    }
+
+    /// A failed export can't cost someone the file they chose to replace.
+    @Test func aFailedExportLeavesTheOldFileAlone() async throws {
+        let (core, recording, directory) = try await fixture(count: 3)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "clip.mp4")
+        try Data("keep me".utf8).write(to: url)
+        await #expect(throws: ExportError.nothingRecorded) {
+            try await MP4Exporter.export(
+                core: core, display: UUID(),
+                from: recording.start, to: recording.start.addingTimeInterval(60), to: url
+            )
+        }
+        #expect(try Data(contentsOf: url) == Data("keep me".utf8))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).allSatisfy { !$0.contains("partial") })
+    }
+
+    /// Long gaps are when recording stopped, and a clip shouldn't sit on them.
+    @Test func longGapsAreCutShort() {
+        #expect(MP4Exporter.onScreenTime(forGap: 2) == 2)
+        #expect(MP4Exporter.onScreenTime(forGap: 60) == 60)
+        #expect(MP4Exporter.onScreenTime(forGap: 3600) == MP4Exporter.heldGap)
+    }
+
+    /// A stretch that starts in a gap doesn't reach back to whatever was recorded hours ago.
+    @Test func aStartInAGapBeginsAtTheNextFrame() async throws {
+        let (core, recording, directory) = try await fixture(count: 3)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "clip.mp4")
+        await #expect(throws: ExportError.nothingRecorded) {
+            // Hours after the last frame, with nothing following it.
+            try await MP4Exporter.export(
+                core: core, display: recording.display,
+                from: recording.start.addingTimeInterval(3 * 3600),
+                to: recording.start.addingTimeInterval(4 * 3600),
+                to: url
+            )
+        }
     }
 
     @Test func nothingRecordedInThatPeriodIsAnError() async throws {

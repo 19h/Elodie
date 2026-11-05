@@ -32,7 +32,10 @@ use remind_vault::{MasterKey, VaultError};
 use rusqlite::Connection;
 
 pub use ocr::{OcrBatchOptions, OcrJob, OcrResult};
-pub use read::{FrameRef, FrameTextLine, Gop, GopSample, Meeting};
+pub use read::{
+    AppStorage, FrameRef, FrameTextLine, Gop, GopSample, Meeting, Moment, MomentQuery, RecordedDisplay,
+    SegmentInfo, SliceSummary, StarredFrame, TranscriptSession,
+};
 pub use recovery::RecoveryReport;
 pub use search::SearchSession;
 pub use transcript::{SpokenWord, TranscriptLine};
@@ -53,6 +56,10 @@ pub enum EngineError {
     Io(#[from] std::io::Error),
     #[error("the engine has stopped")]
     Stopped,
+    /// Another process has this vault open. Recovery treats open chunks as crash leftovers,
+    /// so two at once would damage each other's recordings.
+    #[error("this vault is already open in another process")]
+    VaultBusy,
     #[error("no such frame")]
     NoSuchFrame,
     #[error("frame data is corrupt: {0}")]
@@ -169,6 +176,21 @@ pub struct Engine {
     appender: Option<JoinHandle<()>>,
     writer: Option<JoinHandle<()>>,
     reader: Mutex<Connection>,
+    /// Held for as long as this is open. The system lets go of it if the process dies.
+    _lock: std::fs::File,
+}
+
+/// Takes the vault's lock, or fails at once if another process has it.
+fn lock_vault(root: &Path) -> Result<std::fs::File> {
+    use std::os::fd::AsRawFd;
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(root.join("vault.lock"))?;
+    // SAFETY: the descriptor belongs to `file`, which outlives this call.
+    let result = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+    if result == 0 { Ok(file) } else { Err(EngineError::VaultBusy) }
 }
 
 impl Engine {
@@ -181,6 +203,7 @@ impl Engine {
         config: EngineConfig,
     ) -> Result<(Self, RecoveryReport)> {
         std::fs::create_dir_all(root)?;
+        let lock = lock_vault(root)?;
         let db_key = master.database_key();
         let db_path = root.join("vault.db");
 
@@ -216,6 +239,7 @@ impl Engine {
                 appender: Some(appender),
                 writer: Some(writer),
                 reader: Mutex::new(reader),
+                _lock: lock,
             },
             report,
         ))

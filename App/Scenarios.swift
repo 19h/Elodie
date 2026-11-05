@@ -408,11 +408,25 @@ private final class ScenarioWindow: NSWindow {
 @MainActor
 private final class PreviewActions: SettingsActions {
     func storageUsage() async -> StorageUsage {
-        StorageUsage(recordingBytes: 18_400_000_000, freeBytes: 92_000_000_000, oldest: Date().addingTimeInterval(-30 * 86_400))
+        StorageUsage(
+            recordingBytes: 18_400_000_000,
+            freeBytes: 92_000_000_000,
+            oldest: Date().addingTimeInterval(-30 * 86_400),
+            apps: [
+                AppUsage(bundleID: "com.apple.Safari", bytes: 9_200_000_000, frames: 90_000),
+                AppUsage(bundleID: "com.apple.dt.Xcode", bytes: 6_100_000_000, frames: 60_000),
+                AppUsage(bundleID: "com.apple.Terminal", bytes: 2_400_000_000, frames: 30_000),
+                AppUsage(bundleID: "com.apple.Notes", bytes: 700_000_000, frames: 9_000),
+            ]
+        )
     }
-    func deleteAllData() async {}
-    func deleteRange(_ interval: DateInterval) async {}
-    func applyRetention(_ period: RetentionPeriod) async {}
+    func deleteAllData() async throws {}
+    func deleteRange(_ interval: DateInterval) async throws {}
+    func deleteRecordings(ofApp bundleID: String) async throws {}
+    func applyRetention(_ period: RetentionPeriod) async throws {}
+    var loginItemNeedsApproval: Bool { false }
+    func openLoginItemSettings() {}
+    var updatesAvailable: Bool { false }
     func saveRecoveryKey() {}
     func revealVault() {}
     func setLaunchAtLogin(_ enabled: Bool) {}

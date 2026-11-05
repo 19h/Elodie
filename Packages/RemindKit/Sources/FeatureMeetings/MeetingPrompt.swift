@@ -61,6 +61,8 @@ public struct TranscriptView: View {
     private let onOpenMoment: (Date) -> Void
 
     @State private var lines: [TranscriptLine] = []
+    @State private var hasLoaded = false
+    @State private var isCatchingUp = false
     @State private var tab = Tab.transcript
     @State private var summary: String?
     @State private var isSummarizing = false
@@ -94,19 +96,34 @@ public struct TranscriptView: View {
         }
         .frame(minWidth: 480, minHeight: 520)
         .tint(Palette.verdigris)
-        .task {
-            let core = self.core
-            let interval = self.interval
-            lines = await Task.detached(priority: .userInitiated) {
-                (try? core.transcript(from: interval.start, to: interval.end)) ?? []
+        .task { await keepLoading() }
+    }
+
+    /// What was just said takes a little while to become words and be stored, so a recent
+    /// transcript keeps catching up for as long as it's open.
+    private func keepLoading() async {
+        let core = self.core
+        let interval = self.interval
+        while !Task.isCancelled {
+            let isRecent = Date().timeIntervalSince(interval.end) < 120
+            let end = isRecent ? Date() : interval.end
+            let found = await Task.detached(priority: .userInitiated) {
+                (try? core.transcript(from: interval.start, to: end)) ?? []
             }.value
+            lines = found
+            hasLoaded = true
+            isCatchingUp = isRecent
+            guard isRecent else { return }
+            try? await Task.sleep(for: .seconds(4))
         }
     }
 
     private var transcript: some View {
         Group {
-            if lines.isEmpty {
-                Text("Nothing was transcribed in this meeting.")
+            if !hasLoaded {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if lines.isEmpty {
+                Text(isCatchingUp ? "Words appear here a few seconds after they're said." : "Nothing was transcribed in this meeting.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -208,5 +225,78 @@ public struct TranscriptView: View {
             }
             isSummarizing = false
         }
+    }
+}
+
+/// Every transcript, most recent first. Transcripts aren't kept in memory, so this is how to
+/// get back to one from an earlier day.
+public struct TranscriptsView: View {
+    private let core: any RemindCore
+    private let onOpen: (TranscriptSession) -> Void
+
+    @State private var sessions: [TranscriptSession] = []
+    @State private var hasLoaded = false
+
+    public init(core: any RemindCore, onOpen: @escaping (TranscriptSession) -> Void) {
+        self.core = core
+        self.onOpen = onOpen
+    }
+
+    public var body: some View {
+        Group {
+            if !hasLoaded {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if sessions.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 28))
+                        .foregroundStyle(Palette.verdigris)
+                    Text("Nothing has been transcribed yet")
+                        .font(.headline)
+                    Text("Turn on Audio capture in the menu, or transcribe a meeting when Remind offers to.")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(40)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(sessions) { session in
+                    Button { onOpen(session) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "waveform")
+                                .foregroundStyle(Palette.verdigris)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(session.title ?? String(localized: "Transcript"))
+                                    .font(.system(size: 13, weight: .medium))
+                                    .lineLimit(1)
+                                Text(session.start.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text(Duration.seconds(session.end.timeIntervalSince(session.start)).formatted(.units(allowed: [.hours, .minutes], width: .narrow)))
+                                .font(.system(size: 12))
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .frame(minWidth: 380, minHeight: 300)
+        .tint(Palette.verdigris)
+        .task { await load() }
+    }
+
+    private func load() async {
+        let core = self.core
+        let found = await Task.detached(priority: .userInitiated) {
+            (try? core.transcriptSessions(from: .distantPast, to: .distantFuture, limit: 500)) ?? []
+        }.value
+        sessions = found
+        hasLoaded = true
     }
 }

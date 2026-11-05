@@ -11,7 +11,6 @@ public struct SearchPanel: View {
     private let onOpen: (SearchHit) -> Void
     private let field: AnyView
 
-    @State private var isAppsOpen = false
     @State private var gridWidth: CGFloat = 0
 
     private static let cardWidth: CGFloat = 300
@@ -36,6 +35,8 @@ public struct SearchPanel: View {
             VStack(alignment: .leading, spacing: 0) {
                 header
                 filters
+                    // The app list opens downward over the results.
+                    .zIndex(10)
                 if model.layout == .expanded {
                     Divider().overlay(.white.opacity(0.08))
                     results
@@ -86,7 +87,7 @@ public struct SearchPanel: View {
     private var appsChip: some View {
         Button {
             model.loadApps()
-            isAppsOpen.toggle()
+            model.isAppsOpen.toggle()
         } label: {
             chipLabel(
                 model.selectedApps.isEmpty ? "Apps" : "\(model.selectedApps.count) apps",
@@ -97,7 +98,7 @@ public struct SearchPanel: View {
         }
         .buttonStyle(.plain)
         .overlay(alignment: .topLeading) {
-            if isAppsOpen {
+            if model.isAppsOpen {
                 AppFilterList(apps: model.availableApps, selection: $model.selectedApps)
                     .offset(y: 40)
                     .zIndex(10)
@@ -144,12 +145,17 @@ public struct SearchPanel: View {
         } else if model.hits.isEmpty {
             if model.isSearching {
                 ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.isBrowsing {
+                message(browsingMessage)
+            } else if model.hasSearched, let note = model.note() {
+                message(LocalizedStringKey(note))
             } else if model.hasSearched {
                 message("No matches. Try fewer words, or check the filters.")
             } else {
                 message("Type a word you remember seeing.")
             }
         } else {
+            ScrollViewReader { proxy in
             ScrollView {
                 // Fixed columns, as many as there are results to fill, so a few results sit
                 // together in the middle.
@@ -163,9 +169,12 @@ public struct SearchPanel: View {
                         ResultCard(
                             hit: hit,
                             thumbnail: thumbnail(hit),
+                            isChosen: model.selectedIndex.map { model.hits.indices.contains($0) && model.hits[$0].id == hit.id } ?? false,
+                            onFrameChange: { model.cardFrames[hit.id] = $0 },
                             onSelect: { onSelect(hit, $0) },
                             onOpen: { onOpen(hit) }
                         )
+                        .id(hit.id)
                         .onAppear {
                             if hit == model.hits.last { model.loadMore() }
                         }
@@ -174,8 +183,24 @@ public struct SearchPanel: View {
                 .padding(18)
                 .frame(maxWidth: .infinity)
             }
-            .onGeometryChange(for: CGFloat.self, of: { $0.size.width - 36 }) { gridWidth = $0 }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width - 36 }) { width in
+                gridWidth = width
+                model.columnsPerRow = max(1, Int((width + Self.cardSpacing) / (Self.cardWidth + Self.cardSpacing)))
+            }
+            .onChange(of: model.selectedIndex) { _, index in
+                guard let index, model.hits.indices.contains(index) else { return }
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo(model.hits[index].id, anchor: .center)
+                }
+            }
+            }
         }
+    }
+
+    private var browsingMessage: LocalizedStringKey {
+        if model.starredOnly { return "No starred moments yet. Press ⇧⌘S on the timeline to star one." }
+        if model.meetingsOnly { return "No meetings have been transcribed yet." }
+        return "Nothing recorded from those apps."
     }
 
     private func message(_ text: LocalizedStringKey) -> some View {
@@ -190,6 +215,8 @@ public struct SearchPanel: View {
 struct ResultCard: View {
     let hit: SearchHit
     let thumbnail: AnyView
+    var isChosen = false
+    var onFrameChange: (CGRect) -> Void = { _ in }
     let onSelect: (CGRect) -> Void
     let onOpen: () -> Void
     @State private var isHovering = false
@@ -205,7 +232,10 @@ struct ResultCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                .strokeBorder(.white.opacity(isHovering ? 0.35 : 0.1))
+                                .strokeBorder(
+                                    isChosen ? Palette.verdigris : .white.opacity(isHovering ? 0.35 : 0.1),
+                                    lineWidth: isChosen ? 2 : 1
+                                )
                         )
                     if isHovering, let name = appName {
                         Button(action: onOpen) {
@@ -220,7 +250,10 @@ struct ResultCard: View {
                         .padding(.bottom, 10)
                     }
                 }
-                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frameOnScreen = $0 }
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) {
+                    frameOnScreen = $0
+                    onFrameChange($0)
+                }
             }
             .buttonStyle(.plain)
 

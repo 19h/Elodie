@@ -3,6 +3,83 @@ import Metal
 import QuartzCore
 import StripRenderer
 
+/// What's drawn over the runs. Times are seconds from the same origin as the runs.
+public struct StripOverlays: Equatable {
+    /// The run under the pointer.
+    public var hovered: ClosedRange<Float>?
+    /// The stretch someone has picked out.
+    public var selection: ClosedRange<Float>?
+    /// Starred moments.
+    public var stars: [Float]
+    /// When something was being transcribed.
+    public var speech: [ClosedRange<Float>]
+
+    public init(
+        hovered: ClosedRange<Float>? = nil,
+        selection: ClosedRange<Float>? = nil,
+        stars: [Float] = [],
+        speech: [ClosedRange<Float>] = []
+    ) {
+        self.hovered = hovered
+        self.selection = selection
+        self.stars = stars
+        self.speech = speech
+    }
+}
+
+/// Takes the mouse over the strip, and leaves the rest alone.
+public final class StripInteractionView: NSView {
+    public enum Event {
+        case moved(Double)
+        case exited
+        case down(Double, clicks: Int)
+        case dragged(Double)
+        case up(Double)
+    }
+
+    public var onEvent: ((Event) -> Void)?
+    /// Scrolling over the strip moves through time, the same as anywhere else.
+    public var onScroll: ((NSEvent) -> Void)?
+    public var onMagnify: ((NSEvent) -> Void)?
+    /// How much of the right end stays free, for the button that sits there.
+    public var freeRight: CGFloat = 76
+    private var tracking: NSTrackingArea?
+
+    public override func hitTest(_ point: NSPoint) -> NSView? {
+        let local = convert(point, from: superview)
+        guard bounds.contains(local), local.x < bounds.maxX - freeRight else { return nil }
+        return self
+    }
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    private func x(_ event: NSEvent) -> Double {
+        Double(convert(event.locationInWindow, from: nil).x)
+    }
+
+    public override func mouseMoved(with event: NSEvent) { onEvent?(.moved(x(event))) }
+    public override func mouseEntered(with event: NSEvent) { onEvent?(.moved(x(event))) }
+    public override func mouseExited(with event: NSEvent) { onEvent?(.exited) }
+    public override func mouseDown(with event: NSEvent) { onEvent?(.down(x(event), clicks: event.clickCount)) }
+    public override func mouseDragged(with event: NSEvent) { onEvent?(.dragged(x(event))) }
+    public override func mouseUp(with event: NSEvent) { onEvent?(.up(x(event))) }
+    public override func scrollWheel(with event: NSEvent) { onScroll?(event) }
+    public override func magnify(with event: NSEvent) { onMagnify?(event) }
+}
+
 /// An app icon to show on a run of the strip.
 public struct StripIcon {
     public var start: Float
@@ -24,6 +101,13 @@ public final class StripView: NSView, CALayerDelegate {
     private let renderer: StripRenderer
     private var icons: [StripIcon] = []
     private var iconLayers: [CALayer] = []
+    private let speechLayer = CAShapeLayer()
+    private let starLayer = CAShapeLayer()
+    private let hoverLayer = CAShapeLayer()
+    private let selectionLayer = CAShapeLayer()
+    private let handleLayer = CAShapeLayer()
+    private var overlays = StripOverlays()
+    private var capsuleHeight: CGFloat = 9
     /// Called the next time the strip reaches the screen, for measuring how fast opening is.
     public var onNextPresent: (@Sendable (CFTimeInterval) -> Void)?
 
@@ -45,6 +129,30 @@ public final class StripView: NSView, CALayerDelegate {
         metalLayer.framebufferOnly = true
         metalLayer.presentsWithTransaction = false
         layer = metalLayer
+        speechLayer.fillColor = NSColor(srgbRed: 0.27, green: 0.79, blue: 0.69, alpha: 1).cgColor
+        starLayer.fillColor = NSColor(srgbRed: 1, green: 0.784, blue: 0.239, alpha: 1).cgColor
+        starLayer.shadowOpacity = 0.5
+        starLayer.shadowRadius = 1.5
+        starLayer.shadowOffset = .zero
+        hoverLayer.fillColor = nil
+        hoverLayer.strokeColor = NSColor.white.cgColor
+        hoverLayer.lineWidth = 1.5
+        selectionLayer.fillColor = NSColor.white.withAlphaComponent(0.14).cgColor
+        selectionLayer.strokeColor = NSColor.white.cgColor
+        selectionLayer.lineWidth = 2
+        handleLayer.fillColor = NSColor.white.cgColor
+        handleLayer.shadowOpacity = 0.5
+        handleLayer.shadowRadius = 2
+        handleLayer.shadowOffset = .zero
+        for shape in [speechLayer, selectionLayer, hoverLayer, handleLayer, starLayer] {
+            shape.actions = ["path": NSNull(), "bounds": NSNull(), "position": NSNull()]
+            metalLayer.addSublayer(shape)
+        }
+    }
+
+    /// Sets what's drawn over the runs, which appears at the next draw.
+    public func setOverlays(_ overlays: StripOverlays) {
+        self.overlays = overlays
     }
 
     @available(*, unavailable)
@@ -86,6 +194,102 @@ public final class StripView: NSView, CALayerDelegate {
         commands.present(drawable)
         commands.commit()
         layoutIcons(viewport: viewport)
+        capsuleHeight = CGFloat(viewport.capsuleHeightPoints)
+        layoutOverlays(viewport: viewport)
+    }
+
+    /// Shapes for everything over the runs. There are few enough of these, and they change
+    /// rarely enough, that plain paths are fine, and they stay crisp at any zoom.
+    private func layoutOverlays(viewport: StripViewport) {
+        func x(_ seconds: Float) -> CGFloat {
+            CGFloat((Double(seconds) - viewport.center) * viewport.pointsPerSecond + viewport.widthPoints / 2)
+        }
+        let middle = bounds.height / 2
+        let visible = -20...(CGFloat(viewport.widthPoints) + 20)
+
+        let speech = CGMutablePath()
+        for span in overlays.speech {
+            let start = max(x(span.lowerBound), visible.lowerBound)
+            let end = min(x(span.upperBound), visible.upperBound)
+            guard end > start else { continue }
+            speech.addRoundedRect(
+                in: CGRect(x: start, y: middle - capsuleHeight / 2 - 6, width: max(end - start, 3), height: 3),
+                cornerWidth: 1.5,
+                cornerHeight: 1.5
+            )
+        }
+
+        let stars = CGMutablePath()
+        for star in overlays.stars {
+            let position = x(star)
+            guard visible.contains(position) else { continue }
+            Self.addStar(to: stars, center: CGPoint(x: position, y: middle + capsuleHeight / 2 + 7), radius: 5)
+        }
+
+        let hover = CGMutablePath()
+        if let hovered = overlays.hovered, overlays.selection == nil {
+            let start = max(x(hovered.lowerBound), visible.lowerBound)
+            let end = min(x(hovered.upperBound), visible.upperBound)
+            if end > start {
+                let height = capsuleHeight + 5
+                hover.addRoundedRect(
+                    in: CGRect(x: start - 2.5, y: middle - height / 2, width: end - start + 5, height: height),
+                    cornerWidth: height / 2,
+                    cornerHeight: height / 2
+                )
+            }
+        }
+
+        let selection = CGMutablePath()
+        let handles = CGMutablePath()
+        if let selected = overlays.selection {
+            let start = x(selected.lowerBound)
+            let end = x(selected.upperBound)
+            let height = capsuleHeight + 15
+            selection.addRoundedRect(
+                in: CGRect(
+                    x: max(start, visible.lowerBound),
+                    y: middle - height / 2,
+                    width: max(min(end, visible.upperBound) - max(start, visible.lowerBound), 2),
+                    height: height
+                ),
+                cornerWidth: 6,
+                cornerHeight: 6
+            )
+            for position in [start, end] where visible.contains(position) {
+                handles.addRoundedRect(
+                    in: CGRect(x: position - 2.5, y: middle - height / 2 - 3, width: 5, height: height + 6),
+                    cornerWidth: 2.5,
+                    cornerHeight: 2.5
+                )
+            }
+        }
+
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for shape in [speechLayer, starLayer, hoverLayer, selectionLayer, handleLayer] {
+            shape.frame = metalLayer.bounds
+        }
+        speechLayer.path = speech
+        starLayer.path = stars
+        hoverLayer.path = hover
+        selectionLayer.path = selection
+        handleLayer.path = handles
+        CATransaction.commit()
+    }
+
+    private static func addStar(to path: CGMutablePath, center: CGPoint, radius: CGFloat) {
+        for point in 0..<10 {
+            let angle = CGFloat(point) * .pi / 5 + .pi / 2
+            let distance = point.isMultiple(of: 2) ? radius : radius * 0.45
+            let position = CGPoint(x: center.x + cos(angle) * distance, y: center.y + sin(angle) * distance)
+            if point == 0 {
+                path.move(to: position)
+            } else {
+                path.addLine(to: position)
+            }
+        }
+        path.closeSubpath()
     }
 
     /// Centres each icon on the visible part of its run, and leaves out any that wouldn't

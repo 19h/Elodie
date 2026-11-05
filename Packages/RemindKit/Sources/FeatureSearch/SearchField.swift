@@ -1,6 +1,11 @@
 import AppKit
 import SwiftUI
 
+/// A move through the results with the keyboard.
+public enum SearchMove: Sendable {
+    case next, previous, nextRow, previousRow
+}
+
 /// The text field for searching.
 ///
 /// This is AppKit because the overlay's panel never activates the app, and SwiftUI's
@@ -11,13 +16,19 @@ public struct SearchField: NSViewRepresentable {
     let onCancel: () -> Void
     let onEditingChanged: (Bool) -> Void
     let onCreated: (NSTextField) -> Void
+    let onMove: (SearchMove) -> Void
+    let onSubmit: () -> Void
 
     public init(
         text: Binding<String>,
         onCancel: @escaping () -> Void,
         onEditingChanged: @escaping (Bool) -> Void,
-        onCreated: @escaping (NSTextField) -> Void
+        onCreated: @escaping (NSTextField) -> Void,
+        onMove: @escaping (SearchMove) -> Void = { _ in },
+        onSubmit: @escaping () -> Void = {}
     ) {
+        self.onMove = onMove
+        self.onSubmit = onSubmit
         _text = text
         self.onCancel = onCancel
         self.onEditingChanged = onEditingChanged
@@ -89,7 +100,23 @@ public struct SearchField: NSViewRepresentable {
                 parent.onCancel()
                 return true
             }
-            return false
+            guard !textView.hasMarkedText() else { return false }
+            // The keyboard can get through results without leaving the field.
+            switch selector {
+            case #selector(NSResponder.moveDown(_:)):
+                parent.onMove(.nextRow)
+            case #selector(NSResponder.moveUp(_:)):
+                parent.onMove(.previousRow)
+            case #selector(NSResponder.insertTab(_:)):
+                parent.onMove(.next)
+            case #selector(NSResponder.insertBacktab(_:)):
+                parent.onMove(.previous)
+            case #selector(NSResponder.insertNewline(_:)):
+                parent.onSubmit()
+            default:
+                return false
+            }
+            return true
         }
     }
 }

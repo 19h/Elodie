@@ -43,7 +43,7 @@ let package = Package(
         .target(name: "OverlayShell", dependencies: ["StripRenderer"]),
         .target(name: "FeatureSearch", dependencies: ["CoreAPI", "DesignSystem"]),
         .target(name: "FeatureOnboarding", dependencies: ["DesignSystem"]),
-        .target(name: "FeatureSettings", dependencies: ["DesignSystem"]),
+        .target(name: "FeatureSettings", dependencies: ["CoreAPI", "DesignSystem"]),
         .target(name: "FeatureAsk", dependencies: ["CoreAPI", "DesignSystem"]),
         .target(name: "Audio", dependencies: ["CoreAPI", "Capture"]),
         .target(name: "FeatureMeetings", dependencies: ["CoreAPI", "DesignSystem", "Audio", "FeatureAsk"]),

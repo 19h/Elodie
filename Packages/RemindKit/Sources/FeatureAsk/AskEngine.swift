@@ -74,10 +74,13 @@ public final class AskEngine: Sendable {
 
     private func run(_ question: String, now: Date, continuation: AsyncStream<AskUpdate>.Continuation) async {
         let plan = QuestionPlanner.plan(question, now: now)
-        let candidates = retrieve(plan)
+        let isSurvey = plan.keywords.isEmpty
+        let candidates = isSurvey ? survey(plan, now: now) : retrieve(plan)
         guard !candidates.isEmpty else {
             continuation.yield(.sources([]))
-            continuation.yield(.noAnswer(String(localized: "Nothing on your screen matched that. Try different words.")))
+            continuation.yield(.noAnswer(isSurvey
+                ? String(localized: "Nothing was recorded in that time.")
+                : String(localized: "Nothing on your screen matched that. Try different words.")))
             return
         }
 
@@ -112,6 +115,26 @@ public final class AskEngine: Sendable {
             // lose what was found.
             continuation.yield(.noAnswer(String(localized: "Apple's on-device model couldn't answer this one. Here's what matched.")))
         }
+    }
+
+    /// A question with nothing to look for, like "What did I do today?", is about the period
+    /// itself. So this takes moments spread evenly across it, today if it doesn't say when.
+    func survey(_ plan: SearchPlan, now: Date) -> [SearchHit] {
+        let from = plan.from ?? Calendar.current.startOfDay(for: now)
+        let to = min(plan.to ?? now, now)
+        guard to > from else { return [] }
+        let step = to.timeIntervalSince(from) / Double(Self.maxCandidates)
+        var hits: [SearchHit] = []
+        var seen = Set<Int64>()
+        for index in 0..<Self.maxCandidates {
+            let before = from.addingTimeInterval(step * Double(index + 1))
+            guard let moment = try? core.moments(facets: SearchFacets(), before: before, limit: 1).first,
+                  moment.capturedAt >= from,
+                  seen.insert(moment.frameID).inserted
+            else { continue }
+            hits.append(moment)
+        }
+        return hits
     }
 
     /// Looks for all the words together first, then each alone, so the strongest

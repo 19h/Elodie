@@ -12,6 +12,25 @@ public final class LiveCore: RemindCore {
         core = try Core.open(root: vaultDirectory.path, masterKey: masterKey)
     }
 
+    /// How many pieces of the recording couldn't be read when the vault was opened.
+    public var unreadableChunks: UInt64 {
+        core.recovery().chunksUnreadable
+    }
+
+    /// Whether opening failed because another process has the vault.
+    public static func isVaultBusy(_ error: any Error) -> Bool {
+        if case CoreError.VaultBusy = error { return true }
+        return false
+    }
+
+    /// Whether opening failed because this isn't the key for the vault.
+    public static func isWrongKey(_ error: any Error) -> Bool {
+        if case CoreError.Storage(let message) = error {
+            return message.contains("not a database")
+        }
+        return false
+    }
+
     public func info() throws -> CoreAPI.CoreInfo {
         let info = try core.info()
         return CoreAPI.CoreInfo(
@@ -150,6 +169,91 @@ public final class LiveCore: RemindCore {
         }
     }
 
+    public func displays() throws -> [CoreAPI.RecordedDisplay] {
+        try core.displays().compactMap { display in
+            guard let id = UUID(bytes: display.uuid) else { return nil }
+            return CoreAPI.RecordedDisplay(
+                id: id,
+                width: Int(display.width),
+                height: Int(display.height),
+                first: Date(milliseconds: display.firstMs),
+                last: Date(milliseconds: display.lastMs)
+            )
+        }
+    }
+
+    public func isStarred(frameID: Int64) throws -> Bool {
+        try core.isStarred(frameId: frameID)
+    }
+
+    public func stars(display: UUID, from: Date, to: Date) throws -> [CoreAPI.StarredFrame] {
+        try core.stars(display: display.data, fromMs: from.milliseconds, toMs: to.milliseconds).map {
+            CoreAPI.StarredFrame(id: $0.frameId, time: Date(milliseconds: $0.tMs))
+        }
+    }
+
+    public func segment(display: UUID, at time: Date) throws -> CoreAPI.SegmentDetails? {
+        try core.segmentAt(display: display.data, tMs: time.milliseconds).map {
+            CoreAPI.SegmentDetails(
+                bundleID: $0.bundleId,
+                window: $0.window,
+                url: $0.url,
+                start: Date(milliseconds: $0.tStartMs),
+                end: Date(milliseconds: $0.tEndMs)
+            )
+        }
+    }
+
+    public func sliceSummary(from: Date, to: Date) throws -> CoreAPI.SliceSummary {
+        let summary = try core.sliceSummary(fromMs: from.milliseconds, toMs: to.milliseconds)
+        return CoreAPI.SliceSummary(
+            frames: Int(summary.frames),
+            bytes: summary.bytes,
+            starred: Int(summary.starred),
+            transcriptLines: Int(summary.transcriptLines),
+            apps: summary.apps.map { (bundleID: $0.bundleId, duration: Double($0.durationMs) / 1000) },
+            windows: summary.windows,
+            dependentFrames: Int(summary.dependentFrames),
+            dependentUntil: summary.dependentUntilMs.map(Date.init(milliseconds:))
+        )
+    }
+
+    public func transcriptSessions(from: Date, to: Date, limit: Int) throws -> [CoreAPI.TranscriptSession] {
+        try core.transcriptSessions(fromMs: from.milliseconds, toMs: to.milliseconds, limit: UInt32(limit)).map {
+            CoreAPI.TranscriptSession(
+                title: $0.title,
+                start: Date(milliseconds: $0.tStartMs),
+                end: Date(milliseconds: $0.tEndMs),
+                lines: Int($0.lines)
+            )
+        }
+    }
+
+    public func storageByApp() throws -> [CoreAPI.AppUsage] {
+        try core.storageByApp().map {
+            CoreAPI.AppUsage(bundleID: $0.bundleId, bytes: $0.bytes, frames: Int($0.frames))
+        }
+    }
+
+    public func appStretches(bundleID: String) throws -> [DateInterval] {
+        try core.appStretches(bundleId: bundleID).map {
+            DateInterval(
+                start: Date(milliseconds: $0.tStartMs),
+                end: Date(milliseconds: max($0.tStartMs, $0.tEndMs))
+            )
+        }
+    }
+
+    public func moments(facets: CoreAPI.SearchFacets, before: Date?, limit: Int) throws -> [CoreAPI.SearchHit] {
+        try core.moments(query: CoreABI.MomentQuery(
+            bundleIds: facets.bundleIDs,
+            starredOnly: facets.starredOnly,
+            transcriptsOnly: facets.transcriptsOnly,
+            beforeMs: before?.milliseconds,
+            limit: UInt32(limit)
+        )).map(CoreAPI.SearchHit.init(live:))
+    }
+
     public func recordMeeting(title: String?, from: Date, to: Date) throws {
         try core.recordMeeting(title: title, tStartMs: from.milliseconds, tEndMs: to.milliseconds)
     }
@@ -270,17 +374,7 @@ private struct LiveSearchSession: CoreAPI.SearchSession {
         let page = try handle.nextPage()
         return CoreAPI.SearchPage(
             hits: page.hits.map { hit in
-                CoreAPI.SearchHit(
-                    frameID: hit.frameId,
-                    runID: hit.runId,
-                    capturedAt: Date(milliseconds: hit.tMs),
-                    bundleID: hit.bundleId,
-                    window: hit.window,
-                    url: hit.url,
-                    rects: hit.rects.map(CGRect.init),
-                    snippet: hit.snippet,
-                    isTranscript: hit.isTranscript
-                )
+                CoreAPI.SearchHit(live: hit)
             },
             hasMore: page.hasMore
         )
@@ -316,5 +410,33 @@ extension Date {
 
     init(milliseconds: Int64) {
         self.init(timeIntervalSince1970: Double(milliseconds) / 1000)
+    }
+}
+
+private extension CoreAPI.SearchHit {
+    init(live hit: CoreABI.SearchHit) {
+        self.init(
+            frameID: hit.frameId,
+            runID: hit.runId,
+            capturedAt: Date(milliseconds: hit.tMs),
+            bundleID: hit.bundleId,
+            window: hit.window,
+            url: hit.url,
+            rects: hit.rects.map(CGRect.init),
+            snippet: hit.snippet,
+            isTranscript: hit.isTranscript,
+            display: hit.displayUuid.flatMap(UUID.init(bytes:))
+        )
+    }
+}
+
+private extension UUID {
+    init?(bytes: Data) {
+        guard bytes.count == 16 else { return nil }
+        let array = [UInt8](bytes)
+        self.init(uuid: (
+            array[0], array[1], array[2], array[3], array[4], array[5], array[6], array[7],
+            array[8], array[9], array[10], array[11], array[12], array[13], array[14], array[15]
+        ))
     }
 }

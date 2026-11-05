@@ -31,6 +31,9 @@ use crate::{Engine, EngineError, Result};
 
 const REWRITE_DIRECTORY: &str = "rewrite";
 
+/// Giving space back rewrites the whole database, so it only happens after a big deletion.
+const RECLAIM_AFTER_FRAMES: u64 = 5_000;
+
 /// What the writer thread needs in order to delete a range.
 pub(crate) struct DeleteRequest {
     from_ms: i64,
@@ -41,6 +44,8 @@ pub(crate) struct DeleteRequest {
 
 /// What was done, and which files to change once it has committed.
 pub(crate) struct Outcome {
+    /// Whether a lot went, so it's worth giving the space back.
+    pub(crate) reclaim: bool,
     pub(crate) frames_removed: u64,
     pub(crate) files_to_remove: Vec<PathBuf>,
     pub(crate) files_to_move: Vec<(PathBuf, PathBuf)>,
@@ -68,8 +73,18 @@ struct FrameRow {
 /// Applies a deletion inside a transaction.
 pub(crate) fn apply(tx: &Transaction<'_>, request: &DeleteRequest) -> rusqlite::Result<Outcome> {
     let (from, to) = (request.from_ms, request.to_ms);
-    let mut outcome =
-        Outcome { frames_removed: 0, files_to_remove: Vec::new(), files_to_move: Vec::new() };
+    let mut outcome = Outcome {
+        reclaim: false,
+        frames_removed: 0,
+        files_to_remove: Vec::new(),
+        files_to_move: Vec::new(),
+    };
+
+    // These IDs must not come back, or anything still holding one would show a deleted frame.
+    tx.execute(
+        "UPDATE frame_id_floor SET floor = max(floor, coalesce((SELECT max(id) FROM frame), 0))",
+        [],
+    )?;
 
     let chunks: Vec<ChunkRow> = {
         let mut statement = tx.prepare(
@@ -99,6 +114,7 @@ pub(crate) fn apply(tx: &Transaction<'_>, request: &DeleteRequest) -> rusqlite::
 
     let mut affected_runs = runs;
     let mut affected_segments = segments;
+    split_segments_around(tx, from, to, &mut affected_segments)?;
 
     for chunk in &chunks {
         let frames: Vec<FrameRow> = {
@@ -178,7 +194,51 @@ pub(crate) fn apply(tx: &Transaction<'_>, request: &DeleteRequest) -> rusqlite::
 
     prune_runs(tx, &affected_runs)?;
     prune_segments(tx, &affected_segments)?;
+
+    // Stretches of speech with nothing left in them, which frames never point at.
+    tx.execute(
+        "DELETE FROM segment WHERE type = 1 AND t_start >= ?1 AND t_end <= ?2
+         AND NOT EXISTS (SELECT 1 FROM text_run r WHERE r.segment_id = segment.id)",
+        params![from, to],
+    )?;
+
+    let remaining: i64 = tx.query_row("SELECT count(*) FROM frame", [], |r| r.get(0))?;
+    outcome.reclaim = remaining == 0 || outcome.frames_removed >= RECLAIM_AFTER_FRAMES;
     Ok(outcome)
+}
+
+/// A stretch removed from the middle of a segment leaves two stretches, not one with a hole
+/// that the timeline would draw as if nothing had gone.
+fn split_segments_around(
+    tx: &Transaction<'_>,
+    from: i64,
+    to: i64,
+    segments: &mut HashSet<i64>,
+) -> rusqlite::Result<()> {
+    let spanning: Vec<i64> = {
+        let mut statement = tx.prepare(
+            "SELECT id FROM segment s WHERE type = 0 AND t_start < ?1 AND t_end > ?2
+             AND EXISTS (SELECT 1 FROM frame f WHERE f.segment_id = s.id AND f.t_ms > ?2)
+             AND EXISTS (SELECT 1 FROM frame f WHERE f.segment_id = s.id AND f.t_ms < ?1)",
+        )?;
+        statement.query_map(params![from, to], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    };
+    for segment in spanning {
+        tx.execute(
+            "INSERT INTO segment(display_id, type, bundle_id, window, url, profile, t_start, t_end)
+             SELECT display_id, type, bundle_id, window, url, profile, ?2, t_end
+             FROM segment WHERE id = ?1",
+            params![segment, to + 1],
+        )?;
+        let later = tx.last_insert_rowid();
+        tx.execute(
+            "UPDATE frame SET segment_id = ?2 WHERE segment_id = ?1 AND t_ms > ?3",
+            params![segment, later, to],
+        )?;
+        segments.insert(segment);
+        segments.insert(later);
+    }
+    Ok(())
 }
 
 /// Writes a new chunk holding only `survivors`, and points their rows at it.
@@ -392,6 +452,16 @@ pub(crate) fn finish(conn: &Connection, moves: &[(PathBuf, PathBuf)], removals: 
     if all_removed {
         let _ = conn.execute("DELETE FROM purge", []);
     }
+}
+
+/// Gives freed database pages back to the disk. Only space depends on this, so a failure
+/// changes nothing that matters, and the next big deletion tries again.
+pub(crate) fn reclaim_space(conn: &Connection) {
+    let _ = conn.execute_batch(
+        "PRAGMA wal_checkpoint(TRUNCATE);
+         VACUUM;
+         PRAGMA wal_checkpoint(TRUNCATE);",
+    );
 }
 
 /// Finishes a deletion that a crash interrupted.

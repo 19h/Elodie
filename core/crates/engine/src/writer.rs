@@ -36,6 +36,8 @@ impl WriterMessage {
 
 /// How long to wait before retrying a failed commit, such as on a full disk.
 const RETRY_DELAY: Duration = Duration::from_secs(5);
+/// How many times a batch is retried before anyone waiting on it is told it failed.
+const RETRIES_BEFORE_GIVING_UP: u32 = 3;
 
 pub(crate) fn spawn(
     conn: Connection,
@@ -59,6 +61,7 @@ fn run(
     let mut pending: Vec<WriterMessage> = Vec::new();
     let mut tracker = RunTracker::new(config.run_policy);
     let mut open = true;
+    let mut failures = 0;
 
     while open || !pending.is_empty() {
         if pending.is_empty() {
@@ -82,14 +85,47 @@ fn run(
             Ok(frames) => {
                 shared.indexed_frames.fetch_add(frames, Ordering::Relaxed);
                 pending.clear();
+                failures = 0;
             }
             // Anything still pending is replayed from the log at next launch, so
             // on shutdown it's safe to give up.
             Err(_) if !open => return,
-            Err(_) => {
+            Err(error) => {
                 // A run in memory may be ahead of what failed to commit.
                 tracker = RunTracker::new(config.run_policy);
+                failures += 1;
+                // Someone may be waiting on this batch, and it may never succeed. Frames
+                // can wait, because they're safe in the log, but a person can't, and one
+                // bad request mustn't stop everything else from being stored.
+                if failures >= RETRIES_BEFORE_GIVING_UP {
+                    give_up_on_requests(&mut pending, &error);
+                    failures = 0;
+                }
                 std::thread::sleep(RETRY_DELAY);
+            }
+        }
+    }
+}
+
+/// Tells everyone waiting that their request failed, and drops those requests. What's left
+/// is only frames, which get retried.
+fn give_up_on_requests(pending: &mut Vec<WriterMessage>, error: &rusqlite::Error) {
+    let failure = || EngineError::Corrupt(format!("the change couldn't be saved: {error}"));
+    for message in pending.drain(..).collect::<Vec<_>>() {
+        match message {
+            WriterMessage::Frame(_) | WriterMessage::Sealed(_) => pending.push(message),
+            WriterMessage::NextOcrBatch(_, reply) => {
+                let _ = reply.send(Err(failure()));
+            }
+            WriterMessage::OcrResults(_, reply)
+            | WriterMessage::OcrFailed(_, reply)
+            | WriterMessage::SetStarred(_, _, reply)
+            | WriterMessage::Meeting(_, _, _, reply)
+            | WriterMessage::Transcript(_, _, reply) => {
+                let _ = reply.send(Err(failure()));
+            }
+            WriterMessage::DeleteRange(_, reply) => {
+                let _ = reply.send(Err(failure()));
             }
         }
     }
@@ -100,7 +136,7 @@ fn run(
 enum Reply {
     Batch(Sender<Result<Vec<OcrJob>, EngineError>>, Vec<OcrJob>),
     Done(Sender<Result<(), EngineError>>),
-    Deleted(Sender<Result<u64, EngineError>>, u64, Vec<std::path::PathBuf>, Vec<(std::path::PathBuf, std::path::PathBuf)>),
+    Deleted(Sender<Result<u64, EngineError>>, crate::delete::Outcome),
 }
 
 fn commit(
@@ -156,12 +192,7 @@ fn commit(
                 let outcome = crate::delete::apply(&tx, request)?;
                 // The runs in memory may just have been deleted or rewritten.
                 *tracker = RunTracker::new(tracker.policy());
-                replies.push(Reply::Deleted(
-                    reply.clone(),
-                    outcome.frames_removed,
-                    outcome.files_to_remove,
-                    outcome.files_to_move,
-                ));
+                replies.push(Reply::Deleted(reply.clone(), outcome));
             }
         }
     }
@@ -175,9 +206,12 @@ fn commit(
             Reply::Done(sender) => {
                 let _ = sender.send(Ok(()));
             }
-            Reply::Deleted(sender, frames, remove, moves) => {
-                crate::delete::finish(conn, &moves, &remove);
-                let _ = sender.send(Ok(frames));
+            Reply::Deleted(sender, outcome) => {
+                crate::delete::finish(conn, &outcome.files_to_move, &outcome.files_to_remove);
+                if outcome.reclaim {
+                    crate::delete::reclaim_space(conn);
+                }
+                let _ = sender.send(Ok(outcome.frames_removed));
             }
         }
     }

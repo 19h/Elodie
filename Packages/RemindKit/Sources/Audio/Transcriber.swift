@@ -21,6 +21,8 @@ public final class Transcriber: @unchecked Sendable {
     private let isMe: Bool
     private let startedAt: Date
     private let onWords: @Sendable ([SpokenWord]) -> Void
+    private let onFailure: @Sendable (any Error) -> Void
+    private var isFinishing = false
 
     private var input: AsyncStream<AnalyzerInput>.Continuation?
     private var resultsTask: Task<Void, Never>?
@@ -34,8 +36,10 @@ public final class Transcriber: @unchecked Sendable {
         locale: Locale,
         isMe: Bool,
         startedAt: Date,
-        onWords: @escaping @Sendable ([SpokenWord]) -> Void
+        onWords: @escaping @Sendable ([SpokenWord]) -> Void,
+        onFailure: @escaping @Sendable (any Error) -> Void = { _ in }
     ) {
+        self.onFailure = onFailure
         transcriber = SpeechTranscriber(
             locale: locale,
             transcriptionOptions: [],
@@ -87,6 +91,7 @@ public final class Transcriber: @unchecked Sendable {
 
     /// Finishes whatever's in progress, and waits for its results.
     public func finish() async throws {
+        isFinishing = true
         input?.finish()
         input = nil
         try await analyzer.finalizeAndFinishThroughEndOfInput()
@@ -112,14 +117,18 @@ public final class Transcriber: @unchecked Sendable {
         let isMe = self.isMe
         let startedAt = self.startedAt
         let onWords = self.onWords
-        resultsTask = Task.detached(priority: .utility) {
+        resultsTask = Task.detached(priority: .utility) { [weak self] in
             do {
                 for try await result in transcriber.results where result.isFinal {
                     let words = Self.words(from: result.text, isMe: isMe, startedAt: startedAt)
                     if !words.isEmpty { onWords(words) }
                 }
             } catch {
-                // Audio can end at any time, and what's been stored stays stored.
+                // What's been stored stays stored, but if this wasn't asked to finish then
+                // transcription has stopped working, and someone should know.
+                if let self, !self.isFinishing {
+                    self.onFailure(error)
+                }
             }
         }
     }

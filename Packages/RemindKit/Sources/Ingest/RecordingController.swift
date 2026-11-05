@@ -68,6 +68,7 @@ public final class RecordingController: @unchecked Sendable {
     private var followTimer: DispatchSourceTimer?
     private var isMoving = false
     private var powerObserver: (any NSObjectProtocol)?
+    private var lastChange: Task<Void, any Error>?
 
     public var onStateChange: (@Sendable (RecordingState) -> Void)?
 
@@ -126,7 +127,36 @@ public final class RecordingController: @unchecked Sendable {
         return CGMainDisplayID()
     }
 
+    /// Starts capture on a display, replacing what's running. Starting and stopping happen
+    /// strictly one at a time and in the order asked for, however they overlap, so a pause
+    /// that arrives during a start really does end up paused.
     public func start(displayID: CGDirectDisplayID = RecordingController.activeDisplay()) async throws {
+        try await enqueue { controller in
+            try await controller.performStart(displayID: displayID)
+        }.value
+    }
+
+    public func stop() async {
+        _ = await enqueue { controller in
+            await controller.performStop()
+        }.result
+    }
+
+    private func enqueue(
+        _ work: @escaping @Sendable (RecordingController) async throws -> Void
+    ) -> Task<Void, any Error> {
+        lock.withLock {
+            let previous = lastChange
+            let task = Task<Void, any Error> { [self] in
+                _ = await previous?.result
+                try await work(self)
+            }
+            lastChange = task
+            return task
+        }
+    }
+
+    private func performStart(displayID: CGDirectDisplayID) async throws {
         await stopStream()
         guard let uuid = ScreenContent.stableID(of: displayID) else {
             throw DisplayStreamError.displayNotFound(displayID)
@@ -138,7 +168,7 @@ public final class RecordingController: @unchecked Sendable {
             displayID: displayID,
             queue: pipeline.queue,
             onFrame: { [weak pipeline] frame in pipeline?.ingest(frame) },
-            onStop: { [weak self] reason in self?.streamStopped(reason) }
+            onStop: { [weak self] reason in self?.streamStopped(reason, displayID: displayID) }
         )
         pipeline.onEncoderFailure = { [weak self] in self?.encoderKeptFailing() }
         let interval = ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -152,8 +182,9 @@ public final class RecordingController: @unchecked Sendable {
         beginFollowing()
     }
 
-    public func stop() async {
+    private func performStop() async {
         endFollowing()
+        monitor.stop()
         await stopStream()
     }
 
@@ -177,8 +208,13 @@ public final class RecordingController: @unchecked Sendable {
         callback?(new)
     }
 
-    private func streamStopped(_ reason: StreamStop) {
+    /// A stream that has already been replaced can still report stopping. That says nothing
+    /// about the one running now.
+    private func streamStopped(_ reason: StreamStop, displayID: CGDirectDisplayID) {
+        let isCurrent = lock.withLock { stream?.displayID == displayID }
+        guard isCurrent else { return }
         endFollowing()
+        monitor.stop()
         setState(.interrupted(reason)) {
             stream = nil
             pipeline = nil
@@ -188,7 +224,7 @@ public final class RecordingController: @unchecked Sendable {
     private func encoderKeptFailing() {
         Task { [weak self] in
             await self?.stop()
-            self?.streamStopped(.encoderFailed)
+            self?.setState(.interrupted(.encoderFailed)) {}
         }
     }
 
@@ -246,7 +282,7 @@ public final class RecordingController: @unchecked Sendable {
             do {
                 try await self.start(displayID: display)
             } catch {
-                self.streamStopped(.other(code: (error as NSError).code))
+                self.setState(.interrupted(StreamStop(error))) {}
             }
             self.lock.withLock { self.isMoving = false }
         }
@@ -335,12 +371,16 @@ public final class RecordingController: @unchecked Sendable {
             // Titles above already covered private windows, and only the URL is
             // lost here. The Screen settings tab explains what that means.
             noteBrowserCheck(.notTrusted)
+            // Arc doesn't say so in its titles, so without this there's no way to tell.
+            guard family != .arc else {
+                return .drop(reason: "Arc's private windows can't be spotted without Accessibility")
+            }
             return .keep(context)
         case .failure(.noFocusedWindow):
             noteBrowserCheck(.answered)
             return .keep(context)
-        case .failure(.timedOut):
-            // The browser didn't answer in time, so this can't be confirmed safe.
+        case .failure(.timedOut), .failure(.failed):
+            // The browser didn't answer properly, so this can't be confirmed safe.
             noteBrowserCheck(.timedOut(bundleID: identity.bundleID ?? ""))
             return .drop(reason: "the browser didn't respond")
         }

@@ -300,6 +300,125 @@ public struct SpokenWord: Sendable, Equatable {
 }
 
 /// A line of a transcript.
+/// A display that has recordings.
+public struct RecordedDisplay: Sendable, Equatable, Identifiable {
+    public var id: UUID
+    public var width: Int
+    public var height: Int
+    public var first: Date
+    public var last: Date
+
+    public init(id: UUID, width: Int, height: Int, first: Date, last: Date) {
+        self.id = id
+        self.width = width
+        self.height = height
+        self.first = first
+        self.last = last
+    }
+}
+
+/// A starred frame.
+public struct StarredFrame: Sendable, Equatable, Identifiable {
+    public var id: Int64
+    public var time: Date
+
+    public init(id: Int64, time: Date) {
+        self.id = id
+        self.time = time
+    }
+}
+
+/// What was in front at one moment.
+public struct SegmentDetails: Sendable, Equatable {
+    public var bundleID: String?
+    public var window: String?
+    public var url: String?
+    public var start: Date
+    public var end: Date
+
+    public init(bundleID: String?, window: String?, url: String?, start: Date, end: Date) {
+        self.bundleID = bundleID
+        self.window = window
+        self.url = url
+        self.start = start
+        self.end = end
+    }
+}
+
+/// What a stretch of time holds, for deciding what to do with it.
+public struct SliceSummary: Sendable, Equatable {
+    public var frames: Int
+    public var bytes: Int64
+    public var starred: Int
+    public var transcriptLines: Int
+    /// Time in each app, longest first.
+    public var apps: [(bundleID: String?, duration: TimeInterval)]
+    /// The windows that had the most time, longest first.
+    public var windows: [String]
+    /// Frames just after the stretch that can't be shown without it, so deleting it
+    /// removes them too.
+    public var dependentFrames: Int
+    public var dependentUntil: Date?
+
+    public init(
+        frames: Int = 0,
+        bytes: Int64 = 0,
+        starred: Int = 0,
+        transcriptLines: Int = 0,
+        apps: [(bundleID: String?, duration: TimeInterval)] = [],
+        windows: [String] = [],
+        dependentFrames: Int = 0,
+        dependentUntil: Date? = nil
+    ) {
+        self.frames = frames
+        self.bytes = bytes
+        self.starred = starred
+        self.transcriptLines = transcriptLines
+        self.apps = apps
+        self.windows = windows
+        self.dependentFrames = dependentFrames
+        self.dependentUntil = dependentUntil
+    }
+
+    public static func == (a: SliceSummary, b: SliceSummary) -> Bool {
+        a.frames == b.frames && a.bytes == b.bytes && a.starred == b.starred
+            && a.transcriptLines == b.transcriptLines && a.windows == b.windows
+            && a.dependentFrames == b.dependentFrames && a.dependentUntil == b.dependentUntil
+            && a.apps.map(\.bundleID) == b.apps.map(\.bundleID)
+            && a.apps.map(\.duration) == b.apps.map(\.duration)
+    }
+}
+
+/// A stretch of speech.
+public struct TranscriptSession: Sendable, Equatable, Identifiable {
+    public var title: String?
+    public var start: Date
+    public var end: Date
+    public var lines: Int
+    public var id: Date { start }
+
+    public init(title: String?, start: Date, end: Date, lines: Int) {
+        self.title = title
+        self.start = start
+        self.end = end
+        self.lines = lines
+    }
+}
+
+/// Recording space used by one app.
+public struct AppUsage: Sendable, Equatable, Identifiable {
+    public var bundleID: String?
+    public var bytes: Int64
+    public var frames: Int
+    public var id: String { bundleID ?? "" }
+
+    public init(bundleID: String?, bytes: Int64, frames: Int) {
+        self.bundleID = bundleID
+        self.bytes = bytes
+        self.frames = frames
+    }
+}
+
 /// A meeting that was transcribed.
 public struct RecordedMeeting: Sendable, Equatable, Identifiable {
     public var title: String?
@@ -334,6 +453,8 @@ public struct SearchHit: Sendable, Equatable, Identifiable {
     public var frameID: Int64
     public var runID: Int64
     public var capturedAt: Date
+    /// Which display the frame is from. Something said has no display.
+    public var display: UUID?
     public var bundleID: String?
     public var window: String?
     public var url: String?
@@ -354,8 +475,10 @@ public struct SearchHit: Sendable, Equatable, Identifiable {
         url: String?,
         rects: [CGRect],
         snippet: String,
-        isTranscript: Bool = false
+        isTranscript: Bool = false,
+        display: UUID? = nil
     ) {
+        self.display = display
         self.frameID = frameID
         self.runID = runID
         self.capturedAt = capturedAt
@@ -417,6 +540,25 @@ public protocol RemindCore: Sendable {
     func frameText(of frameID: Int64) throws -> [String]
     /// The lines of text a frame shows and where they are, front window first.
     func frameLines(of frameID: Int64) throws -> [RecognizedLine]
+    /// Every display with recordings, most recently used first.
+    func displays() throws -> [RecordedDisplay]
+    /// Whether a frame is starred.
+    func isStarred(frameID: Int64) throws -> Bool
+    /// Starred frames on a display in a period, earliest first.
+    func stars(display: UUID, from: Date, to: Date) throws -> [StarredFrame]
+    /// What was in front on a display at a moment.
+    func segment(display: UUID, at time: Date) throws -> SegmentDetails?
+    /// What a stretch of time holds, across every display.
+    func sliceSummary(from: Date, to: Date) throws -> SliceSummary
+    /// Stretches of speech that overlap a period, most recent first.
+    func transcriptSessions(from: Date, to: Date, limit: Int) throws -> [TranscriptSession]
+    /// How much recording space each app uses, most first. This reads every frame's row.
+    func storageByApp() throws -> [AppUsage]
+    /// The stretches of time an app was recorded in.
+    func appStretches(bundleID: String) throws -> [DateInterval]
+    /// Lists moments without searching for any words: starred ones, what was said, or the
+    /// latest from some apps. Most recent first.
+    func moments(facets: SearchFacets, before: Date?, limit: Int) throws -> [SearchHit]
     /// Notes a meeting that was transcribed.
     func recordMeeting(title: String?, from: Date, to: Date) throws
     /// Meetings that started in a period, earliest first.
@@ -436,4 +578,16 @@ public protocol RemindCore: Sendable {
     func failOCR(frameID: Int64) throws
     /// Starts a search. Returns `nil` if the text has nothing searchable in it.
     func search(_ text: String, facets: SearchFacets, order: SearchOrder) throws -> (any SearchSession)?
+}
+
+extension RemindCore {
+    public func displays() throws -> [RecordedDisplay] { [] }
+    public func isStarred(frameID: Int64) throws -> Bool { false }
+    public func stars(display: UUID, from: Date, to: Date) throws -> [StarredFrame] { [] }
+    public func segment(display: UUID, at time: Date) throws -> SegmentDetails? { nil }
+    public func sliceSummary(from: Date, to: Date) throws -> SliceSummary { SliceSummary() }
+    public func transcriptSessions(from: Date, to: Date, limit: Int) throws -> [TranscriptSession] { [] }
+    public func storageByApp() throws -> [AppUsage] { [] }
+    public func appStretches(bundleID: String) throws -> [DateInterval] { [] }
+    public func moments(facets: SearchFacets, before: Date?, limit: Int) throws -> [SearchHit] { [] }
 }

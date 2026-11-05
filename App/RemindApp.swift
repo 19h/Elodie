@@ -6,6 +6,31 @@ import Foundation
 
 @main
 enum Entry {
+    /// Passed by a copy of Remind that's reopening itself.
+    static let relaunchedArgument = "--relaunched"
+
+    /// Only one copy can record. The login item starts Remind as soon as it's turned on, while
+    /// the copy that turned it on is still running, and a second one would fight it for the
+    /// vault. So a later copy hands over to the first and leaves.
+    private static func leaveIfAlreadyRunning(arguments: [String]) {
+        guard let identifier = Bundle.main.bundleIdentifier else { return }
+        func others() -> [NSRunningApplication] {
+            NSRunningApplication.runningApplications(withBundleIdentifier: identifier).filter {
+                $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated
+            }
+        }
+        if arguments.contains(relaunchedArgument) {
+            // The copy that started this one is on its way out.
+            for _ in 0..<100 where !others().isEmpty {
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+        if let running = others().first {
+            running.activate()
+            exit(0)
+        }
+    }
+
     static func main() {
         let arguments = CommandLine.arguments
         if arguments.contains(PermissionMonitor.checkArgument) {
@@ -22,6 +47,17 @@ enum Entry {
         if arguments.contains("--scenario") {
             MainActor.assumeIsolated { Scenarios.run(arguments: arguments) }
         }
+        #endif
+
+        #if DEBUG
+        if let flag = arguments.firstIndex(of: "--sandbox"), arguments.indices.contains(flag + 1) {
+            AppEnvironment.sandbox = URL(filePath: arguments[flag + 1], directoryHint: .isDirectory)
+            KeyStore.service = "app.remind.vault.sandbox"
+        } else {
+            leaveIfAlreadyRunning(arguments: arguments)
+        }
+        #else
+        leaveIfAlreadyRunning(arguments: arguments)
         #endif
 
         let application = NSApplication.shared
@@ -43,10 +79,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
+    /// What's being said right now only becomes words when it's told to finish, so quitting
+    /// waits briefly for that. Everything recorded so far reaches the drive first too.
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         MainActor.assumeIsolated {
-            controller?.prepareToQuit()
+            guard let controller else { return .terminateNow }
+            Task { @MainActor in
+                await withTaskGroup(of: Void.self) { group in
+                    group.addTask { await controller.finishForQuit() }
+                    group.addTask { try? await Task.sleep(for: .seconds(5)) }
+                    await group.next()
+                    group.cancelAll()
+                }
+                sender.reply(toApplicationShouldTerminate: true)
+            }
+            return .terminateLater
         }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 
     /// `remind://moment/<milliseconds>` opens the timeline at that moment.
@@ -61,7 +113,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        MainActor.assumeIsolated { controller?.showSearch() }
+        MainActor.assumeIsolated { controller?.handleReopen() }
         return false
     }
 }

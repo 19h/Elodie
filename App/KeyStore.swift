@@ -11,12 +11,17 @@ enum KeyStore {
     enum Failure: Error, Equatable {
         /// A vault exists, but its key isn't in the keychain.
         case keyMissing
-        /// The keychain couldn't be read right now, for example because it's locked.
+        /// The keychain is locked. It may well unlock soon, so this can be tried again.
+        case keychainLocked
+        /// Someone clicked Deny when macOS asked, so it's theirs to allow.
+        case accessDenied
+        /// The keychain couldn't be read for some other reason.
         case keychainUnavailable(OSStatus)
         case couldNotCreate(OSStatus)
     }
 
-    private static let service = "app.remind.vault"
+    /// Test runs pass their own, so they can't touch the real key.
+    nonisolated(unsafe) static var service = "app.remind.vault"
     private static let account = "master-key"
 
     private static var baseQuery: [CFString: Any] {
@@ -43,9 +48,12 @@ enum KeyStore {
         case errSecItemNotFound:
             guard !vaultExists else { throw .keyMissing }
             return try create()
+        case errSecInteractionNotAllowed, errSecNotAvailable, errSecNoSuchKeychain:
+            // None of these mean the key is gone, so they must not lead to a new key.
+            throw .keychainLocked
+        case errSecAuthFailed, errSecUserCanceled:
+            throw .accessDenied
         default:
-            // Locked, or otherwise unavailable. This isn't the same as missing, so it
-            // must not lead to a new key.
             throw .keychainUnavailable(status)
         }
     }
@@ -69,14 +77,22 @@ enum KeyStore {
         return bytes
     }
 
-    /// The key as text for safekeeping, in groups that are easy to copy accurately.
-    static func recoveryText(for key: Data) -> String {
-        let hex = key.map { String(format: "%02X", $0) }.joined()
-        let groups = stride(from: 0, to: hex.count, by: 8).map { start -> String in
-            let from = hex.index(hex.startIndex, offsetBy: start)
-            let to = hex.index(from, offsetBy: min(8, hex.count - start))
-            return String(hex[from..<to])
+    /// Puts a key back, replacing anything there. Only do this once the key has been shown
+    /// to open the vault.
+    static func restore(_ key: Data) throws(Failure) {
+        SecItemDelete(baseQuery as CFDictionary)
+        var attributes = baseQuery
+        attributes[kSecValueData] = key
+        attributes[kSecAttrLabel] = "Remind recording key"
+        attributes[kSecAttrDescription] = "Decrypts your Remind recordings."
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw .couldNotCreate(status)
         }
-        return groups.joined(separator: "-")
+    }
+
+    /// Removes the key, when the recordings it opened have been deleted.
+    static func remove() {
+        SecItemDelete(baseQuery as CFDictionary)
     }
 }

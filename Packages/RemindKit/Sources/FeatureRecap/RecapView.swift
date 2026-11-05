@@ -11,12 +11,20 @@ public struct RecapView: View {
     private let core: any RemindCore
     private let calendar: Calendar
     private let onOpenMoment: (Date) -> Void
+    private let onOpenTranscript: (Date) -> Void
 
     @State private var day: Date
     @State private var recap: Recap?
     @State private var meetings: [RecordedMeeting] = []
 
-    public init(core: any RemindCore, day: Date = Date(), calendar: Calendar = .current, onOpenMoment: @escaping (Date) -> Void) {
+    public init(
+        core: any RemindCore,
+        day: Date = Date(),
+        calendar: Calendar = .current,
+        onOpenMoment: @escaping (Date) -> Void,
+        onOpenTranscript: @escaping (Date) -> Void = { _ in }
+    ) {
+        self.onOpenTranscript = onOpenTranscript
         self.core = core
         self.calendar = calendar
         self.onOpenMoment = onOpenMoment
@@ -28,7 +36,7 @@ public struct RecapView: View {
             header
             Divider()
             ScrollView {
-                if let recap, recap.totalActive > 0 {
+                if let recap, recap.totalActive > 0 || !meetings.isEmpty {
                     content(recap).padding(20)
                 } else if recap != nil {
                     empty
@@ -72,8 +80,10 @@ public struct RecapView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Meetings").font(.headline)
                 ForEach(meetings) { meeting in
-                    Button { onOpenMoment(meeting.start) } label: {
+                    Button { onOpenTranscript(meeting.start) } label: {
                         HStack {
+                            Image(systemName: "waveform")
+                                .foregroundStyle(Palette.verdigris)
                             Text(meeting.title ?? String(localized: "Meeting"))
                             Spacer()
                             Text(meeting.start.formatted(date: .omitted, time: .shortened))

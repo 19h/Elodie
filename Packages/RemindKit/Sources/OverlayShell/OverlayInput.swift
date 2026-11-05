@@ -13,6 +13,11 @@ public enum OverlayAction: Equatable, Sendable {
     case open
     case star
     case copy
+    case copyImage
+    case zoomIn
+    case zoomOut
+    /// The Delete key, for whatever's selected on the strip.
+    case deleteSelection
     case dismiss
 }
 
@@ -23,6 +28,8 @@ public enum OverlayKeyMap {
     private static let keypadEnter: UInt16 = 76
     private static let left: UInt16 = 123
     private static let right: UInt16 = 124
+    private static let deleteKey: UInt16 = 51
+    private static let forwardDelete: UInt16 = 117
 
     public static func action(
         keyCode: UInt16,
@@ -41,6 +48,8 @@ public enum OverlayKeyMap {
                 : .stepFrame(forward: keyCode == right)
         case returnKey, keypadEnter:
             return isSearchFocused ? nil : .open
+        case deleteKey, forwardDelete:
+            return isSearchFocused ? nil : .deleteSelection
         default:
             break
         }
@@ -50,7 +59,10 @@ public enum OverlayKeyMap {
             // These must never quit the recorder while the overlay's up.
             case "q", "w": return .dismiss
             case "s" where flags.contains(.shift): return .star
+            case "c" where flags.contains(.shift): return .copyImage
             case "c" where !isSearchFocused: return .copy
+            case "=", "+": return .zoomIn
+            case "-": return .zoomOut
             default: return nil
             }
         }
@@ -135,6 +147,19 @@ public final class OverlayInputView: NSView {
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // Text fields rely on a menu for these, and a panel that never activates the app
+        // doesn't reach one, so they're handled here.
+        if let editor = window?.firstResponder as? NSTextView,
+           event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "v": editor.paste(nil); return true
+            case "x": editor.cut(nil); return true
+            case "a": editor.selectAll(nil); return true
+            case "z": editor.undoManager?.undo(); return true
+            case "c" where editor.selectedRange().length > 0: editor.copy(nil); return true
+            default: break
+            }
+        }
         if let action = OverlayKeyMap.action(
             keyCode: event.keyCode,
             characters: event.charactersIgnoringModifiers,

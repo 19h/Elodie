@@ -25,6 +25,8 @@ public enum AccessibilityProbe {
         case notTrusted
         case noFocusedWindow
         case timedOut
+        /// The browser gave an error, so nothing can be said about its window.
+        case failed
     }
 
     public static var isTrusted: Bool {
@@ -43,13 +45,21 @@ public enum AccessibilityProbe {
 
         var windowValue: AnyObject?
         let status = AXUIElementCopyAttributeValue(app, kAXFocusedWindowAttribute as CFString, &windowValue)
-        if status == .cannotComplete {
+        switch status {
+        case .success:
+            break
+        case .cannotComplete:
             return .failure(.timedOut)
+        case .noValue, .attributeUnsupported:
+            return .failure(.noFocusedWindow)
+        default:
+            return .failure(.failed)
         }
-        guard status == .success, let windowValue, CFGetTypeID(windowValue) == AXUIElementGetTypeID() else {
+        guard let windowValue, CFGetTypeID(windowValue) == AXUIElementGetTypeID() else {
             return .failure(.noFocusedWindow)
         }
         let window = windowValue as! AXUIElement
+        AXUIElementSetMessagingTimeout(window, Float(timeout))
         var info = FrontWindowInfo(title: string(window, kAXTitleAttribute))
 
         guard let family else { return .success(info) }

@@ -128,3 +128,73 @@ import Testing
         #expect(group.target == 1)
     }
 }
+
+@Suite struct RecoveryKeys {
+    private let key = Data((0..<32).map { UInt8($0 * 7 % 256) })
+
+    @Test func aKeyComesBackFromItsText() {
+        #expect(RecoveryKey.parse(RecoveryKey.text(for: key)) == key)
+    }
+
+    @Test func aSavedFileIsReadPastTheWordsAroundIt() {
+        let file = """
+        Remind recovery key
+
+        \(RecoveryKey.text(for: key))
+
+        This decrypts your recordings. Keep it somewhere safe and private.
+        """
+        #expect(RecoveryKey.parse(file) == key)
+    }
+
+    @Test func spacingAndCaseDontMatter() {
+        let messy = RecoveryKey.text(for: key).lowercased().replacingOccurrences(of: "-", with: "  ")
+        #expect(RecoveryKey.parse(messy) == key)
+    }
+
+    @Test func tooShortIsNotAKey() {
+        #expect(RecoveryKey.parse("ABCDEF12-34567890") == nil)
+        #expect(RecoveryKey.parse("") == nil)
+        #expect(RecoveryKey.parse("this has no key in it at all") == nil)
+    }
+
+    /// Hex letters in ordinary words mustn't join up with a key or pass for one.
+    @Test func wordsMadeOfHexLettersDontCount() {
+        #expect(RecoveryKey.parse("a bad cafe faced a dead beef deed") == nil)
+    }
+}
+
+@Suite struct OpeningAVault {
+    private func temporaryDirectory() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appending(path: "remind-tests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test func theWrongKeyIsRefusedAndTheRightOneStillWorks() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let right = Data(repeating: 1, count: 32)
+        do { _ = try LiveCore(vaultDirectory: dir, masterKey: right) }
+        #expect(throws: (any Error).self) {
+            _ = try LiveCore(vaultDirectory: dir, masterKey: Data(repeating: 2, count: 32))
+        }
+        _ = try LiveCore(vaultDirectory: dir, masterKey: right)
+    }
+
+    @Test func aSecondOpenOfTheSameVaultSaysItsBusy() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let key = Data(repeating: 1, count: 32)
+        let first = try LiveCore(vaultDirectory: dir, masterKey: key)
+        var isBusy = false
+        do {
+            _ = try LiveCore(vaultDirectory: dir, masterKey: key)
+        } catch {
+            isBusy = LiveCore.isVaultBusy(error)
+        }
+        #expect(isBusy)
+        _ = first
+    }
+}

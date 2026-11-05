@@ -16,8 +16,14 @@ public enum Permission: String, CaseIterable, Identifiable, Sendable {
         self != .microphone
     }
 
+    /// The settings page, if someone has said no, since nothing else can change that.
+    public var settingsURLIfDenied: URL? {
+        guard self == .microphone, AVCaptureDevice.authorizationStatus(for: .audio) == .denied else { return nil }
+        return settingsURL
+    }
+
     /// The page for this in System Settings.
-    var settingsURL: URL {
+    public var settingsURL: URL {
         let anchor = switch self {
         case .screenRecording: "Privacy_ScreenCapture"
         case .accessibility: "Privacy_Accessibility"
@@ -38,9 +44,23 @@ public final class PermissionMonitor {
 
     private var timer: Timer?
     private let checkScreenAccess: () async -> Bool
+    private var isCheckingFreshProcess = false
+    @ObservationIgnored nonisolated(unsafe) private let defaults: UserDefaults
+
+    /// Remembered across launches, because the system's prompt only ever appears once.
+    private var hasAskedForScreenRecording: Bool {
+        get { defaults.bool(forKey: "hasAskedForScreenRecording") }
+        set { defaults.set(newValue, forKey: "hasAskedForScreenRecording") }
+    }
+
+    private var hasAskedForAccessibility: Bool {
+        get { defaults.bool(forKey: "hasAskedForAccessibility") }
+        set { defaults.set(newValue, forKey: "hasAskedForAccessibility") }
+    }
 
     /// - Parameter checkScreenAccess: replaces how a fresh process is asked, for tests.
-    public init(checkScreenAccess: (() async -> Bool)? = nil) {
+    public init(defaults: UserDefaults = .standard, checkScreenAccess: (() async -> Bool)? = nil) {
+        self.defaults = defaults
         self.checkScreenAccess = checkScreenAccess ?? Self.askFreshProcess
         refresh()
     }
@@ -51,7 +71,7 @@ public final class PermissionMonitor {
 
     public func startWatching() {
         guard timer == nil else { return }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.75, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
     }
@@ -68,11 +88,15 @@ public final class PermissionMonitor {
         if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { now.insert(.microphone) }
         if now != granted { granted = now }
 
-        // This process's own check can stay false after the grant, so ask a new one.
+        // This process's own check can stay false after the grant, so ask a new one. That
+        // starts a process, so it's only done after someone has been asked, and one at a time.
         if !now.contains(.screenRecording) {
+            guard hasAskedForScreenRecording, !isCheckingFreshProcess else { return }
+            isCheckingFreshProcess = true
             Task { [weak self] in
                 guard let self else { return }
                 let fresh = await self.checkScreenAccess()
+                self.isCheckingFreshProcess = false
                 if fresh != self.needsRelaunch { self.needsRelaunch = fresh }
             }
         } else if needsRelaunch {
@@ -84,15 +108,20 @@ public final class PermissionMonitor {
     public func request(_ permission: Permission) {
         switch permission {
         case .screenRecording:
-            // This adds Remind to the list. If that doesn't change anything, the
-            // settings page is where it can be turned on.
-            if !CGRequestScreenCaptureAccess() {
+            // The first ask shows the system's prompt, which offers the settings page itself.
+            // After that macOS stays silent, so the page has to be opened directly.
+            if hasAskedForScreenRecording {
                 NSWorkspace.shared.open(permission.settingsURL)
+            } else {
+                hasAskedForScreenRecording = true
+                _ = CGRequestScreenCaptureAccess()
             }
         case .accessibility:
-            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            if !AXIsProcessTrustedWithOptions(options) {
+            if hasAskedForAccessibility {
                 NSWorkspace.shared.open(permission.settingsURL)
+            } else {
+                hasAskedForAccessibility = true
+                _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
             }
         case .microphone:
             switch AVCaptureDevice.authorizationStatus(for: .audio) {

@@ -29,6 +29,21 @@ import Testing
     }
 
     /// Leaving a meeting tab open after the call isn't a meeting.
+    /// A call in a tab can only be seen while the tab is in front, so the app has to know it
+    /// came from a browser in order to keep it going after someone switches away.
+    @Test func browserMeetingsSayTheyAreInABrowser() {
+        let meeting = MeetingDetector.detect(MeetingSignals(
+            windows: [.init(bundleID: "com.google.Chrome", title: "Meet", url: "https://meet.google.com/abc-defg-hij")],
+            isMicrophoneInUse: true
+        ))
+        #expect(meeting?.isInBrowser == true)
+        let zoom = MeetingDetector.detect(MeetingSignals(
+            windows: [.init(bundleID: "us.zoom.xos", title: "Zoom Meeting")],
+            isMicrophoneInUse: true
+        ))
+        #expect(zoom?.isInBrowser == false)
+    }
+
     @Test func browserMeetingsNeedTheMicrophone() {
         let url = "https://meet.google.com/abc-defg-hij"
         #expect(detect("com.google.Chrome", url: url)?.app == "Google Meet")

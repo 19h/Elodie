@@ -5,10 +5,14 @@ import Foundation
 public struct DetectedMeeting: Equatable, Sendable {
     public var app: String
     public var title: String?
+    /// It was recognised from a browser's address, which can only be read while that tab is
+    /// in front.
+    public var isInBrowser: Bool
 
-    public init(app: String, title: String?) {
+    public init(app: String, title: String?, isInBrowser: Bool = false) {
         self.app = app
         self.title = title
+        self.isInBrowser = isInBrowser
     }
 }
 
@@ -62,7 +66,7 @@ public enum MeetingDetector {
                 }
             default:
                 if let url = window.url, signals.isMicrophoneInUse, let service = webService(for: url) {
-                    return DetectedMeeting(app: service, title: nil)
+                    return DetectedMeeting(app: service, title: nil, isInBrowser: true)
                 }
             }
         }

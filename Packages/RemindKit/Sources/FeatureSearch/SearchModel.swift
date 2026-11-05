@@ -1,4 +1,5 @@
 import CoreAPI
+import CoreGraphics
 import Foundation
 import Observation
 
@@ -41,6 +42,48 @@ public final class SearchModel {
     public private(set) var hasSearched = false
     public private(set) var failure: String?
     public private(set) var availableApps: [String] = []
+    /// Which result the keyboard is on.
+    public private(set) var selectedIndex: Int?
+    public var isAppsOpen = false
+    /// Why results might be missing right now, if there's a reason.
+    @ObservationIgnored public var note: () -> String? = { nil }
+    /// How many results fit in a row, so moving up and down goes where it looks like it should.
+    @ObservationIgnored public var columnsPerRow = 1
+    /// Where each card is on screen, so choosing one by keyboard can start from it too.
+    @ObservationIgnored public var cardFrames: [String: CGRect] = [:]
+
+    /// Whether this is listing what the filters pick out, with no words to search for.
+    public var isBrowsing: Bool {
+        text.trimmingCharacters(in: .whitespaces).isEmpty
+            && (starredOnly || meetingsOnly || !selectedApps.isEmpty)
+    }
+
+    /// The result the keyboard is on, or the top one if it hasn't moved yet.
+    public var chosenHit: SearchHit? {
+        if let selectedIndex, hits.indices.contains(selectedIndex) { return hits[selectedIndex] }
+        return hits.first
+    }
+
+    public func move(_ move: SearchMove) {
+        guard !hits.isEmpty else { return }
+        let step = switch move {
+        case .next: 1
+        case .previous: -1
+        case .nextRow: columnsPerRow
+        case .previousRow: -columnsPerRow
+        }
+        guard let selectedIndex else {
+            self.selectedIndex = step > 0 ? 0 : nil
+            return
+        }
+        self.selectedIndex = min(max(selectedIndex + step, 0), hits.count - 1)
+        if hits.count - (self.selectedIndex ?? 0) < columnsPerRow * 2 { loadMore() }
+    }
+
+    /// Runs the current search again, because recordings have changed.
+    public func refresh() {
+        restart()
+    }
 
     private let core: any RemindCore
     /// How long to wait after a keystroke, so typing doesn't start a query per letter.
@@ -73,6 +116,8 @@ public final class SearchModel {
         starredOnly = false
         meetingsOnly = false
         layout = .compact
+        isAppsOpen = false
+        selectedIndex = nil
     }
 
     private func restart() {
@@ -81,7 +126,12 @@ public final class SearchModel {
         task?.cancel()
         generation += 1
         failure = nil
+        selectedIndex = nil
         let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if isBrowsing {
+            browse()
+            return
+        }
         guard !trimmed.isEmpty else {
             hits = []
             hasMore = false
@@ -132,9 +182,51 @@ public final class SearchModel {
         }
     }
 
+    private nonisolated static let browsePage = 30
+
+    private var facets: SearchFacets {
+        SearchFacets(bundleIDs: selectedApps.sorted(), starredOnly: starredOnly, transcriptsOnly: meetingsOnly)
+    }
+
+    /// Lists what the filters pick out, most recent first. This is how to see your starred
+    /// moments or past meetings without having to remember a word from them.
+    private func browse(before: Date? = nil) {
+        layout = .expanded
+        isSearching = true
+        hasSearched = true
+        let current = generation
+        let core = self.core
+        let facets = self.facets
+        task = Task { [weak self] in
+            let page = await Task.detached(priority: .userInitiated) {
+                Result { try core.moments(facets: facets, before: before, limit: Self.browsePage) }
+            }.value
+            self?.finishBrowsing(page, generation: current, appending: before != nil)
+        }
+    }
+
+    private func finishBrowsing(_ page: Result<[SearchHit], any Error>, generation expected: Int, appending: Bool) {
+        guard expected == generation else { return }
+        isSearching = false
+        switch page {
+        case .success(let found):
+            hits = appending ? hits + found : found
+            hasMore = found.count == Self.browsePage
+        case .failure:
+            failure = "That list couldn't be loaded. Try again."
+            hits = []
+            hasMore = false
+        }
+    }
+
     /// Fetches more results. New ones go after what's already shown, and nothing moves.
     public func loadMore() {
-        guard hasMore, !isSearching, let session else { return }
+        guard hasMore, !isSearching else { return }
+        if isBrowsing {
+            browse(before: hits.last?.capturedAt)
+            return
+        }
+        guard let session else { return }
         isSearching = true
         let current = generation
         Task { [weak self] in

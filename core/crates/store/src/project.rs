@@ -156,8 +156,11 @@ pub fn apply_one(tx: &Transaction<'_>, frame: &LoggedFrame) -> rusqlite::Result<
     let segment_id = assign_segment(tx, display, frame.t_ms, &frame.context)?;
     tx.execute(
         "INSERT OR IGNORE INTO frame
-             (t_ms, display_id, chunk_id, seq, offset, len, is_sync, segment_id, front_rect)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, t_ms, display_id, chunk_id, seq, offset, len, is_sync, segment_id, front_rect)
+         VALUES (
+             (SELECT max(coalesce((SELECT max(id) FROM frame), 0), floor) + 1 FROM frame_id_floor),
+             ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
+         )",
         params![
             frame.t_ms,
             display,

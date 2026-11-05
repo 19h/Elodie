@@ -45,10 +45,30 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
     fts5::register_tokenizer(conn)
 }
 
+/// SQLCipher has, once, refused a good key for a couple of seconds under heavy load, so that
+/// one error gets another try on a new connection. A wrong key is a different error, reported
+/// when the database is first read, and doesn't come through here.
+fn with_key_retries<T>(mut open: impl FnMut() -> rusqlite::Result<T>) -> rusqlite::Result<T> {
+    const ATTEMPTS: u32 = 4;
+    let mut attempt = 1;
+    loop {
+        match open() {
+            Err(error) if attempt < ATTEMPTS && error.to_string().contains("PRAGMA key") => {
+                std::thread::sleep(std::time::Duration::from_millis(250 * u64::from(attempt)));
+                attempt += 1;
+            }
+            result => return result,
+        }
+    }
+}
+
 /// Opens the database for reading and writing, creating it if needed.
 pub fn open_writer(path: &Path, key: &DbKey) -> rusqlite::Result<Connection> {
-    let conn = Connection::open(path)?;
-    apply_key(&conn, key)?;
+    let conn = with_key_retries(|| {
+        let conn = Connection::open(path)?;
+        apply_key(&conn, key)?;
+        Ok(conn)
+    })?;
     configure(&conn)?;
     Ok(conn)
 }
@@ -58,8 +78,11 @@ pub fn open_reader(path: &Path, key: &DbKey) -> rusqlite::Result<Connection> {
     let flags = OpenFlags::SQLITE_OPEN_READ_ONLY
         | OpenFlags::SQLITE_OPEN_NO_MUTEX
         | OpenFlags::SQLITE_OPEN_URI;
-    let conn = Connection::open_with_flags(path, flags)?;
-    apply_key(&conn, key)?;
+    let conn = with_key_retries(|| {
+        let conn = Connection::open_with_flags(path, flags)?;
+        apply_key(&conn, key)?;
+        Ok(conn)
+    })?;
     conn.query_row("SELECT count(*) FROM sqlite_master", [], |_| Ok(()))?;
     conn.execute_batch("PRAGMA query_only = ON; PRAGMA busy_timeout = 5000;")?;
     fts5::register_tokenizer(&conn)?;

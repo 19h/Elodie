@@ -1,4 +1,5 @@
 import AppKit
+import CoreAPI
 import DesignSystem
 import Speech
 import SwiftUI
@@ -105,25 +106,48 @@ public enum SettingsWindow {
 private struct GeneralTab: View {
     @Bindable var model: SettingsModel
     let actions: any SettingsActions
+    /// macOS decides what this really is, so it's read back after every change.
+    @State private var opensAtLogin = false
+    @State private var needsApproval = false
 
     var body: some View {
         Form {
             Toggle("Open Remind at login", isOn: Binding(
-                get: { actions.launchAtLogin },
-                set: { actions.setLaunchAtLogin($0) }
+                get: { opensAtLogin },
+                set: { newValue in
+                    actions.setLaunchAtLogin(newValue)
+                    refreshLoginItem()
+                }
             ))
+            if needsApproval {
+                HStack(spacing: 8) {
+                    Text("macOS is waiting for you to allow this.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Open Login Items") { actions.openLoginItemSettings() }
+                        .controlSize(.small)
+                }
+            }
             Toggle("Remind me when recording is paused", isOn: $model.remindWhenPaused)
             Toggle("Show in Dock", isOn: Binding(
                 get: { model.showInDock },
                 set: { actions.setShowInDock($0) }
             ))
-            Toggle("Check for updates automatically", isOn: Binding(
-                get: { model.checkForUpdates },
-                set: { actions.setChecksForUpdates($0) }
-            ))
+            if actions.updatesAvailable {
+                Toggle("Check for updates automatically", isOn: Binding(
+                    get: { model.checkForUpdates },
+                    set: { actions.setChecksForUpdates($0) }
+                ))
+            }
         }
         .formStyle(.columns)
         .padding(28)
+        .onAppear(perform: refreshLoginItem)
+    }
+
+    private func refreshLoginItem() {
+        opensAtLogin = actions.launchAtLogin
+        needsApproval = actions.loginItemNeedsApproval
     }
 }
 
@@ -277,8 +301,9 @@ private struct AudioTab: View {
     var body: some View {
         Form {
             Section {
-                Text("Audio recordings stay on this Mac. They're never uploaded.")
+                Text("Audio is turned into text on this Mac. The audio itself isn't kept, and nothing is uploaded.")
                     .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, 8)
             }
@@ -380,8 +405,14 @@ private struct StorageTab: View {
 
     @State private var usage: StorageUsage?
     @State private var pendingRetention: RetentionPeriod?
+    @State private var pendingApp: AppUsage?
     @State private var confirmingDeleteAll = false
+    @State private var isChoosingRange = false
+    @State private var confirmingRange = false
+    @State private var rangeStart = Date().addingTimeInterval(-3600)
+    @State private var rangeEnd = Date()
     @State private var isWorking = false
+    @State private var failure: String?
 
     var body: some View {
         Form {
@@ -402,9 +433,10 @@ private struct StorageTab: View {
                         }
                     }
                     .labelsHidden()
-                    Text("Keeping less saves space, and also limits how far back you can search.")
+                    Text("Keeping less saves space, and also limits how far back you can search. Starred moments aren't kept any longer than the rest.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             LabeledContent("Space used:") {
@@ -425,6 +457,13 @@ private struct StorageTab: View {
                 }
             }
             .padding(.top, 8)
+            if let apps = usage?.apps, !apps.isEmpty {
+                LabeledContent("By app:") {
+                    AppStorageList(apps: apps, onDelete: { pendingApp = $0 })
+                        .frame(height: min(CGFloat(apps.count) * 32 + 8, 150))
+                }
+                .padding(.top, 8)
+            }
             LabeledContent("Recovery key:") {
                 VStack(alignment: .leading, spacing: 4) {
                     Button("Save recovery key…") { actions.saveRecoveryKey() }
@@ -439,15 +478,32 @@ private struct StorageTab: View {
                 Button("Show in Finder") { actions.revealVault() }
             }
             .padding(.top, 8)
-            LabeledContent("") {
-                Button("Delete all recordings…", role: .destructive) { confirmingDeleteAll = true }
-                    .disabled(isWorking)
+            LabeledContent("Delete:") {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 8) {
+                        Button("Delete a time range…") {
+                            rangeEnd = Date()
+                            rangeStart = rangeEnd.addingTimeInterval(-3600)
+                            isChoosingRange = true
+                        }
+                        .disabled(isWorking)
+                        Button("Delete all recordings…", role: .destructive) { confirmingDeleteAll = true }
+                            .disabled(isWorking)
+                        if isWorking {
+                            ProgressView().controlSize(.small)
+                        }
+                    }
+                    Text("You can also select a stretch right on the timeline.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .padding(.top, 12)
         }
         .formStyle(.columns)
         .padding(28)
         .task { usage = await actions.storageUsage() }
+        .sheet(isPresented: $isChoosingRange) { rangeSheet }
         .alert(
             "Delete recordings older than \(pendingRetention.map { String(localized: $0.title) } ?? "")?",
             isPresented: Binding(get: { pendingRetention != nil }, set: { if !$0 { pendingRetention = nil } })
@@ -455,7 +511,7 @@ private struct StorageTab: View {
             Button("Delete older recordings", role: .destructive) {
                 guard let period = pendingRetention else { return }
                 model.retention = period
-                run { await actions.applyRetention(period) }
+                run { try await actions.applyRetention(period) }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
@@ -463,12 +519,60 @@ private struct StorageTab: View {
         }
         .alert("Delete all recordings?", isPresented: $confirmingDeleteAll) {
             Button("Delete all recordings", role: .destructive) {
-                run { await actions.deleteAllData() }
+                run { try await actions.deleteAllData() }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This permanently deletes your screen recordings, audio, and transcripts. It can't be undone.")
+            Text("This permanently deletes your screen recordings and transcripts. It can't be undone.")
         }
+        .alert(
+            "Delete everything recorded from \(pendingApp.map(appName) ?? "this app")?",
+            isPresented: Binding(get: { pendingApp != nil }, set: { if !$0 { pendingApp = nil } })
+        ) {
+            Button("Delete recordings", role: .destructive) {
+                guard let bundleID = pendingApp?.bundleID else { return }
+                run { try await actions.deleteRecordings(ofApp: bundleID) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes those recordings and their text. It can't be undone, and Remind keeps recording this app unless you exclude it in the Screen tab.")
+        }
+        .alert(
+            "That couldn't be finished",
+            isPresented: Binding(get: { failure != nil }, set: { if !$0 { failure = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(failure ?? "")
+        }
+    }
+
+    private var rangeSheet: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Delete a time range")
+                .font(.headline)
+            Form {
+                DatePicker("From:", selection: $rangeStart, in: ...rangeEnd)
+                DatePicker("To:", selection: $rangeEnd, in: rangeStart...Date())
+            }
+            .formStyle(.columns)
+            Text("This permanently deletes screen recordings and transcripts from that time.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel) { isChoosingRange = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Delete", role: .destructive) {
+                    isChoosingRange = false
+                    let interval = DateInterval(start: rangeStart, end: rangeEnd)
+                    run { try await actions.deleteRange(interval) }
+                }
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
     }
 
     private func isLonger(_ a: RetentionPeriod, than b: RetentionPeriod) -> Bool {
@@ -476,12 +580,64 @@ private struct StorageTab: View {
         return (order.firstIndex(of: a) ?? 0) > (order.firstIndex(of: b) ?? 0)
     }
 
-    private func run(_ work: @escaping () async -> Void) {
+    private func appName(_ app: AppUsage) -> String {
+        AppStorageList.name(of: app)
+    }
+
+    private func run(_ work: @escaping () async throws -> Void) {
         isWorking = true
         Task {
-            await work()
+            do {
+                try await work()
+            } catch {
+                failure = error.localizedDescription
+            }
             usage = await actions.storageUsage()
             isWorking = false
         }
+    }
+}
+
+/// How much each app takes up, with a way to remove it.
+private struct AppStorageList: View {
+    let apps: [AppUsage]
+    let onDelete: (AppUsage) -> Void
+
+    static func name(of app: AppUsage) -> String {
+        guard let bundleID = app.bundleID else { return String(localized: "Other") }
+        return NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
+            .deletingPathExtension().lastPathComponent ?? bundleID
+    }
+
+    var body: some View {
+        List(apps) { app in
+            HStack(spacing: 8) {
+                if let bundleID = app.bundleID,
+                   let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                        .resizable()
+                        .frame(width: 18, height: 18)
+                } else {
+                    Image(systemName: "app.dashed").frame(width: 18, height: 18)
+                }
+                Text(Self.name(of: app))
+                    .lineLimit(1)
+                Spacer()
+                Text(app.bytes.formatted(.byteCount(style: .file)))
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                if app.bundleID != nil {
+                    Button {
+                        onDelete(app)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Delete everything recorded from this app")
+                    .accessibilityLabel("Delete recordings from \(Self.name(of: app))")
+                }
+            }
+        }
+        .listStyle(.bordered(alternatesRowBackgrounds: true))
     }
 }

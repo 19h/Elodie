@@ -436,8 +436,9 @@ private final class ScriptedCore: RemindCore, @unchecked Sendable {
 
 @MainActor
 @Suite struct SearchBehaviour {
+    /// Long enough for a debounced search, even when everything else is running at once.
     private func settle() async throws {
-        try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(600))
     }
 
     @Test func typingShowsResultsAndExpandsThePanel() async throws {
@@ -564,10 +565,23 @@ import FeatureSettings
     }
 }
 
+private actor CheckCounter {
+    private(set) var count = 0
+    func add() { count += 1 }
+}
+
 @MainActor
 @Suite struct PermissionStates {
+    private func defaults(asked: Bool) -> UserDefaults {
+        let name = "remind-tests-\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        defaults.set(asked, forKey: "hasAskedForScreenRecording")
+        return defaults
+    }
+
     @Test func aGrantOnlyAFreshProcessCanSeeAsksForARelaunch() async throws {
-        let monitor = PermissionMonitor(checkScreenAccess: { true })
+        let monitor = PermissionMonitor(defaults: defaults(asked: true), checkScreenAccess: { true })
         monitor.refresh()
         try await Task.sleep(for: .milliseconds(30))
         // This test process has no Screen Recording, but a "new process" reports it does.
@@ -577,9 +591,23 @@ import FeatureSettings
     }
 
     @Test func withNoGrantThereIsNoRelaunchPrompt() async throws {
-        let monitor = PermissionMonitor(checkScreenAccess: { false })
+        let monitor = PermissionMonitor(defaults: defaults(asked: true), checkScreenAccess: { false })
         monitor.refresh()
         try await Task.sleep(for: .milliseconds(30))
+        #expect(!monitor.needsRelaunch)
+    }
+
+    /// Checking starts a whole process, so nothing does that every second on a Mac where
+    /// nobody has been asked yet.
+    @Test func noProcessStartsBeforeAnyoneHasBeenAsked() async throws {
+        let checks = CheckCounter()
+        let monitor = PermissionMonitor(defaults: defaults(asked: false), checkScreenAccess: {
+            await checks.add()
+            return true
+        })
+        monitor.refresh()
+        try await Task.sleep(for: .milliseconds(30))
+        #expect(await checks.count == 0)
         #expect(!monitor.needsRelaunch)
     }
 

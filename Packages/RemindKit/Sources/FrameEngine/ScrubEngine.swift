@@ -103,6 +103,21 @@ public final class ScrubEngine: @unchecked Sendable {
         queue.sync {}
     }
 
+    /// Forgets every decoded picture, including the one on show. Recordings have been deleted,
+    /// and a picture that no longer exists mustn't be shown again.
+    public func forgetEverything() {
+        queue.async {
+            self.open = nil
+            self.shown = nil
+            self.lastTarget = nil
+            self.cache.pin([])
+            let budget = self.cache.budget
+            self.cache.budget = 0
+            self.cache.evict(target: 0, direction: 0)
+            self.cache.budget = budget
+        }
+    }
+
     /// Empties the cache, as when memory is short.
     public func purge() {
         queue.async {

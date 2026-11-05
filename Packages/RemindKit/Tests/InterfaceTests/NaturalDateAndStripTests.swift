@@ -188,3 +188,146 @@ import Testing
         #expect(interpreter.seconds(for: ScrollInput(deltaX: 0, deltaY: -30)) > 0)
     }
 }
+
+@Suite struct SelectingOnTheStrip {
+    private let center = Date(timeIntervalSince1970: 1_800_000_000)
+    // One point per second, 1000 points wide, so x 500 is the centre.
+    private var geometry: StripGeometry {
+        StripGeometry(center: center, pointsPerSecond: 1, width: 1000)
+    }
+
+    private func at(_ seconds: Double) -> Date { center.addingTimeInterval(seconds) }
+
+    private var limits: ClosedRange<Date> { at(-500)...at(500) }
+
+    private var runs: [TimelineRun] {
+        [
+            TimelineRun(start: at(-400), end: at(-100), app: 0),
+            TimelineRun(start: at(-100), end: at(200), app: 1),
+        ]
+    }
+
+    private func drag(_ editor: inout SliceEditor, from: Double, to: Double) -> SliceEditor.Outcome {
+        editor.mouseDown(x: from, geometry: geometry)
+        editor.mouseDragged(x: to, geometry: geometry, runs: runs, limits: limits)
+        return editor.mouseUp(x: to, geometry: geometry)
+    }
+
+    @Test func timesAndPositionsConvertBothWays() {
+        #expect(geometry.x(for: center) == 500)
+        #expect(geometry.time(atX: 600) == at(100))
+        #expect(geometry.x(for: at(-250)) == 250)
+    }
+
+    @Test func aPressAndReleaseInPlaceIsAClick() {
+        var editor = SliceEditor()
+        editor.mouseDown(x: 600, geometry: geometry)
+        editor.mouseDragged(x: 601, geometry: geometry, runs: runs, limits: limits)
+        #expect(editor.mouseUp(x: 601, geometry: geometry) == .clicked(at(101)))
+        #expect(editor.selection == nil)
+    }
+
+    @Test func aDragDrawsAStretch() {
+        var editor = SliceEditor()
+        #expect(drag(&editor, from: 450, to: 620) == .selected)
+        #expect(editor.selection == DateInterval(start: at(-50), end: at(120)))
+    }
+
+    @Test func draggingBackwardGivesTheSameStretch() {
+        var editor = SliceEditor()
+        _ = drag(&editor, from: 620, to: 450)
+        #expect(editor.selection == DateInterval(start: at(-50), end: at(120)))
+    }
+
+    @Test func aDragLandsOnARunsEdgeWhenCloseToOne() {
+        var editor = SliceEditor()
+        // A run edge is at x 400, and this ends 5 points short of it.
+        _ = drag(&editor, from: 250, to: 395)
+        #expect(editor.selection?.end == at(-100))
+    }
+
+    @Test func aDragFarFromAnyEdgeStaysPut() {
+        var editor = SliceEditor()
+        _ = drag(&editor, from: 450, to: 480)
+        #expect(editor.selection?.end == at(-20))
+    }
+
+    @Test func aSelectionCantRunPastTheLimits() {
+        var editor = SliceEditor()
+        editor.mouseDown(x: 600, geometry: geometry)
+        // Limits end at x 1000.
+        editor.mouseDragged(x: 1500, geometry: geometry, runs: runs, limits: limits)
+        #expect(editor.selection?.end == at(500))
+    }
+
+    @Test func eitherEndCanBeDraggedToTrim() {
+        var editor = SliceEditor(selection: DateInterval(start: at(-50), end: at(120)))
+        #expect(editor.isOverHandle(x: 450, geometry: geometry))
+        #expect(!editor.isOverHandle(x: 500, geometry: geometry))
+
+        _ = drag(&editor, from: 451, to: 470)
+        #expect(editor.selection == DateInterval(start: at(-30), end: at(120)))
+
+        _ = drag(&editor, from: 619, to: 590)
+        #expect(editor.selection == DateInterval(start: at(-30), end: at(90)))
+    }
+
+    @Test func draggingOneEndPastTheOtherKeepsGoing() {
+        var editor = SliceEditor(selection: DateInterval(start: at(-50), end: at(0)))
+        editor.mouseDown(x: 450, geometry: geometry)
+        editor.mouseDragged(x: 520, geometry: geometry, runs: runs, limits: limits)
+        #expect(editor.selection == DateInterval(start: at(0), end: at(20)))
+        editor.mouseDragged(x: 530, geometry: geometry, runs: runs, limits: limits)
+        #expect(editor.selection == DateInterval(start: at(0), end: at(30)))
+    }
+
+    @Test func aPressOutsideTheSelectionStartsAfresh() {
+        var editor = SliceEditor(selection: DateInterval(start: at(-50), end: at(0)))
+        #expect(drag(&editor, from: 700, to: 720) == .selected)
+        #expect(editor.selection == DateInterval(start: at(200), end: at(220)))
+    }
+
+    @Test func theRunAtAMomentIsFound() {
+        #expect(SliceEditor.run(at: at(-200), in: runs)?.app == 0)
+        #expect(SliceEditor.run(at: at(50), in: runs)?.app == 1)
+        #expect(SliceEditor.run(at: at(300), in: runs) == nil)
+    }
+}
+
+@Suite struct DescribingADeletion {
+    private let interval = DateInterval(
+        start: Date(timeIntervalSince1970: 1_800_000_000),
+        duration: 1800
+    )
+
+    @Test func itSaysWhatGoes() {
+        let details = SliceDescription.deletionDetails(interval, summary: SliceSummary(frames: 100, bytes: 5_000_000))
+        #expect(details.contains("5"))
+        #expect(!details.contains("starred"))
+        #expect(!details.contains("just after"))
+    }
+
+    @Test func starsAndSpeechAreCalledOut() {
+        let details = SliceDescription.deletionDetails(
+            interval,
+            summary: SliceSummary(frames: 100, bytes: 1000, starred: 2, transcriptLines: 5)
+        )
+        #expect(details.contains("2 starred"))
+        #expect(details.contains("said"))
+    }
+
+    @Test func whatElseDependsOnItIsCalledOut() {
+        let details = SliceDescription.deletionDetails(
+            interval,
+            summary: SliceSummary(frames: 100, bytes: 1000, dependentFrames: 7, dependentUntil: interval.end.addingTimeInterval(14))
+        )
+        #expect(details.contains("14 seconds"))
+        #expect(details.contains("just after"))
+    }
+
+    @Test func durationsReadNaturally() {
+        #expect(SliceDescription.duration(40) == "40 seconds")
+        #expect(SliceDescription.duration(29 * 60) == "29 minutes")
+        #expect(SliceDescription.duration(2 * 3600 + 5 * 60) == "2 hours, 5 minutes")
+    }
+}

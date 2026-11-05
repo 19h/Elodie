@@ -53,6 +53,7 @@ public final class DisplayPipeline: @unchecked Sendable {
     /// Called when encoding keeps failing, since retrying won't help.
     public var onEncoderFailure: (@Sendable () -> Void)?
     private var encoderFailures: [Date] = []
+    private var lastBundleID: String?
 
     private var encoder: HEVCEncoder?
     private var encoderSize: (width: Int, height: Int)?
@@ -138,6 +139,12 @@ public final class DisplayPipeline: @unchecked Sendable {
             starNext = false
             differ.commitCandidate()
             latestLock.withLock { latest = frame.pixelBuffer }
+            // Each app starts on a keyframe, so removing a run of one app later needs
+            // nothing re-encoded and takes nothing from the next app.
+            if context.bundleID != lastBundleID {
+                needsKeyframe = true
+                lastBundleID = context.bundleID
+            }
             encode(frame, context: context)
         }
     }
@@ -158,6 +165,9 @@ public final class DisplayPipeline: @unchecked Sendable {
         } catch {
             counters.encodeFailed += 1
             needsKeyframe = true
+            // This frame was never stored, so on a still screen it has to count as new.
+            differ.reset()
+            noteEncoderFailure()
         }
     }
 
@@ -203,6 +213,7 @@ public final class DisplayPipeline: @unchecked Sendable {
             needsKeyframe = true
             encoder = nil
             encoderSize = nil
+            differ.reset()
             noteEncoderFailure()
             return
         }
@@ -224,10 +235,12 @@ public final class DisplayPipeline: @unchecked Sendable {
             case .droppedQueueFull, .needsKeyframe:
                 counters.appendRefused += 1
                 needsKeyframe = true
+                differ.reset()
             }
         } catch {
             counters.appendRefused += 1
             needsKeyframe = true
+            differ.reset()
         }
     }
 }

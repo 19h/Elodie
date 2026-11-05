@@ -21,10 +21,31 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// each time it opens.
     func refresh() {
         guard let controller else { return }
-        let state: GlyphState = controller.problem != nil ? .problem : (controller.isPaused ? .paused : .recording)
-        item.button?.image = glyph(state)
-        item.button?.toolTip = controller.problem?.message
-            ?? (controller.isPaused ? String(localized: "Remind is paused") : String(localized: "Remind is recording"))
+        // This says what's really happening, which is the only reason to look at it. An icon
+        // that claims to be recording when it isn't would cost someone days of history.
+        let state: GlyphState
+        let status: String
+        if let problem = controller.problem {
+            state = .problem
+            status = problem.message
+        } else if controller.isPaused {
+            state = .paused
+            status = String(localized: "Remind is paused")
+        } else if controller.isRecording {
+            state = .recording
+            status = String(localized: "Remind is recording")
+        } else if !controller.hasFinishedOnboarding {
+            state = .paused
+            status = String(localized: "Remind isn't set up yet")
+        } else {
+            state = .paused
+            status = String(localized: "Remind isn't recording yet")
+        }
+        item.button?.image = glyph(state, isListening: controller.isTranscribing)
+        item.button?.toolTip = controller.isTranscribing
+            ? status + " " + String(localized: "Transcribing audio.")
+            : status
+        item.button?.setAccessibilityLabel(status)
     }
 
     func menuNeedsUpdate(_ menu: NSMenu) {
@@ -41,29 +62,49 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     func build(_ menu: NSMenu) {
         menu.removeAllItems()
         guard let controller else { return }
+        if !controller.hasFinishedOnboarding {
+            menu.addItem(entry("Finish setting up Remind…", symbol: "sparkles", action: #selector(finishSetup)))
+            menu.addItem(.separator())
+            menu.addItem(entry("Quit Remind", action: #selector(quit), key: "q"))
+            return
+        }
         if let problem = controller.problem {
             let row = NSMenuItem(title: problem.message, action: nil, keyEquivalent: "")
             setImage("exclamationmark.triangle", on: row)
             row.isEnabled = false
             menu.addItem(row)
-            if controller.problem == .permissionMissing {
+            if problem == .permissionMissing {
                 menu.addItem(entry("Open Screen Recording settings…", action: #selector(openPermissionSettings)))
+                // A new grant only reaches a new process.
+                menu.addItem(entry("Reopen Remind", symbol: "arrow.clockwise", action: #selector(reopen)))
+            }
+            if problem == .keyMissing {
+                menu.addItem(entry("Unlock with recovery key…", symbol: "key", action: #selector(unlock)))
             }
             if problem.canRetry {
                 menu.addItem(entry("Try again", symbol: "arrow.clockwise", action: #selector(tryAgain)))
             }
             menu.addItem(.separator())
         }
+        if let audioProblem = controller.audioProblem {
+            let row = NSMenuItem(title: audioProblem, action: nil, keyEquivalent: "")
+            setImage("waveform.slash", on: row)
+            row.isEnabled = false
+            menu.addItem(row)
+            menu.addItem(.separator())
+        }
+        let hasRecordings = controller.isVaultOpen
 
         if let meeting = controller.currentMeetingName, !controller.isTranscribing {
             menu.addItem(entry("Transcribe this \(meeting) meeting", symbol: "waveform.badge.mic", action: #selector(toggleTranscribing)))
             menu.addItem(.separator())
         }
 
-        menu.addItem(entry("Search Remind…", symbol: "magnifyingglass", action: #selector(search), shortcut: .search))
-        menu.addItem(entry("Ask Remind…", symbol: "questionmark.bubble", action: #selector(ask), shortcut: .ask))
+        menu.addItem(entry("Search Remind…", symbol: "magnifyingglass", action: #selector(search), shortcut: .search, enabled: hasRecordings))
+        menu.addItem(entry("Ask Remind…", symbol: "questionmark.bubble", action: #selector(ask), shortcut: .ask, enabled: hasRecordings))
         menu.addItem(.separator())
-        menu.addItem(entry("Daily Recap", symbol: "calendar", action: #selector(recap), shortcut: .dailyRecap))
+        menu.addItem(entry("Daily Recap", symbol: "calendar", action: #selector(recap), shortcut: .dailyRecap, enabled: hasRecordings))
+        menu.addItem(entry("Transcripts", symbol: "text.quote", action: #selector(transcripts), enabled: hasRecordings))
         menu.addItem(.separator())
 
         menu.addItem(switchRow(
@@ -80,7 +121,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         ) { [weak self] _ in
             self?.controller?.toggleTranscribing()
         })
-        menu.addItem(entry("Star moment", symbol: "star", action: #selector(star), shortcut: .starMoment))
+        menu.addItem(entry("Star moment", symbol: "star", action: #selector(star), shortcut: .starMoment, enabled: hasRecordings))
         if !controller.isPaused {
             let pause = NSMenuItem(title: String(localized: "Pause for"), action: nil, keyEquivalent: "")
             setImage("pause.circle", on: pause)
@@ -92,10 +133,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         }
         menu.addItem(.separator())
 
-        if controller.hasTranscript {
-            menu.addItem(entry("Last transcript", symbol: "text.quote", action: #selector(transcript)))
-        }
-        menu.addItem(entry("Forget the last 5 minutes…", symbol: "clock.arrow.circlepath", action: #selector(forget)))
+        menu.addItem(entry("Forget the last 5 minutes…", symbol: "clock.arrow.circlepath", action: #selector(forget), enabled: hasRecordings))
         menu.addItem(.separator())
         menu.addItem(entry("Settings…", action: #selector(settings), key: ","))
         if controller.updater.isAvailable {
@@ -110,10 +148,12 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         symbol: String? = nil,
         action: Selector,
         key: String = "",
-        shortcut: KeyboardShortcuts.Name? = nil
+        shortcut: KeyboardShortcuts.Name? = nil,
+        enabled: Bool = true
     ) -> NSMenuItem {
         let item = NSMenuItem(title: String(localized: title), action: action, keyEquivalent: key)
         item.target = self
+        item.isEnabled = enabled
         if let symbol {
             setImage(symbol, on: item)
         }
@@ -149,8 +189,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 
     /// Frames in depth crossed by a playhead, the same idea as the app icon. Paused is an
     /// outline, and a problem is an outline struck through.
-    private func glyph(_ state: GlyphState) -> NSImage {
-        let image = NSImage(size: NSSize(width: 18, height: 16), flipped: false) { _ in
+    private func glyph(_ state: GlyphState, isListening: Bool) -> NSImage {
+        let image = NSImage(size: NSSize(width: isListening ? 24 : 18, height: 16), flipped: false) { _ in
             NSColor.black.set()
             let back = NSBezierPath(roundedRect: NSRect(x: 5, y: 5, width: 11, height: 9), xRadius: 2, yRadius: 2)
             back.lineWidth = 1.3
@@ -172,6 +212,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
                 strike.lineWidth = 1.6
                 strike.stroke()
             }
+            if isListening {
+                // Three bars, which is how anyone can tell audio is being heard.
+                for (index, height) in [4.0, 8.0, 5.0].enumerated() {
+                    NSBezierPath(
+                        roundedRect: NSRect(x: 18.5 + Double(index) * 2, y: 8 - height / 2, width: 1.3, height: height),
+                        xRadius: 0.6,
+                        yRadius: 0.6
+                    ).fill()
+                }
+            }
             return true
         }
         image.isTemplate = true
@@ -185,13 +235,14 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     @objc private func pause15() { controller?.setPaused(true, for: 15 * 60) }
     @objc private func pause60() { controller?.setPaused(true, for: 60 * 60) }
     @objc private func toggleTranscribing() { controller?.toggleTranscribing() }
-    @objc private func transcript() { controller?.openLastTranscript() }
+    @objc private func transcripts() { controller?.openTranscripts() }
+    @objc private func finishSetup() { controller?.showOnboarding() }
+    @objc private func unlock() { controller?.showRecovery() }
+    @objc private func reopen() { controller?.relaunch() }
     @objc private func tryAgain() { controller?.tryAgain() }
 
     @objc private func openPermissionSettings() {
-        if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture") {
-            NSWorkspace.shared.open(url)
-        }
+        controller?.openPermissionSettings()
     }
 
     @objc private func forget() {
@@ -214,7 +265,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 }
 
 /// A menu row with a switch, which stays open when flipped so the change is visible.
-private final class SwitchRowView: NSView {
+final class SwitchRowView: NSView {
     init(title: String, symbol: String, isOn: Bool, onChange: @escaping (Bool) -> Void) {
         super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
 

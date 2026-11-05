@@ -45,7 +45,7 @@ public enum StreamStop: Sendable, Equatable {
     case encoderFailed
     case other(code: Int)
 
-    init(_ error: any Error) {
+    public init(_ error: any Error) {
         guard (error as NSError).domain == SCStreamErrorDomain,
               let code = SCStreamError.Code(rawValue: (error as NSError).code)
         else {
@@ -59,6 +59,20 @@ public enum StreamStop: Sendable, Equatable {
         case .noCaptureSource, .noDisplayList: self = .displayGone
         default: self = .other(code: code.rawValue)
         }
+    }
+}
+
+/// A filter that has been applied.
+public struct AppliedFilter: Sendable, Equatable {
+    /// When it took effect, in mach time.
+    public var appliedAt: UInt64
+    /// The windows it hides. A window that capture doesn't know about yet can't be hidden,
+    /// however much it should be, so this can be fewer than were asked for.
+    public var covered: Set<CGWindowID>
+
+    public init(appliedAt: UInt64, covered: Set<CGWindowID>) {
+        self.appliedAt = appliedAt
+        self.covered = covered
     }
 }
 
@@ -121,11 +135,14 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         return configuration
     }
 
-    /// Starts capture with the given windows left out, and returns when that
-    /// filter took effect, in mach time.
+    /// Starts capture with the given windows left out. Returns when that filter took effect,
+    /// in mach time, and which windows it really covers.
     @discardableResult
-    public func start(excluding windows: Set<CGWindowID>, interval: TimeInterval = captureInterval) async throws -> UInt64 {
-        let filter = try await ScreenContent.filter(displayID: displayID, excluding: windows)
+    public func start(
+        excluding windows: Set<CGWindowID>,
+        interval: TimeInterval = captureInterval
+    ) async throws -> AppliedFilter {
+        let (filter, covered) = try await ScreenContent.filter(displayID: displayID, excluding: windows)
         let configuration = Self.configuration(for: displayID)
         configuration.minimumFrameInterval = CMTime(seconds: interval, preferredTimescale: 600)
         let pointWidth = max(CGDisplayPixelsWide(displayID), 1)
@@ -136,7 +153,7 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         self.stream = stream
-        return mach_absolute_time()
+        return AppliedFilter(appliedAt: mach_absolute_time(), covered: covered)
     }
 
     /// Starts capture of one window only. Used by tests that should see nothing else.
@@ -160,13 +177,13 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         self.stream = stream
     }
 
-    /// Changes which windows are left out, and returns when the new filter took
-    /// effect, in mach time.
+    /// Changes which windows are left out. Returns when the new filter took effect, in mach
+    /// time, and which windows it really covers.
     @discardableResult
-    public func update(excluding windows: Set<CGWindowID>) async throws -> UInt64 {
-        let filter = try await ScreenContent.filter(displayID: displayID, excluding: windows)
+    public func update(excluding windows: Set<CGWindowID>) async throws -> AppliedFilter {
+        let (filter, covered) = try await ScreenContent.filter(displayID: displayID, excluding: windows)
         try await stream?.updateContentFilter(filter)
-        return mach_absolute_time()
+        return AppliedFilter(appliedAt: mach_absolute_time(), covered: covered)
     }
 
     public func stop() async {
@@ -213,7 +230,7 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
 public enum ScreenContent {
     /// Takes one screenshot of a display and discards it. For comparing capture costs.
     public static func screenshot(displayID: CGDirectDisplayID) async throws -> CGSize {
-        let filter = try await filter(displayID: displayID, excluding: [])
+        let (filter, _) = try await Self.filter(displayID: displayID, excluding: [])
         let configuration = DisplayStream.configuration(for: displayID)
         let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
         return CGSize(width: image.width, height: image.height)
@@ -281,16 +298,19 @@ public enum ScreenContent {
         try await saveScreenshot(ofWindow: largest, to: url)
     }
 
-    /// A filter showing a display with the given windows left out.
+    /// A filter showing a display with the given windows left out, and which of them it covers.
     public static func filter(
         displayID: CGDirectDisplayID,
         excluding windows: Set<CGWindowID>
-    ) async throws -> SCContentFilter {
+    ) async throws -> (SCContentFilter, covered: Set<CGWindowID>) {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         guard let display = content.displays.first(where: { $0.displayID == displayID }) else {
             throw DisplayStreamError.displayNotFound(displayID)
         }
         let excluded = content.windows.filter { windows.contains($0.windowID) }
-        return SCContentFilter(display: display, excludingWindows: excluded)
+        return (
+            SCContentFilter(display: display, excludingWindows: excluded),
+            Set(excluded.map(\.windowID))
+        )
     }
 }

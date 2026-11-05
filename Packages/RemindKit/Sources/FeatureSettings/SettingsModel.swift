@@ -1,3 +1,4 @@
+import CoreAPI
 import Foundation
 import Observation
 
@@ -116,11 +117,14 @@ public struct StorageUsage: Sendable, Equatable {
     public var recordingBytes: Int64
     public var freeBytes: Int64
     public var oldest: Date?
+    /// How much each app takes up, most first.
+    public var apps: [AppUsage]
 
-    public init(recordingBytes: Int64, freeBytes: Int64, oldest: Date?) {
+    public init(recordingBytes: Int64, freeBytes: Int64, oldest: Date?, apps: [AppUsage] = []) {
         self.recordingBytes = recordingBytes
         self.freeBytes = freeBytes
         self.oldest = oldest
+        self.apps = apps
     }
 
     /// An estimate from real usage, once there's enough history to base it on.
@@ -136,13 +140,19 @@ public struct StorageUsage: Sendable, Equatable {
 @MainActor
 public protocol SettingsActions: AnyObject {
     func storageUsage() async -> StorageUsage
-    func deleteAllData() async
-    func deleteRange(_ interval: DateInterval) async
-    func applyRetention(_ period: RetentionPeriod) async
+    func deleteAllData() async throws
+    func deleteRange(_ interval: DateInterval) async throws
+    func deleteRecordings(ofApp bundleID: String) async throws
+    func applyRetention(_ period: RetentionPeriod) async throws
     func saveRecoveryKey()
     func revealVault()
     func setLaunchAtLogin(_ enabled: Bool)
     var launchAtLogin: Bool { get }
+    /// macOS is waiting for this to be allowed in System Settings.
+    var loginItemNeedsApproval: Bool { get }
+    func openLoginItemSettings()
+    /// Whether this build can update itself at all.
+    var updatesAvailable: Bool { get }
     func setChecksForUpdates(_ enabled: Bool)
     func setShowInDock(_ show: Bool)
     func setNamesMeetingsFromCalendar(_ enabled: Bool)

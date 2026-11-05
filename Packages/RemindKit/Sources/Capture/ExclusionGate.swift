@@ -52,11 +52,24 @@ extension ExclusionPolicy {
             if let bundleID = app.bundleID, excludedBundleIDs.contains(bundleID) {
                 required.insert(window.id)
             } else if excludesPrivateWindows, let family = app.family,
-                      PrivateWindowRules.isPrivate(title: window.title, family: family) {
+                      PrivateWindowRules.isPrivate(title: window.title, family: family)
+                        || Self.isUntitledBrowserWindow(window) {
                 required.insert(window.id)
             }
         }
         return required
+    }
+}
+
+extension ExclusionPolicy {
+    /// A browser window whose title isn't known yet can't be confirmed safe, so it's treated
+    /// as private until it has one. A new window can exist for a moment before its title
+    /// does. Small and floating windows are tooltips and popups, not pages.
+    private static func isUntitledBrowserWindow(_ window: WindowInfo) -> Bool {
+        (window.title ?? "").isEmpty
+            && window.layer == 0
+            && window.bounds.width >= 200
+            && window.bounds.height >= 120
     }
 }
 
@@ -67,12 +80,22 @@ extension ExclusionPolicy {
 /// private window is on its way into the filter, frames are thrown away rather
 /// than recorded. Opening an ordinary window changes nothing here, so it costs no
 /// frames.
+///
+/// A frame gets checked a moment after it was composed, by which time a window in it may
+/// have closed. So what's on screen now isn't enough to decide. The gate also remembers
+/// each window it saw that the filter didn't cover, and once that window has gone, it
+/// treats everything composed up to that moment as unsafe.
 public struct ExclusionGate: Sendable, Equatable {
     /// The windows hidden by the filter in effect.
     public private(set) var committed: Set<CGWindowID> = []
     /// When that filter took effect, in mach time. No frame is safe before the
     /// first one has.
     public private(set) var committedAt: UInt64?
+    /// Windows seen needing to be hidden that no filter has covered yet.
+    public private(set) var uncovered: Set<CGWindowID> = []
+    /// Frames composed up to this time may show a window that closed before any filter
+    /// covered it.
+    public private(set) var unsafeUntil: UInt64 = 0
 
     public init() {}
 
@@ -80,6 +103,21 @@ public struct ExclusionGate: Sendable, Equatable {
     public mutating func commit(_ windows: Set<CGWindowID>, at machTime: UInt64) {
         committed = windows
         committedAt = machTime
+        uncovered.subtract(windows)
+    }
+
+    /// Takes note of what must be hidden right now, and returns any windows the filter
+    /// doesn't cover.
+    @discardableResult
+    public mutating func observe(required: Set<CGWindowID>, now: UInt64) -> Set<CGWindowID> {
+        let gone = uncovered.subtracting(required)
+        if !gone.isEmpty {
+            unsafeUntil = max(unsafeUntil, now)
+            uncovered.subtract(gone)
+        }
+        let missing = required.subtracting(committed)
+        uncovered.formUnion(missing)
+        return missing
     }
 
     public enum Verdict: Sendable, Equatable {
@@ -92,11 +130,15 @@ public struct ExclusionGate: Sendable, Equatable {
         case dropNoFilter
     }
 
-    public func check(required: Set<CGWindowID>, frameDisplayTime: UInt64) -> Verdict {
+    public mutating func check(
+        required: Set<CGWindowID>,
+        frameDisplayTime: UInt64,
+        now: UInt64 = mach_absolute_time()
+    ) -> Verdict {
         guard let committedAt else { return .dropNoFilter }
-        if !required.isSubset(of: committed) {
+        if !observe(required: required, now: now).isEmpty {
             return .dropNeedsFilter(required)
         }
-        return frameDisplayTime > committedAt ? .allow : .dropFrameTooOld
+        return frameDisplayTime > committedAt && frameDisplayTime > unsafeUntil ? .allow : .dropFrameTooOld
     }
 }

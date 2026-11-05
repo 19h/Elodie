@@ -23,6 +23,8 @@ pub enum CoreError {
     NoSuchFrame,
     #[error("the core has stopped")]
     Stopped,
+    #[error("this vault is already open in another process")]
+    VaultBusy,
     #[error("storage failed: {message}")]
     Storage { message: String },
 }
@@ -31,6 +33,7 @@ impl From<EngineError> for CoreError {
     fn from(error: EngineError) -> Self {
         match error {
             EngineError::Stopped => CoreError::Stopped,
+            EngineError::VaultBusy => CoreError::VaultBusy,
             EngineError::NoSuchFrame => CoreError::NoSuchFrame,
             other => CoreError::Storage { message: other.to_string() },
         }
@@ -78,6 +81,86 @@ pub struct NormalizedRect {
 }
 
 /// A line of text in a frame.
+#[derive(Debug, uniffi::Record)]
+pub struct RecordedDisplayInfo {
+    pub uuid: Vec<u8>,
+    pub width: i64,
+    pub height: i64,
+    pub first_ms: i64,
+    pub last_ms: i64,
+}
+
+/// A starred frame.
+#[derive(Debug, uniffi::Record)]
+pub struct StarredFrameInfo {
+    pub frame_id: i64,
+    pub t_ms: i64,
+}
+
+/// What was in front at a moment.
+#[derive(Debug, uniffi::Record)]
+pub struct SegmentDetails {
+    pub bundle_id: Option<String>,
+    pub window: Option<String>,
+    pub url: Option<String>,
+    pub t_start_ms: i64,
+    pub t_end_ms: i64,
+}
+
+/// Time spent in an app within a stretch.
+#[derive(Debug, uniffi::Record)]
+pub struct SliceApp {
+    pub bundle_id: Option<String>,
+    pub duration_ms: i64,
+}
+
+/// What a stretch of time holds.
+#[derive(Debug, uniffi::Record)]
+pub struct SliceSummaryInfo {
+    pub frames: i64,
+    pub bytes: i64,
+    pub starred: i64,
+    pub transcript_lines: i64,
+    pub apps: Vec<SliceApp>,
+    pub windows: Vec<String>,
+    pub dependent_frames: i64,
+    pub dependent_until_ms: Option<i64>,
+}
+
+/// A stretch of speech.
+#[derive(Debug, uniffi::Record)]
+pub struct TranscriptSessionInfo {
+    pub title: Option<String>,
+    pub t_start_ms: i64,
+    pub t_end_ms: i64,
+    pub lines: i64,
+}
+
+/// Recording space used by an app.
+#[derive(Debug, uniffi::Record)]
+pub struct AppStorageInfo {
+    pub bundle_id: Option<String>,
+    pub bytes: i64,
+    pub frames: i64,
+}
+
+/// A stretch of an app's recording.
+#[derive(Debug, uniffi::Record)]
+pub struct Stretch {
+    pub t_start_ms: i64,
+    pub t_end_ms: i64,
+}
+
+/// What to list without searching for words.
+#[derive(Debug, uniffi::Record)]
+pub struct MomentQuery {
+    pub bundle_ids: Vec<String>,
+    pub starred_only: bool,
+    pub transcripts_only: bool,
+    pub before_ms: Option<i64>,
+    pub limit: u32,
+}
+
 #[derive(Debug, uniffi::Record)]
 pub struct FrameLineInfo {
     pub text: String,
@@ -153,6 +236,7 @@ pub struct SearchHit {
     pub frame_id: i64,
     pub run_id: i64,
     pub t_ms: i64,
+    pub display_uuid: Option<Vec<u8>>,
     pub bundle_id: Option<String>,
     pub window: Option<String>,
     pub url: Option<String>,
@@ -188,6 +272,7 @@ impl SearchHandle {
                     frame_id: hit.frame_id,
                     run_id: hit.run_id,
                     t_ms: hit.t_ms,
+                    display_uuid: hit.display_uuid.map(|uuid| uuid.to_vec()),
                     bundle_id: hit.bundle_id,
                     window: hit.window,
                     url: hit.url,
@@ -579,6 +664,139 @@ impl Core {
             .frame_lines(frame_id)?
             .into_iter()
             .map(|line| FrameLineInfo { text: line.text, rect: line.rect.into() })
+            .collect())
+    }
+
+    /// Every display with recordings, most recently used first.
+    pub fn displays(&self) -> Result<Vec<RecordedDisplayInfo>, CoreError> {
+        Ok(self
+            .engine
+            .displays()?
+            .into_iter()
+            .map(|display| RecordedDisplayInfo {
+                uuid: display.uuid.to_vec(),
+                width: display.width,
+                height: display.height,
+                first_ms: display.first_ms,
+                last_ms: display.last_ms,
+            })
+            .collect())
+    }
+
+    /// Whether a frame is starred.
+    pub fn is_starred(&self, frame_id: i64) -> Result<bool, CoreError> {
+        Ok(self.engine.is_starred(frame_id)?)
+    }
+
+    /// Starred frames on a display in a period, earliest first.
+    pub fn stars(
+        &self,
+        display: Vec<u8>,
+        from_ms: i64,
+        to_ms: i64,
+    ) -> Result<Vec<StarredFrameInfo>, CoreError> {
+        Ok(self
+            .engine
+            .stars(&display_id(&display)?, from_ms, to_ms)?
+            .into_iter()
+            .map(|star| StarredFrameInfo { frame_id: star.frame_id, t_ms: star.t_ms })
+            .collect())
+    }
+
+    /// What was in front on a display at a moment.
+    pub fn segment_at(&self, display: Vec<u8>, t_ms: i64) -> Result<Option<SegmentDetails>, CoreError> {
+        Ok(self.engine.segment_at(&display_id(&display)?, t_ms)?.map(|segment| SegmentDetails {
+            bundle_id: segment.bundle_id,
+            window: segment.window,
+            url: segment.url,
+            t_start_ms: segment.t_start,
+            t_end_ms: segment.t_end,
+        }))
+    }
+
+    /// What a stretch of time holds.
+    pub fn slice_summary(&self, from_ms: i64, to_ms: i64) -> Result<SliceSummaryInfo, CoreError> {
+        let summary = self.engine.slice_summary(from_ms, to_ms)?;
+        Ok(SliceSummaryInfo {
+            frames: summary.frames,
+            bytes: summary.bytes,
+            starred: summary.starred,
+            transcript_lines: summary.transcript_lines,
+            apps: summary
+                .apps
+                .into_iter()
+                .map(|(bundle_id, duration_ms)| SliceApp { bundle_id, duration_ms })
+                .collect(),
+            windows: summary.windows,
+            dependent_frames: summary.dependent_frames,
+            dependent_until_ms: summary.dependent_until_ms,
+        })
+    }
+
+    /// Stretches of speech that overlap a period, most recent first.
+    pub fn transcript_sessions(
+        &self,
+        from_ms: i64,
+        to_ms: i64,
+        limit: u32,
+    ) -> Result<Vec<TranscriptSessionInfo>, CoreError> {
+        Ok(self
+            .engine
+            .transcript_sessions(from_ms, to_ms, limit)?
+            .into_iter()
+            .map(|session| TranscriptSessionInfo {
+                title: session.title,
+                t_start_ms: session.t_start,
+                t_end_ms: session.t_end,
+                lines: session.lines,
+            })
+            .collect())
+    }
+
+    /// How much recording space each app uses, most first.
+    pub fn storage_by_app(&self) -> Result<Vec<AppStorageInfo>, CoreError> {
+        Ok(self
+            .engine
+            .storage_by_app()?
+            .into_iter()
+            .map(|app| AppStorageInfo { bundle_id: app.bundle_id, bytes: app.bytes, frames: app.frames })
+            .collect())
+    }
+
+    /// The stretches of time an app was recorded in.
+    pub fn app_stretches(&self, bundle_id: String) -> Result<Vec<Stretch>, CoreError> {
+        Ok(self
+            .engine
+            .app_stretches(&bundle_id)?
+            .into_iter()
+            .map(|(t_start_ms, t_end_ms)| Stretch { t_start_ms, t_end_ms })
+            .collect())
+    }
+
+    /// Lists moments without searching for any words.
+    pub fn moments(&self, query: MomentQuery) -> Result<Vec<SearchHit>, CoreError> {
+        Ok(self
+            .engine
+            .moments(&remind_engine::MomentQuery {
+                bundle_ids: query.bundle_ids,
+                starred_only: query.starred_only,
+                transcripts_only: query.transcripts_only,
+                before_ms: query.before_ms,
+                limit: query.limit,
+            })?
+            .into_iter()
+            .map(|moment| SearchHit {
+                frame_id: moment.frame_id,
+                run_id: moment.run_id,
+                t_ms: moment.t_ms,
+                display_uuid: moment.display_uuid.map(|uuid| uuid.to_vec()),
+                bundle_id: moment.bundle_id,
+                window: moment.window,
+                url: moment.url,
+                rects: Vec::new(),
+                snippet: moment.snippet,
+                is_transcript: moment.is_transcript,
+            })
             .collect())
     }
 

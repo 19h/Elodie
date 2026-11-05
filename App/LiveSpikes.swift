@@ -74,7 +74,8 @@ enum LiveSpikes {
         window.backgroundColor = color
         window.level = .floating
         window.isReleasedWhenClosed = false
-        window.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
+        // Over full-screen apps too, or the marker can't appear there and the race proves nothing.
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         return window
     }
 
@@ -302,14 +303,23 @@ enum LiveSpikes {
             )
         }
 
-        // Saturated markers, as chroma: magenta and green in 4:2:0 full range.
-        let magenta: (cb: UInt8, cr: UInt8) = (212, 234)
-        let green: (cb: UInt8, cr: UInt8) = (42, 22)
+        // Saturated markers, as chroma, for sRGB colours captured in Display P3 with the
+        // BT.709 matrix in 4:2:0 full range.
+        let magenta: (cb: UInt8, cr: UInt8) = (196, 211)
+        let green: (cb: UInt8, cr: UInt8) = (56, 69)
 
         let results = RaceResults()
         let queue = DispatchQueue(label: "spike.privacy", qos: .userInitiated)
+        var lastWindowCheck: Duration = .zero
+        let events = RaceEvents()
 
-        func runRace(name: String, enforce: Bool, opens: Int, privateTitle: String) async throws -> RaceResults.Snapshot {
+        func runRace(
+            name: String,
+            enforce: Bool,
+            opens: Int,
+            privateTitle: String,
+            lifetimes: ClosedRange<Int> = 250...700
+        ) async throws -> RaceResults.Snapshot {
             let monitor = makeMonitor()
             results.reset()
             let area = corner()
@@ -323,10 +333,23 @@ enum LiveSpikes {
                         results.drop()
                         return
                     }
+                    let marked = count(chroma: magenta, in: frame, rect: topLeftArea, display: display)
                     results.allowed(
-                        magenta: count(chroma: magenta, in: frame, rect: topLeftArea, display: display),
+                        magenta: marked,
                         green: count(chroma: green, in: frame, rect: topLeftArea, display: display)
                     )
+                    if enforce, marked > 200 {
+                        // Explain the leak: when this frame was composed, compared with what happened.
+                        let gate = monitor.gateState
+                        let times = events.snapshot()
+                        func ms(_ later: UInt64, _ earlier: UInt64) -> String {
+                            var base = mach_timebase_info()
+                            mach_timebase_info(&base)
+                            let delta = Double(Int64(later) - Int64(earlier)) * Double(base.numer) / Double(base.denom) / 1e6
+                            return String(format: "%.0f", delta)
+                        }
+                        report.line("    LEAK \(name): pixels \(marked), composed \(ms(frame.displayTime, times.opened)) ms after open, \(ms(frame.displayTime, times.closed)) ms after close, \(ms(frame.displayTime, gate.committedAt ?? 0)) ms after commit, checked \(ms(mach_absolute_time(), frame.displayTime)) ms later, filter covers \(gate.committed.count), current window in filter: \(times.windowID.map { gate.committed.contains($0) } ?? false), required now \(check.required.count)")
+                    }
                 },
                 onStop: { reason in report.line("  the stream stopped: \(reason)") }
             )
@@ -338,13 +361,15 @@ enum LiveSpikes {
                 let started = clock.now
                 let onScreen = makeWindow(title: "Marker \(index) - \(privateTitle)", frame: area, color: NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1))
                 onScreen.orderFrontRegardless()
+                events.noteOpen(CGWindowID(onScreen.windowNumber))
                 checks.append(clock.now - started)
-                try await Task.sleep(for: .milliseconds(Int.random(in: 20...180)))
+                try await Task.sleep(for: .milliseconds(Int.random(in: lifetimes)))
                 onScreen.orderOut(nil)
+                events.noteClose()
                 try await Task.sleep(for: .milliseconds(Int.random(in: 20...120)))
 
                 // Now and then an ordinary window, which must come through.
-                if index % 10 == 0 {
+                if index % 5 == 0 {
                     let ordinary = makeWindow(title: "Ordinary \(index) - Brave", frame: area, color: NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1))
                     ordinary.orderFrontRegardless()
                     try await Task.sleep(for: .milliseconds(200))
@@ -355,6 +380,8 @@ enum LiveSpikes {
                 }
             }
             await stream.stop()
+            monitor.stop()
+            lastWindowCheck = monitor.averageWindowCheck
             return results.snapshot()
         }
 
@@ -365,10 +392,19 @@ enum LiveSpikes {
             report.line("  CONTROL FAILED: the detector never saw the marker, so the results below prove nothing")
         }
 
+        // Too short for the watcher to be sure of seeing, so this shows the limit of the
+        // guarantee. A window open this briefly can barely draw anything.
+        let brief = try await runRace(name: "brief", enforce: true, opens: max(iterations / 10, 10), privateTitle: "Brave (Private)", lifetimes: 20...120)
+        report.line("  windows open under 120 ms: marker reached the encoder in \(brief.framesWithMagenta) of \(brief.allowedFrames) allowed frames")
+
         for (language, title) in [("English", "Brave (Private)"), ("German", "Brave (Privat)")] {
+            // Checked again each time, because a result only counts if the marker was visible.
+            let again = try await runRace(name: "control", enforce: false, opens: 8, privateTitle: title)
+            report.line("  control before \(language): \(again.framesWithMagenta) frames with the marker")
             let result = try await runRace(name: language, enforce: true, opens: iterations / 2, privateTitle: title)
             let total = result.allowedFrames + result.droppedFrames
             report.line("  \(language): marker reached the encoder in \(result.framesWithMagenta) of \(result.allowedFrames) allowed frames")
+            report.line("    the watcher took \(lastWindowCheck) per look")
             report.line("    ordinary window seen in \(result.framesWithGreen) frames, dropped \(result.droppedFrames) of \(total) (\(String(format: "%.1f", 100 * Double(result.droppedFrames) / Double(max(total, 1))))%)")
         }
     }
@@ -583,6 +619,31 @@ final class Report: @unchecked Sendable {
             handle = nil
         }
     }
+}
+
+/// When the marker window last opened and closed, for explaining leaks.
+final class RaceEvents: @unchecked Sendable {
+    struct Snapshot {
+        var opened: UInt64 = 0
+        var closed: UInt64 = 0
+        var windowID: CGWindowID?
+    }
+
+    private let lock = NSLock()
+    private var state = Snapshot()
+
+    func noteOpen(_ window: CGWindowID) {
+        lock.withLock {
+            state.opened = mach_absolute_time()
+            state.windowID = window
+        }
+    }
+
+    func noteClose() {
+        lock.withLock { state.closed = mach_absolute_time() }
+    }
+
+    func snapshot() -> Snapshot { lock.withLock { state } }
 }
 
 final class RaceResults: @unchecked Sendable {

@@ -139,6 +139,14 @@ const MIGRATIONS: &[&str] = &[
          summary TEXT
      );
      CREATE INDEX meeting_time ON meeting(t_start);",
+    // Version 5: frame IDs are never reused. Deleting the newest frames would otherwise free
+    // their IDs for new frames, and anything still holding an old ID, such as a decoded
+    // picture, would then show a deleted frame under a new one.
+    "CREATE TABLE frame_id_floor (
+         only_row INTEGER PRIMARY KEY CHECK (only_row = 1),
+         floor INTEGER NOT NULL
+     );
+     INSERT INTO frame_id_floor(only_row, floor) VALUES (1, 0);",
 ];
 
 /// Brings the database up to the current schema.

@@ -87,6 +87,20 @@ public enum TimelineZoom {
     /// with a trackpad.
     public static let defaultPointsPerSecond = 1.5
 
+    /// Where a zoom level sits between widest and closest, from 0 to 1. Zoom feels even in
+    /// steps of a multiple, so this is on a logarithmic scale.
+    public static func fraction(for pointsPerSecond: Double) -> Double {
+        let low = log(minimumPointsPerSecond)
+        let high = log(maximumPointsPerSecond)
+        return min(max((log(pointsPerSecond) - low) / (high - low), 0), 1)
+    }
+
+    public static func pointsPerSecond(forFraction fraction: Double) -> Double {
+        let low = log(minimumPointsPerSecond)
+        let high = log(maximumPointsPerSecond)
+        return exp(low + min(max(fraction, 0), 1) * (high - low))
+    }
+
     /// A zoom level after a pinch of `magnification`, keeping within limits.
     public static func applying(magnification: Double, to pointsPerSecond: Double) -> Double {
         min(max(pointsPerSecond * (1 + magnification), minimumPointsPerSecond), maximumPointsPerSecond)

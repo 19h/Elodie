@@ -21,6 +21,91 @@ pub struct Meeting {
     pub t_end: Option<i64>,
 }
 
+/// A display that has recordings.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RecordedDisplay {
+    pub uuid: [u8; 16],
+    pub width: i64,
+    pub height: i64,
+    pub first_ms: i64,
+    pub last_ms: i64,
+}
+
+/// A starred frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StarredFrame {
+    pub frame_id: i64,
+    pub t_ms: i64,
+}
+
+/// What was in front at one moment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SegmentInfo {
+    pub bundle_id: Option<String>,
+    pub window: Option<String>,
+    pub url: Option<String>,
+    pub t_start: i64,
+    pub t_end: i64,
+}
+
+/// What a stretch of time holds, for deciding what to do with it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SliceSummary {
+    pub frames: i64,
+    pub bytes: i64,
+    pub starred: i64,
+    pub transcript_lines: i64,
+    /// Time in each app, longest first.
+    pub apps: Vec<(Option<String>, i64)>,
+    /// The windows that had the most time, longest first.
+    pub windows: Vec<String>,
+    /// Frames just after the stretch that can't be shown without it, because they build
+    /// on frames inside it. Deleting the stretch removes them too.
+    pub dependent_frames: i64,
+    pub dependent_until_ms: Option<i64>,
+}
+
+/// A stretch of speech.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TranscriptSession {
+    pub title: Option<String>,
+    pub t_start: i64,
+    pub t_end: i64,
+    pub lines: i64,
+}
+
+/// Recording space used by one app.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AppStorage {
+    pub bundle_id: Option<String>,
+    pub bytes: i64,
+    pub frames: i64,
+}
+
+/// What to list without searching for any words.
+#[derive(Clone, Debug, Default)]
+pub struct MomentQuery {
+    pub bundle_ids: Vec<String>,
+    pub starred_only: bool,
+    pub transcripts_only: bool,
+    pub before_ms: Option<i64>,
+    pub limit: u32,
+}
+
+/// A moment listed without searching.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Moment {
+    pub frame_id: i64,
+    pub run_id: i64,
+    pub t_ms: i64,
+    pub display_uuid: Option<[u8; 16]>,
+    pub bundle_id: Option<String>,
+    pub window: Option<String>,
+    pub url: Option<String>,
+    pub snippet: String,
+    pub is_transcript: bool,
+}
+
 /// A frame's identity and when it was captured.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameRef {
@@ -174,6 +259,310 @@ impl Engine {
         Ok(in_order(true).chain(in_order(false)).collect())
     }
 
+    /// Every display with recordings, excluding the one speech is filed under.
+    pub fn displays(&self) -> Result<Vec<RecordedDisplay>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut statement = reader.prepare_cached(
+            "SELECT d.uuid,
+                    (SELECT min(t_ms) FROM frame WHERE display_id = d.id),
+                    (SELECT max(t_ms) FROM frame WHERE display_id = d.id),
+                    (SELECT width FROM chunk WHERE display_id = d.id ORDER BY id DESC LIMIT 1),
+                    (SELECT height FROM chunk WHERE display_id = d.id ORDER BY id DESC LIMIT 1)
+             FROM display d",
+        )?;
+        let rows = statement.query_map([], |r| {
+            Ok((
+                r.get::<_, Vec<u8>>(0)?,
+                r.get::<_, Option<i64>>(1)?,
+                r.get::<_, Option<i64>>(2)?,
+                r.get::<_, Option<i64>>(3)?,
+                r.get::<_, Option<i64>>(4)?,
+            ))
+        })?;
+        let mut displays = Vec::new();
+        for row in rows {
+            let (uuid, first, last, width, height) = row?;
+            let (Ok(uuid), Some(first_ms), Some(last_ms)) = (<[u8; 16]>::try_from(uuid), first, last)
+            else {
+                continue;
+            };
+            displays.push(RecordedDisplay {
+                uuid,
+                width: width.unwrap_or(0),
+                height: height.unwrap_or(0),
+                first_ms,
+                last_ms,
+            });
+        }
+        displays.sort_by_key(|display| std::cmp::Reverse(display.last_ms));
+        Ok(displays)
+    }
+
+    /// Whether a frame is starred.
+    pub fn is_starred(&self, frame_id: i64) -> Result<bool> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let starred: Option<bool> = reader
+            .prepare_cached("SELECT is_starred FROM frame WHERE id = ?1")?
+            .query_row(params![frame_id], |r| r.get(0))
+            .optional()?;
+        Ok(starred.unwrap_or(false))
+    }
+
+    /// Starred frames on a display in a period, earliest first.
+    pub fn stars(&self, display: &[u8; 16], from_ms: i64, to_ms: i64) -> Result<Vec<StarredFrame>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut statement = reader.prepare_cached(
+            "SELECT f.id, f.t_ms FROM frame f
+             WHERE f.is_starred = 1 AND f.t_ms >= ?2 AND f.t_ms <= ?3
+               AND f.display_id = (SELECT id FROM display WHERE uuid = ?1)
+             ORDER BY f.t_ms",
+        )?;
+        let stars = statement
+            .query_map(params![display.as_slice(), from_ms, to_ms], |r| {
+                Ok(StarredFrame { frame_id: r.get(0)?, t_ms: r.get(1)? })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(stars)
+    }
+
+    /// What was in front on a display at a moment.
+    pub fn segment_at(&self, display: &[u8; 16], t_ms: i64) -> Result<Option<SegmentInfo>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let segment = reader
+            .prepare_cached(
+                "SELECT bundle_id, window, url, t_start, t_end FROM segment
+                 WHERE display_id = (SELECT id FROM display WHERE uuid = ?1)
+                   AND type = 0 AND t_start <= ?2
+                 ORDER BY t_start DESC LIMIT 1",
+            )?
+            .query_row(params![display.as_slice(), t_ms], |r| {
+                Ok(SegmentInfo {
+                    bundle_id: r.get(0)?,
+                    window: r.get(1)?,
+                    url: r.get(2)?,
+                    t_start: r.get(3)?,
+                    t_end: r.get(4)?,
+                })
+            })
+            .optional()?;
+        Ok(segment)
+    }
+
+    /// What a stretch of time holds, across every display.
+    pub fn slice_summary(&self, from_ms: i64, to_ms: i64) -> Result<SliceSummary> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut summary = SliceSummary::default();
+        let display_ids: Vec<i64> = reader
+            .prepare_cached("SELECT id FROM display")?
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        for display in display_ids {
+            let (frames, bytes, starred): (i64, i64, i64) = reader
+                .prepare_cached(
+                    "SELECT count(*), coalesce(sum(len), 0), coalesce(sum(is_starred), 0)
+                     FROM frame WHERE display_id = ?1 AND t_ms >= ?2 AND t_ms <= ?3",
+                )?
+                .query_row(params![display, from_ms, to_ms], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+                })?;
+            summary.frames += frames;
+            summary.bytes += bytes;
+            summary.starred += starred;
+            if frames == 0 {
+                continue;
+            }
+            // Nothing after a stretch depends on it if the next frame starts afresh.
+            let next_key: Option<i64> = reader
+                .prepare_cached(
+                    "SELECT min(t_ms) FROM frame WHERE display_id = ?1 AND t_ms > ?2 AND is_sync = 1",
+                )?
+                .query_row(params![display, to_ms], |r| r.get(0))?;
+            let (dependent, last): (i64, Option<i64>) = reader
+                .prepare_cached(
+                    "SELECT count(*), max(t_ms) FROM frame
+                     WHERE display_id = ?1 AND t_ms > ?2 AND t_ms < coalesce(?3, 9223372036854775807)",
+                )?
+                .query_row(params![display, to_ms, next_key], |r| Ok((r.get(0)?, r.get(1)?)))?;
+            summary.dependent_frames += dependent;
+            summary.dependent_until_ms = summary.dependent_until_ms.max(last);
+        }
+        summary.apps = reader
+            .prepare_cached(
+                "SELECT bundle_id, sum(min(t_end, ?2) - max(t_start, ?1)) AS time
+                 FROM segment WHERE type = 0 AND t_end >= ?1 AND t_start <= ?2
+                 GROUP BY bundle_id ORDER BY time DESC",
+            )?
+            .query_map(params![from_ms, to_ms], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        summary.windows = reader
+            .prepare_cached(
+                "SELECT window FROM segment
+                 WHERE type = 0 AND window IS NOT NULL AND t_end >= ?1 AND t_start <= ?2
+                 GROUP BY window ORDER BY sum(min(t_end, ?2) - max(t_start, ?1)) DESC LIMIT 5",
+            )?
+            .query_map(params![from_ms, to_ms], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        summary.transcript_lines = reader
+            .prepare_cached("SELECT count(*) FROM transcript_line WHERE t_ms >= ?1 AND t_ms <= ?2")?
+            .query_row(params![from_ms, to_ms], |r| r.get(0))?;
+        Ok(summary)
+    }
+
+    /// Stretches of speech that overlap a period, most recent first.
+    pub fn transcript_sessions(
+        &self,
+        from_ms: i64,
+        to_ms: i64,
+        limit: u32,
+    ) -> Result<Vec<TranscriptSession>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut statement = reader.prepare_cached(
+            "SELECT s.window, s.t_start, s.t_end,
+                    (SELECT count(*) FROM transcript_line l
+                     JOIN text_run r ON r.id = l.run_id WHERE r.segment_id = s.id)
+             FROM segment s
+             WHERE s.type = 1 AND s.t_end >= ?1 AND s.t_start <= ?2
+             ORDER BY s.t_start DESC LIMIT ?3",
+        )?;
+        let sessions = statement
+            .query_map(params![from_ms, to_ms, limit], |r| {
+                Ok(TranscriptSession {
+                    title: r.get(0)?,
+                    t_start: r.get(1)?,
+                    t_end: r.get(2)?,
+                    lines: r.get(3)?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(sessions)
+    }
+
+    /// How much recording space each app uses, most first. This reads every frame's row,
+    /// so don't call it on anything that has to stay responsive.
+    pub fn storage_by_app(&self) -> Result<Vec<AppStorage>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut statement = reader.prepare_cached(
+            "SELECT s.bundle_id, sum(f.len), count(*) FROM frame f
+             LEFT JOIN segment s ON s.id = f.segment_id
+             GROUP BY s.bundle_id ORDER BY 2 DESC",
+        )?;
+        let apps = statement
+            .query_map([], |r| {
+                Ok(AppStorage { bundle_id: r.get(0)?, bytes: r.get(1)?, frames: r.get(2)? })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(apps)
+    }
+
+    /// The stretches of time an app was recorded in, for deleting all of them.
+    pub fn app_stretches(&self, bundle_id: &str) -> Result<Vec<(i64, i64)>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut statement = reader.prepare_cached(
+            "SELECT t_start, t_end FROM segment WHERE type = 0 AND bundle_id = ?1 ORDER BY t_start",
+        )?;
+        let stretches = statement
+            .query_map(params![bundle_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(stretches)
+    }
+
+    /// Lists moments without searching for any words: starred ones, what was said, or the
+    /// latest from some apps. Most recent first.
+    pub fn moments(&self, query: &MomentQuery) -> Result<Vec<Moment>> {
+        let before = query.before_ms.unwrap_or(i64::MAX);
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let wanted = |bundle: &Option<String>| {
+            query.bundle_ids.is_empty()
+                || bundle.as_ref().is_some_and(|id| query.bundle_ids.contains(id))
+        };
+        let limit = query.limit as usize;
+        let mut moments = Vec::with_capacity(limit);
+
+        if query.transcripts_only {
+            let mut statement = reader.prepare_cached(
+                "SELECT r.id, r.t_first, r.lines_z, s.window FROM text_run r
+                 LEFT JOIN segment s ON s.id = r.segment_id
+                 WHERE r.kind = 1 AND r.t_first < ?1 ORDER BY r.t_first DESC LIMIT ?2",
+            )?;
+            let rows = statement.query_map(params![before, query.limit], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, i64>(1)?,
+                    r.get::<_, Vec<u8>>(2)?,
+                    r.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (run_id, t_ms, lines_z, window) = row?;
+                let snippet = remind_text::codec::decode_lines(&lines_z)
+                    .ok()
+                    .and_then(|lines| lines.into_iter().next())
+                    .map(|line| line.text)
+                    .unwrap_or_default();
+                moments.push(Moment {
+                    frame_id: 0,
+                    run_id,
+                    t_ms,
+                    display_uuid: None,
+                    bundle_id: None,
+                    window,
+                    url: None,
+                    snippet,
+                    is_transcript: true,
+                });
+            }
+            return Ok(moments);
+        }
+
+        if query.starred_only {
+            let mut statement = reader.prepare_cached(
+                "SELECT f.id, coalesce(f.run_id, 0), f.t_ms, d.uuid, s.bundle_id, s.window, s.url
+                 FROM frame f
+                 JOIN display d ON d.id = f.display_id
+                 LEFT JOIN segment s ON s.id = f.segment_id
+                 WHERE f.is_starred = 1 AND f.t_ms < ?1 ORDER BY f.t_ms DESC",
+            )?;
+            let rows = statement.query_map(params![before], moment_from_row)?;
+            for row in rows {
+                let moment = row?;
+                if wanted(&moment.bundle_id) {
+                    moments.push(moment);
+                    if moments.len() == limit {
+                        break;
+                    }
+                }
+            }
+            return Ok(moments);
+        }
+
+        // The latest from each stretch of the chosen apps, so a long stretch is one result.
+        let mut segments = reader.prepare_cached(
+            "SELECT id, bundle_id FROM segment WHERE type = 0 AND t_end < ?1 ORDER BY t_end DESC",
+        )?;
+        let mut latest = reader.prepare_cached(
+            "SELECT f.id, coalesce(f.run_id, 0), f.t_ms, d.uuid, s.bundle_id, s.window, s.url
+             FROM frame f
+             JOIN display d ON d.id = f.display_id
+             JOIN segment s ON s.id = f.segment_id
+             WHERE f.segment_id = ?1 ORDER BY f.t_ms DESC LIMIT 1",
+        )?;
+        let rows = segments
+            .query_map(params![before], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, Option<String>>(1)?)))?;
+        for row in rows {
+            let (segment, bundle) = row?;
+            if !wanted(&bundle) {
+                continue;
+            }
+            if let Some(moment) = latest.query_row(params![segment], moment_from_row).optional()? {
+                moments.push(moment);
+                if moments.len() == limit {
+                    break;
+                }
+            }
+        }
+        Ok(moments)
+    }
+
     /// Notes a meeting that was transcribed.
     pub fn record_meeting(&self, title: Option<String>, t_start: i64, t_end: i64) -> Result<()> {
         let (reply, response) = crossbeam_channel::bounded(1);
@@ -322,4 +711,19 @@ impl Engine {
             &remind_store::DbKey(self.db_key),
         )?)
     }
+}
+
+fn moment_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Moment> {
+    let uuid: Vec<u8> = r.get(3)?;
+    Ok(Moment {
+        frame_id: r.get(0)?,
+        run_id: r.get(1)?,
+        t_ms: r.get(2)?,
+        display_uuid: <[u8; 16]>::try_from(uuid).ok(),
+        bundle_id: r.get(4)?,
+        window: r.get(5)?,
+        url: r.get(6)?,
+        snippet: String::new(),
+        is_transcript: false,
+    })
 }

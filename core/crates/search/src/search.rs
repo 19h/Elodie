@@ -51,6 +51,8 @@ pub struct Hit {
     pub frame_id: i64,
     pub run_id: i64,
     pub t_ms: i64,
+    /// Which display the frame is from. Something said has no display.
+    pub display_uuid: Option<[u8; 16]>,
     pub bundle_id: Option<String>,
     pub window: Option<String>,
     pub url: Option<String>,
@@ -85,6 +87,7 @@ struct Candidate {
 struct CandidateFrame {
     frame_id: i64,
     t_ms: i64,
+    display_uuid: Option<[u8; 16]>,
     lines_z: Vec<u8>,
 }
 
@@ -275,7 +278,9 @@ impl Search {
 
         let starred = if self.facets.starred_only { " AND f.is_starred = 1" } else { "" };
         let frames_sql = format!(
-            "SELECT t.frame_id, f.t_ms, t.lines_z FROM frame_text t
+            "SELECT t.frame_id, f.t_ms, t.lines_z,
+                    (SELECT uuid FROM display WHERE id = f.display_id)
+             FROM frame_text t
              JOIN frame f ON f.id = t.frame_id
              WHERE t.run_id = ?1{starred} ORDER BY f.t_ms DESC LIMIT ?2"
         );
@@ -296,6 +301,9 @@ impl Search {
                         frame_id: r.get(0)?,
                         t_ms: r.get(1)?,
                         lines_z: r.get(2)?,
+                        display_uuid: r
+                            .get::<_, Option<Vec<u8>>>(3)?
+                            .and_then(|uuid| <[u8; 16]>::try_from(uuid).ok()),
                     })
                 })?
                 .collect::<rusqlite::Result<_>>()?;
@@ -380,6 +388,7 @@ fn resolve(
             frame_id: frame.frame_id,
             run_id: candidate.run_id,
             t_ms: frame.t_ms,
+            display_uuid: frame.display_uuid,
             bundle_id: candidate.bundle_id.clone(),
             window: candidate.window.clone(),
             url: candidate.url.clone(),
@@ -411,6 +420,7 @@ fn resolve_transcript(
         return None;
     }
     Some(Hit {
+        display_uuid: None,
         frame_id: 0,
         run_id: candidate.run_id,
         t_ms: *t_ms,
