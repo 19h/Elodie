@@ -325,7 +325,7 @@ Remind also adjusts by itself:
 |---|---|
 | ⌘⇧ and scroll up | Open the timeline. |
 | ⌘⇧Space | Open search. |
-| ⌘⇧- | Open Ask. This is the key to the right of 0, or `ß` on a German keyboard. |
+| ⌥⇧Space | Open Ask. |
 | Open Remind again while it's running | Open search, or setup or the recovery key if they need you first. |
 
 You can change the two key combinations in Settings → Shortcuts. You can also assign shortcuts there for Daily Recap, Star moment, and Audio capture, which have none by default.
