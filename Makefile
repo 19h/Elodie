@@ -2,7 +2,10 @@
 DERIVED := build/DerivedData
 APP := $(DERIVED)/Build/Products/Debug/Remind.app
 
-.PHONY: core project app test test-rust test-swift self-check clean
+# Where crash tests keep their vaults. Everything is removed afterward.
+TORTURE_DIR ?= build/torture
+
+.PHONY: core project app test test-rust test-swift self-check torture clean
 
 core:
 	scripts/build-core.sh debug
@@ -24,6 +27,9 @@ test-swift: core
 
 self-check: app
 	$(APP)/Contents/MacOS/Remind --self-check
+
+torture:
+	scripts/torture.sh $(TORTURE_DIR)
 
 clean:
 	rm -rf build core/target Packages/RemindKit/.build Packages/RemindKit/Frameworks \

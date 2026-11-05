@@ -13,7 +13,8 @@ name = "remind_ffi"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
-uniffi.workspace = true
-thiserror.workspace = true
-remind-store.workspace = true
+remind-engine.workspace = true
+remind-vault.workspace = true
 rusqlite.workspace = true
+thiserror.workspace = true
+uniffi.workspace = true

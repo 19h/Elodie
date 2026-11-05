@@ -9,6 +9,9 @@ let package = Package(
         .library(name: "CoreLive", targets: ["CoreLive"]),
         .library(name: "CoreFake", targets: ["CoreFake"]),
         .library(name: "DesignSystem", targets: ["DesignSystem"]),
+        .library(name: "Capture", targets: ["Capture"]),
+        .library(name: "Ingest", targets: ["Ingest"]),
+        .library(name: "FrameEngine", targets: ["FrameEngine"]),
     ],
     targets: [
         // Built by scripts/build-core.sh.
@@ -22,6 +25,17 @@ let package = Package(
         .target(name: "CoreLive", dependencies: ["CoreABI", "CoreAPI"]),
         .target(name: "CoreFake", dependencies: ["CoreAPI"]),
         .target(name: "DesignSystem"),
+        .target(name: "Capture"),
+        .target(name: "Ingest", dependencies: ["CoreAPI", "Capture"]),
+        .target(name: "FrameEngine", dependencies: ["CoreAPI"]),
+        .target(name: "TestKit", dependencies: ["CoreAPI"]),
+        // Measurements that don't need any permissions.
+        .executableTarget(
+            name: "remind-spike",
+            dependencies: ["CoreAPI", "CoreLive", "Ingest", "FrameEngine", "TestKit"]
+        ),
         .testTarget(name: "CoreLiveTests", dependencies: ["CoreLive", "CoreAPI", "CoreFake"]),
+        .testTarget(name: "CaptureTests", dependencies: ["Capture"]),
+        .testTarget(name: "IngestTests", dependencies: ["Ingest", "FrameEngine", "TestKit", "CoreAPI", "CoreLive"]),
     ]
 )

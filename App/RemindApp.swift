@@ -34,10 +34,7 @@ enum SelfCheck {
         defer { try? FileManager.default.removeItem(at: directory) }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let core = try LiveCore(
-                vaultPath: directory.appending(path: "check.db").path,
-                key: Data(repeating: 1, count: 32)
-            )
+            let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 1, count: 32))
             let info = try core.info()
             print("core \(info.version), SQLite \(info.sqliteVersion), crypto \(info.cipherProvider)")
             try? FileManager.default.removeItem(at: directory)

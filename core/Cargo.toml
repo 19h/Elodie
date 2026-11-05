@@ -10,19 +10,16 @@ publish = false
 
 [workspace.dependencies]
 remind-vault = { path = "crates/vault" }
+remind-engine = { path = "crates/engine" }
 remind-store = { path = "crates/store" }
 remind-text = { path = "crates/text" }
-remind-search = { path = "crates/search" }
-remind-timeline = { path = "crates/timeline" }
 
 rusqlite = { version = "0.41", features = ["bundled-sqlcipher"] }
 uniffi = "0.32"
 rayon = "1.12"
 crossbeam-channel = "0.5"
-zstd = "0.14"
 chacha20poly1305 = "0.11"
 blake3 = "1.8"
-roaring = "0.12"
 unicode-segmentation = "1.13"
 unicode-normalization = "0.1"
 rust-stemmers = "1.2"

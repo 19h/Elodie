@@ -34,3 +34,34 @@ It doesn't sync, and its access list is tied to the code signature. It differs f
 the plan's "after first unlock" in one way: if someone configures their login
 keychain to lock on sleep, the key is unavailable until it's unlocked. Remind must
 treat that as "temporarily unavailable" and never as "missing".
+
+## Spike 6: durability (passed)
+
+Run with `make torture`. It first proves its checker can fail: it damages a vault
+in 8 ways and requires each to be detected.
+
+| Test | Iterations | Frames verified | Undecodable | Violations | Worst recovery |
+|---|---|---|---|---|---|
+| SIGKILL at random moments | 1,000 | 34,189 | 0 | 0 | 231 ms |
+| Simulated power cut | 300 | 131,525 | 0 | 0 | 265 ms |
+| Disk genuinely full (64 MB APFS image) | 100 | 2,626 | 0 | 0 | 53 ms |
+
+The target was at most 2 seconds of recovery. A quarter of kills skip recovery, so
+the next process recovers and is often killed partway through.
+
+**Limits of this evidence.** Power cuts are simulated, because nothing here can
+remove power. The harness damages files the way a lost write cache could: truncated
+or corrupted chunk tails, and a truncated or missing write-ahead log. It hasn't been
+run on a machine that actually lost power.
+
+**In-flight frames.** At 2 ms per frame the queue fills, so a kill can lose up to its
+9 slots, which is the bound and not the expected loss. See below for a realistic pace.
+
+**A real bug this found.** The first full-disk run failed with 63 violations: chunks
+starting with a P-frame, which could never be decoded. When a write failed, frames
+already queued would open a new chunk. `seal_all` had the same flaw. The appender now
+refuses to open a chunk on anything but a keyframe.
+
+**Tooling bug worth noting.** The first run of the suite silently did nothing: `status`
+is read-only in zsh, so the script died after the self-test, and a `| tail` hid the exit
+code. The results above come from a run with the real exit code recorded.
