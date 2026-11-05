@@ -764,7 +764,8 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 **Check these before relying on Remind:**
 
 - **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and an ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
-- **Recording a whole display has no recorded results yet.** The measurements here ran on a harness window, and [docs/spikes.md](docs/spikes.md) still lists a stream of a whole display and the race between a new private window and the capture filter as open. That race has been run enough to find two bugs, both now fixed as described under [Private windows](#private-windows): frames showing a window just after its filter was applied, and a watcher that ran 349 ms late on a busy Mac, which let one frame reach the encoder. No passing run has been written down.
+- **A real first run has only happened on one Mac, with other apps excluded.** It recorded two real displays into a scratch vault, and [docs/spikes.md](docs/spikes.md) has what it covered. Normal daily use, and energy use, haven't been measured.
+- **Very brief private windows can reach a recording.** Spike 2 found no marker in 13,561 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 3 of 49 allowed frames.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
 **Known gaps:**

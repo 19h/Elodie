@@ -213,7 +213,7 @@ seconds at a 20 ms interval, so frame status alone doesn't keep it quiet in this
 comparing against the last stored frame. **Energy isn't measured.** That needs `sudo powermetrics`,
 and a stream of a whole display.
 
-### Spike 2: the exclusion race (found two bugs, no passing run written down)
+### Spike 2: the exclusion race (passed, after two fixes)
 
 `--spike privacy` opens private windows at random moments, and checks that none reaches a frame the
 gate allows through.
@@ -222,6 +222,23 @@ gate allows through.
 |---|---|
 | Frames composed 1 to 5 ms after a filter update returned, with the window still in them | A new filter is only trusted after 0.25 s |
 | The window watcher ran 349 ms late on a busy Mac, and one frame reached the encoder | More than 0.25 s between looks now makes the frames from that time unsafe, and so does a window closing between the two reads of the list. The watcher runs on a strict timer at a higher priority, and App Nap can't slow it |
+
+Results on the final gate, on an M4 Max at 3456×2234. Each language opens about 500 windows that stay
+open for 250 to 700 ms, while an ordinary window keeps changing behind them. Each run also shows the
+marker with the gate off first, to prove the check would see a leak.
+
+| Run | Control saw the marker | Allowed frames | Frames with the marker |
+|---|---|---|---|
+| 1, English | **No, so this one doesn't count** | 4,435 | 0 |
+| 1, German | Yes, 16 frames | 4,626 | 0 |
+| 2, English | Yes, 17 frames | 4,304 | 0 |
+| 2, German | Yes, 13 frames | 4,631 | 0 |
+
+That's 0 in 13,561 frames across the runs that count. The run before these fixes leaked 1 frame in 4,254,
+which is what led to the second fix. **Windows open under 120 ms remain a limit:** the marker reached the
+encoder in 3 of 49 allowed frames in the last run. A window that brief can open and close between two
+looks. About half of all frames are dropped here, because a private window is opening or closing almost
+constantly, far more than in real use.
 
 ### Spike 7: overlay behaviour (partly answered)
 
@@ -283,6 +300,38 @@ The time pill's text over a frame, as captured, with real glass.
 
 Tinting made it worse: Liquid Glass adapts a tint to what's behind it. `make scenarios` checks this now.
 
+## A real first run
+
+With Screen Recording granted, the debug app went through first run under `--sandbox`, recording this
+Mac's two displays for real into a scratch vault that was deleted afterward. Every other running app was
+excluded, so only a test window, the desktop, and the menu bar were recorded. It was driven from outside
+without the keyboard or pointer.
+
+| Step | Result |
+|---|---|
+| Onboarding | Permission rows showed the real state, Continue stayed off without Accessibility, and leaving resumed at the same step |
+| Key | Created on first start, and not before |
+| Recording | Frames stored, following the pointer between displays, and named after the right window |
+| Search | Found words on screen, with highlights on the words, including one in each of two windows |
+| Selecting a run | Picked out the run under the playhead. Starring turned on and off |
+| Export | A playable video of the selection, at the display's size, that can be seeked in |
+| Deleting a selection | One word went from 22 results to 3, all outside the selection, and the vault shrank from 9.7 MB to 7.4 MB |
+| SIGKILL, then relaunch | Deleted words stayed gone, and new frames got new IDs |
+| Audio, from `say` through the speakers | Nearly word-perfect, with the right times, then found by search and opened in its transcript |
+| Ask, on Apple's real model | "Priya should get the marmalade budget [1]." A word it has never seen gets no sources and no invented answer |
+| Key removed | The recovery window, with no new key. Bad and wrong keys refused and not saved. The right key brought back history and recording |
+| Start over | From the recovery window: a new vault and key, with recording running |
+| Pause | Survives a restart |
+| A second copy on the same vault | Leaves |
+
+The full test suite passed before this, and it found these, all fixed: quitting hanging forever from async
+code, live transcription stopping within seconds, highlights off on a display of another shape, turning
+recording back on not clearing "kept crashing", Ask refusing to summarise a whole period, and the
+coach mark covering the selection bar.
+
+**Not covered by this run**, because each needs a person or a grant: the Accessibility prompt and everything
+behind it, the microphone, a real call, and the login item.
+
 ## Open items
 
 - **One test crash, not reproduced.** The test helper exited abnormally once while the 25-test
@@ -291,8 +340,10 @@ Tinting made it worse: Liquid Glass adapts a tint to what's behind it. `make sce
 - **Two flaky tests were the tests' fault.** One checked before settling had been scheduled, and a
   shared fixture stopped waiting for indexing after 5 seconds without saying so, while commits can
   be 5 seconds apart. The fixture now waits longer and fails loudly. Six later runs of that suite passed.
-- **Still needs Screen Recording:** a passing run of spike 2 (the exclusion race), a stream of a whole
-  display, and a real week of storage.
+- **Still needs real use:** a week of storage, and energy with `sudo powermetrics`.
+- **One error not explained.** Once, under a full test run, SQLCipher refused a good key for about two
+  seconds, failing 10 tests at once. It didn't come back in 11,520 opens on 48 threads, or in the full runs
+  since. It isn't mistaken for a wrong key, and opening now tries again a few times.
 - **Still needs a real call:** screen sharing with an actual call app. See spike 7.
 - **Still needs Accessibility:** the event tap, and with it the app underneath staying still.
 - **Hotkey to first pixel isn't measured.** It takes over the screen, so it isn't part of `make bench`.
