@@ -175,7 +175,7 @@ skipped the slowest query entirely. It now refuses to report in that case.
 Screen Recording still hasn't been granted to the test build. But `SCShareableContent.currentProcess`
 lets an app capture its own windows without it, including real glass, Metal, and IOSurface content.
 That let everything below run. It's the closest thing yet to real use, and it found bugs that
-356 passing tests hadn't.
+306 passing tests hadn't.
 
 **One thing to watch.** The current-process list isn't only this process's windows. Taking the largest
 window from it returned the desktop wallpaper. `saveScreenshot` now checks ownership against the window
