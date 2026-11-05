@@ -102,7 +102,7 @@ enum Scenarios {
             try await screenshot(window, to: output)
         case "timeline", "search-compact", "search-expanded", "jump-to-date", "coach-marks",
              "slice-hover", "slice-selected", "slice-range", "slice-confirm", "timeline-zoom",
-             "search-starred", "forget-confirm", "display-picker":
+             "search-starred", "search-apps", "forget-confirm", "display-picker":
             try await captureOverlay(name, to: output)
         case "overlay-input":
             try await InputSelfTest.run(to: output)
@@ -426,6 +426,10 @@ enum Scenarios {
         }
         if name == "forget-confirm" {
             controller.model.isConfirmingForget = true
+        }
+        if name == "search-apps" {
+            search.loadApps()
+            search.isAppsOpen = true
         }
         if name == "search-starred" {
             for frame in [8, 40, 75, 100] {

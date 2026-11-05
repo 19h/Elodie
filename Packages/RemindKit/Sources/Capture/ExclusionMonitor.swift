@@ -17,13 +17,18 @@ public final class ExclusionMonitor: @unchecked Sendable {
     private var watcher: DispatchSourceTimer?
     private var windowChecks = 0
     private var windowCheckTime: Duration = .zero
+    /// Keeps macOS from slowing this app's timers while watching. A menu bar app with no
+    /// windows showing is exactly what App Nap goes after, and frames can't be vouched for if
+    /// the window list isn't being read on time.
+    private var activity: (any NSObjectProtocol)?
 
     private var lastWindowIDs: [CGWindowID] = []
     /// The policy changed, so the filter may be hiding something it no longer should.
     private var filterMayBeStale = false
 
-    /// How often windows are looked at between frames. A window that's open for at least
-    /// this long can't reach a recording, because it's noticed before it can close unseen.
+    /// How often windows are looked at between frames. A window that's open for longer than
+    /// `ExclusionGate.longestGapBetweenLooks` can't reach a recording, because it's noticed
+    /// before it can close unseen, or else the frames from that time are dropped.
     public static let watchInterval: TimeInterval = 0.2
 
     /// How long a new filter is given to reach the screen. Updating a filter returns a few
@@ -56,6 +61,7 @@ public final class ExclusionMonitor: @unchecked Sendable {
 
     deinit {
         watcher?.cancel()
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
     }
 
     /// The gate's state, for explaining a frame that shouldn't have been allowed.
@@ -114,6 +120,8 @@ public final class ExclusionMonitor: @unchecked Sendable {
             watcher?.cancel()
             watcher = nil
             stream = nil
+            if let activity { ProcessInfo.processInfo.endActivity(activity) }
+            activity = nil
         }
     }
 
@@ -123,11 +131,17 @@ public final class ExclusionMonitor: @unchecked Sendable {
     private func startWatching() {
         lock.withLock {
             guard watcher == nil else { return }
-            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            activity = ProcessInfo.processInfo.beginActivity(
+                options: .userInitiatedAllowingIdleSystemSleep,
+                reason: "Recording the screen"
+            )
+            // Strict, and not low priority, because how promptly this runs is part of what
+            // keeps private windows out of recordings. See `ExclusionGate`.
+            let timer = DispatchSource.makeTimerSource(flags: .strict, queue: .global(qos: .userInitiated))
             timer.schedule(
                 deadline: .now() + Self.watchInterval,
                 repeating: Self.watchInterval,
-                leeway: .milliseconds(40)
+                leeway: .milliseconds(10)
             )
             timer.setEventHandler { [weak self] in self?.watch() }
             timer.resume()
@@ -141,8 +155,10 @@ public final class ExclusionMonitor: @unchecked Sendable {
     private func watch() {
         let clock = ContinuousClock()
         let started = clock.now
+        let lookedAt = mach_absolute_time()
         let ids = inventory.onScreenWindowIDs()
         let changed = lock.withLock { () -> Bool in
+            gate.noteLook(at: lookedAt)
             defer { lastWindowIDs = ids }
             return ids != lastWindowIDs
         }
@@ -153,8 +169,12 @@ public final class ExclusionMonitor: @unchecked Sendable {
             let windows = inventory.onScreenWindows()
             inventory.forgetProcesses(except: Set(windows.map(\.ownerPID)))
             required = requiredExclusions(in: windows)
+            // A window can close between the two reads, and then what it was can't be known.
+            let vanished = !Set(ids).subtracting(windows.map(\.id)).isEmpty
             (missing, stale) = lock.withLock {
-                (gate.observe(required: required, now: mach_absolute_time()), filterMayBeStale)
+                let now = mach_absolute_time()
+                if vanished { gate.markUnsafe(until: now) }
+                return (gate.observe(required: required, now: now), filterMayBeStale)
             }
         }
         lock.withLock {

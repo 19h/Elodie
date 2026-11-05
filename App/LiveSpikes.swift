@@ -7,6 +7,7 @@ import CoreVideo
 import Darwin
 import Foundation
 import Ingest
+import OverlayShell
 import TestKit
 
 /// Live capture checks. Spike 2 and the energy measurement need the Screen Recording
@@ -51,6 +52,19 @@ enum LiveSpikes {
                 case "energy": try await Self.energy(seconds: Int(value(after: "--seconds") ?? "") ?? 60)
                 case "browsers": try await Self.browserTitles()
                 case "endtoend": try await Self.endToEnd()
+                case "sharing": try await Self.sharingCheck()
+                case "sharing-capture":
+                    let seen = try await SharingCheck.look(
+                        displayID: CGDirectDisplayID(value(after: "--display") ?? "") ?? CGMainDisplayID(),
+                        rect: CGRect(
+                            x: Double(value(after: "--x") ?? "") ?? 0,
+                            y: Double(value(after: "--y") ?? "") ?? 0,
+                            width: Double(value(after: "--w") ?? "") ?? 0,
+                            height: Double(value(after: "--h") ?? "") ?? 0
+                        ),
+                        windowID: CGWindowID(value(after: "--window") ?? "") ?? 0
+                    )
+                    report.line("display screenshot \(seen.inScreenshot), display stream \(seen.inStream), listed \(seen.isListed), this window alone \(seen.inWindowCapture.map(String.init) ?? "no picture")")
                 default: report.line("Unknown spike \(name)")
                 }
                 report.line("FINISHED")
@@ -62,6 +76,61 @@ enum LiveSpikes {
         }
         app.run()
         exit(0)
+    }
+
+    // MARK: Screen sharing
+
+    /// Spike 7's real question: can another app capture the overlay? A small magenta panel with
+    /// the overlay's own window settings goes on screen, and a separate copy of this app
+    /// captures the whole display, as screen sharing would, and looks for it. An ordinary
+    /// shareable panel goes first, to prove the check would see it if it were there.
+    @MainActor
+    private static func sharingCheck() async throws {
+        guard let screen = NSScreen.main,
+              let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+        else { throw CocoaError(.featureUnsupported) }
+        let size = NSSize(width: 480, height: 320)
+        let origin = NSPoint(x: screen.frame.midX - size.width / 2, y: screen.frame.midY - size.height / 2)
+        // From the display's top left, for the other process.
+        let rect = CGRect(
+            x: origin.x - screen.frame.minX + 40,
+            y: screen.frame.maxY - origin.y - size.height + 40,
+            width: size.width - 80,
+            height: size.height - 80
+        )
+        for (sharing, label) in [(NSWindow.SharingType.readOnly, "ordinary panel (control)"), (.none, "the overlay's setting")] {
+            let panel = OverlayPanel(screen: screen)
+            panel.sharingType = sharing
+            panel.backgroundColor = NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
+            panel.ignoresMouseEvents = true
+            panel.setFrame(NSRect(origin: origin, size: size), display: true)
+            panel.orderFrontRegardless()
+            try await Task.sleep(for: .milliseconds(500))
+
+            let answer = URL(filePath: NSTemporaryDirectory()).appending(path: "remind-sharing-\(UUID().uuidString).txt")
+            defer { try? FileManager.default.removeItem(at: answer) }
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.createsNewApplicationInstance = true
+            configuration.activates = false
+            configuration.arguments = [
+                "--spike", "sharing-capture", "--out", answer.path,
+                "--display", "\(number)", "--window", "\(panel.windowNumber)",
+                "--x", "\(rect.minX)", "--y", "\(rect.minY)", "--w", "\(rect.width)", "--h", "\(rect.height)",
+            ]
+            _ = try await NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration)
+            var result = "no answer"
+            for _ in 0..<120 {
+                try await Task.sleep(for: .milliseconds(100))
+                let text = (try? String(contentsOf: answer, encoding: .utf8)) ?? ""
+                if text.contains("FINISHED") || text.contains("FAILED") {
+                    result = text.replacingOccurrences(of: "\n", with: " ").replacingOccurrences(of: "FINISHED", with: "")
+                    break
+                }
+            }
+            panel.orderOut(nil)
+            report.line("\(label): \(result)")
+            try await Task.sleep(for: .milliseconds(300))
+        }
     }
 
     // MARK: Marker windows

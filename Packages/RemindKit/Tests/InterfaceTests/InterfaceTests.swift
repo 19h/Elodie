@@ -367,6 +367,8 @@ import FeatureSearch
 
 /// A fake that lets tests control how long a search takes, and which results it gives.
 private final class ScriptedCore: RemindCore, @unchecked Sendable {
+    var pageSize = 1
+    var momentQueries = 0
     private let inner = FakeCore()
     let lock = NSLock()
     var queries: [String] = []
@@ -402,6 +404,20 @@ private final class ScriptedCore: RemindCore, @unchecked Sendable {
     func submitOCR(_ results: [OCRResult]) throws {}
     func failOCR(frameID: Int64) throws {}
 
+    func moments(facets: SearchFacets, before: Date?, limit: Int) throws -> [SearchHit] {
+        lock.withLock { momentQueries += 1 }
+        return [SearchHit(
+            frameID: 1,
+            runID: 1,
+            capturedAt: Date(timeIntervalSince1970: 1_800_000_000),
+            bundleID: "com.example.a",
+            window: "a moment",
+            url: nil,
+            rects: [],
+            snippet: ""
+        )]
+    }
+
     func search(_ text: String, facets: SearchFacets, order: SearchOrder) throws -> (any SearchSession)? {
         lock.withLock { queries.append(text) }
         let wait = lock.withLock { delay[text] } ?? 0
@@ -415,17 +431,20 @@ private final class ScriptedCore: RemindCore, @unchecked Sendable {
 
         func nextPage() throws -> SearchPage {
             Thread.sleep(forTimeInterval: wait)
-            let hit = SearchHit(
-                frameID: Int64(text.count),
-                runID: 1,
+            let size = owner.lock.withLock { owner.pageSize }
+            let hits = (0..<size).map { index in
+                SearchHit(
+                frameID: Int64(text.count + index),
+                runID: Int64(1 + index),
                 capturedAt: Date(),
                 bundleID: nil,
                 window: text,
                 url: nil,
                 rects: [],
                 snippet: text
-            )
-            return SearchPage(hits: [hit], hasMore: false)
+                )
+            }
+            return SearchPage(hits: hits, hasMore: false)
         }
 
         func cancel() {
@@ -482,6 +501,54 @@ private final class ScriptedCore: RemindCore, @unchecked Sendable {
         model.text = "   "
         #expect(model.hits.isEmpty)
         #expect(!model.isSearching)
+    }
+
+    /// The keyboard can get through results without leaving the field.
+    @Test func theKeyboardMovesThroughResultsByRowsAndCards() async throws {
+        let core = ScriptedCore()
+        core.pageSize = 7
+        let model = SearchModel(core: core, debounce: .milliseconds(1))
+        model.columnsPerRow = 3
+        model.text = "budget"
+        try await settle()
+        #expect(model.hits.count == 7)
+        // Nothing's chosen yet, and Return would take the top one.
+        #expect(model.selectedIndex == nil)
+        #expect(model.chosenHit == model.hits.first)
+        // Going up from nothing stays with nothing.
+        model.move(.previousRow)
+        #expect(model.selectedIndex == nil)
+        model.move(.nextRow)
+        #expect(model.selectedIndex == 0)
+        model.move(.nextRow)
+        #expect(model.selectedIndex == 3)
+        model.move(.next)
+        #expect(model.selectedIndex == 4)
+        #expect(model.chosenHit == model.hits[4])
+        // It stops at the ends.
+        model.move(.nextRow)
+        model.move(.nextRow)
+        #expect(model.selectedIndex == 6)
+        model.move(.previousRow)
+        model.move(.previousRow)
+        model.move(.previousRow)
+        #expect(model.selectedIndex == 0)
+        // New words mean a new list.
+        model.text = "budgets"
+        #expect(model.selectedIndex == nil)
+    }
+
+    /// Filters are enough to list things, with no words to search for.
+    @Test func aFilterWithNoWordsBrowses() async throws {
+        let core = ScriptedCore()
+        let model = SearchModel(core: core, debounce: .milliseconds(1))
+        model.starredOnly = true
+        try await settle()
+        #expect(model.isBrowsing)
+        #expect(model.layout == .expanded)
+        #expect(core.lock.withLock { core.momentQueries } == 1)
+        #expect(model.hits.map(\.window) == ["a moment"])
+        #expect(core.lock.withLock { core.queries }.isEmpty)
     }
 
     @Test func changingAFilterSearchesAgain() async throws {

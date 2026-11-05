@@ -460,7 +460,7 @@ private struct StorageTab: View {
             if let apps = usage?.apps, !apps.isEmpty {
                 LabeledContent("By app:") {
                     AppStorageList(apps: apps, onDelete: { pendingApp = $0 })
-                        .frame(height: min(CGFloat(apps.count) * 32 + 8, 150))
+                        .frame(height: min(CGFloat(apps.count) * 28 + 2, 150))
                 }
                 .padding(.top, 8)
             }

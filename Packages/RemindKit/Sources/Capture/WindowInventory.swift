@@ -41,9 +41,10 @@ public final class WindowInventory: @unchecked Sendable {
     }
 
     /// Just the IDs of the windows on screen, front to back, which is far cheaper than
-    /// reading their details.
+    /// reading their details. It lists the same windows as `onScreenWindows`, so the two can
+    /// be compared.
     public func onScreenWindowIDs() -> [CGWindowID] {
-        guard let list = windowListCreate(.optionOnScreenOnly, kCGNullWindowID)?.takeRetainedValue() else {
+        guard let list = windowListCreate([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)?.takeRetainedValue() else {
             return []
         }
         // The array holds window IDs directly, not objects.

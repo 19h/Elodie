@@ -1,3 +1,4 @@
+import Darwin
 import Capture
 import CoreGraphics
 import Foundation
@@ -239,5 +240,63 @@ import Testing
         var gate = ExclusionGate()
         gate.commit([7, 8], at: 100)
         #expect(gate.check(required: [8], frameDisplayTime: 200, now: 210) == .allow)
+    }
+}
+
+/// A window can only be caught by looking while it's open, so frames from a stretch with no
+/// looks can't be vouched for. Spike 2 caught a private window reaching the encoder when the
+/// watcher ran 349 ms late on a busy Mac.
+@Suite struct LooksThatComeLate {
+    /// About a second, far longer than the longest gap allowed, on any Mac's clock.
+    private let long: UInt64 = {
+        var base = mach_timebase_info()
+        mach_timebase_info(&base)
+        return 1_000_000_000 * UInt64(base.denom) / UInt64(base.numer)
+    }()
+
+    private func gate(firstLook: UInt64) -> ExclusionGate {
+        var gate = ExclusionGate()
+        gate.commit([], at: 1)
+        gate.noteLook(at: firstLook)
+        return gate
+    }
+
+    @Test func looksOnTimeAllowFrames() {
+        var gate = gate(firstLook: 100)
+        gate.noteLook(at: 100 + long / 5)
+        let frame = 100 + long / 5 + 10
+        #expect(gate.check(required: [], frameDisplayTime: frame, now: frame + 5) == .allow)
+    }
+
+    @Test func framesFromALateLooksGapAreDropped() {
+        var gate = gate(firstLook: 100)
+        // The watcher finally runs, a second after the last look.
+        gate.noteLook(at: 100 + long)
+        // Composed during the gap, so it could show something nobody looked for.
+        #expect(gate.check(required: [], frameDisplayTime: 100 + long / 2, now: 100 + long + 5) == .dropFrameTooOld)
+        // Once looks are back on time, frames are fine again.
+        #expect(gate.check(required: [], frameDisplayTime: 100 + long + 10, now: 100 + long + 15) == .allow)
+    }
+
+    /// The frame's own check counts as a look, so it can close the gap by itself.
+    @Test func aFrameArrivingAtTheEndOfAGapIsDropped() {
+        var gate = gate(firstLook: 100)
+        let frame = 100 + long
+        #expect(gate.check(required: [], frameDisplayTime: frame, now: frame + 5) == .dropFrameTooOld)
+    }
+
+    /// A window seen in the list that closed before its details could be read.
+    @Test func framesFromBeforeAWindowVanishedAreDropped() {
+        var gate = gate(firstLook: 100)
+        gate.markUnsafe(until: 200)
+        #expect(gate.check(required: [], frameDisplayTime: 150, now: 210) == .dropFrameTooOld)
+        #expect(gate.check(required: [], frameDisplayTime: 205, now: 210) == .allow)
+    }
+
+    @Test func aClockThatSeemsToGoBackwardsChangesNothing() {
+        var gate = gate(firstLook: 1_000)
+        gate.noteLook(at: 500)
+        #expect(gate.lastLook == 1_000)
+        #expect(gate.unsafeUntil == 0)
     }
 }

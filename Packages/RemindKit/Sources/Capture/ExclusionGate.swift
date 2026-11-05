@@ -96,8 +96,35 @@ public struct ExclusionGate: Sendable, Equatable {
     /// Frames composed up to this time may show a window that closed before any filter
     /// covered it.
     public private(set) var unsafeUntil: UInt64 = 0
+    /// When the window list was last read.
+    public private(set) var lastLook: UInt64?
+
+    /// A window open between two looks further apart than this could go unseen, so nothing
+    /// composed during that time can be vouched for. Looks are 200 ms apart when all's well.
+    /// This is what makes the promise hold when the Mac is too busy to keep to that: a window
+    /// open for at least this long is either seen, or the frames that could show it are lost.
+    public static let longestGapBetweenLooks: TimeInterval = 0.25
+
+    private static let longestGapInTicks: UInt64 = {
+        var base = mach_timebase_info()
+        mach_timebase_info(&base)
+        return UInt64(longestGapBetweenLooks * 1e9) * UInt64(base.denom) / UInt64(base.numer)
+    }()
 
     public init() {}
+
+    /// Records that the window list was read just now.
+    public mutating func noteLook(at now: UInt64) {
+        if let lastLook, now > lastLook, now - lastLook > Self.longestGapInTicks {
+            markUnsafe(until: now)
+        }
+        lastLook = max(lastLook ?? 0, now)
+    }
+
+    /// Says that frames composed up to this time can't be vouched for.
+    public mutating func markUnsafe(until time: UInt64) {
+        unsafeUntil = max(unsafeUntil, time)
+    }
 
     /// Records that a filter hiding `windows` has taken effect.
     public mutating func commit(_ windows: Set<CGWindowID>, at machTime: UInt64) {
@@ -136,6 +163,7 @@ public struct ExclusionGate: Sendable, Equatable {
         now: UInt64 = mach_absolute_time()
     ) -> Verdict {
         guard let committedAt else { return .dropNoFilter }
+        noteLook(at: now)
         if !observe(required: required, now: now).isEmpty {
             return .dropNeedsFilter(required)
         }
