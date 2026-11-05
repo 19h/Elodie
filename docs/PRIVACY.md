@@ -19,7 +19,7 @@ and it doesn't upload your recordings, text, or transcripts anywhere.
   Remind knows. A browser window with no title yet counts as private until it has one, and if a
   browser doesn't answer in time, Remind drops the frame. It also drops frames from any time it
   couldn't check the window list promptly, such as when the Mac is busy. A private window open for
-  less than 0.25 seconds may go unseen.
+  less than 0.25 seconds may go unseen and end up in a recording.
 - Remind's own windows.
 
 **Password fields and other sensitive content in ordinary windows do get recorded** if they're

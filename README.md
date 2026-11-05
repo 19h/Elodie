@@ -107,7 +107,7 @@ Set `DEVELOPMENT_TEAM` in `project.yml` to your own team ID. Debug builds use yo
 
 ```sh
 make app
-open build/DerivedData/Build/Products/Debug/Remind.app
+open build/Derived/Build/Products/Debug/Remind.app
 ```
 
 `make app` builds the Rust core, generates its Swift bindings, generates the Xcode project, and builds the app. To work in Xcode, run `make project` and open `Remind.xcodeproj`. The project and the core's framework are generated, so neither is checked in.
@@ -293,7 +293,7 @@ About 30 seconds after a call's signs disappear, transcription stops by itself. 
 
 ### Controlling what's recorded
 
-<img src="docs/images/status-menu.png" width="320" align="right" alt="Remind's menu: Search, Ask, Daily Recap, switches for screen and audio capture, Star moment, Pause for, Forget the last 5 minutes, Settings, and Quit">
+<img src="docs/images/status-menu.png" width="320" align="right" alt="Remind's menu: Search, Ask, Daily Recap, Transcripts, switches for screen and audio capture, Star moment, Pause for, Forget the last 5 minutes, Settings, and Quit">
 
 The menu bar icon shows what's really happening. A filled frame means recording, an outline means paused or not recording yet, and a line through it means there's a problem, which the menu explains. Three extra bars mean audio is being transcribed.
 
@@ -446,7 +446,7 @@ Browsers offer no API for this, so Remind recognises private windows from their 
 
 **Remind also watches between frames.** Frames only arrive every couple of seconds, which leaves time for a private window to open and close unseen. So it looks at the window list every 0.2 seconds, and usually has the filter updated before the next frame is composed. It does this on a strict timer at a higher priority, and App Nap can't slow it. A new filter is only trusted after 0.25 seconds, because updating one returns a few milliseconds before frames stop showing what it hides. If a window that must be hidden closes before any filter covered it, everything composed up to that moment counts as unsafe.
 
-**A late look makes frames unsafe too.** A busy Mac can't always keep to that timer. If more than 0.25 seconds pass between looks, nothing composed in that time can be vouched for, so those frames are dropped. The same happens if a window closes between the two reads of the list, because then there's no telling what it was. A busy Mac may lose a few frames this way. A private window open for less than 0.25 seconds may still go unseen.
+**A late look makes frames unsafe too.** A busy Mac can't always keep to that timer. If more than 0.25 seconds pass between looks, nothing composed in that time can be vouched for, so those frames are dropped. The same happens if a window closes between the two reads of the list, because then there's no telling what it was. A busy Mac may lose a few frames this way. A private window open for less than 0.25 seconds may still go unseen and reach a recording, and [Measurements](#measurements) has what testing found.
 
 ### What it can't protect you from
 
@@ -611,6 +611,15 @@ A clean first run spent 31 s compiling Vision's models, and a slower Mac will ta
 
 **End to end.** A random word in a harness window went through ScreenCaptureKit, the Metal comparison, HEVC, the encrypted log, OCR, and search. It was found 0.4 s after OCR started, with the highlight inside the window where the word was. Change detection saw 1,000 of 1,000 scripted changes at 3456×2234.
 
+**Private windows.** Spike 2 opens about 500 private windows per language at 3456×2234, while an ordinary window keeps changing behind them. Each run first shows a marker with the exclusion check off, to prove the test would see a leak:
+
+| How long each window stayed open | Allowed frames showing it |
+|---|---|
+| 250 to 700 ms | 0 of 13,561 |
+| Under 120 ms | 3 of 49 |
+
+The first row leaves out one English run, where the control never saw the marker. The run before the last fix leaked 1 frame in 4,254. About half of all frames are dropped in this test, because a private window is opening or closing almost constantly, far more than in real use.
+
 **Search.** 800,000 frames in 4.1 GB, which is about 56 days of the worst case or more like 4 months of real use. This isn't a 3-year test, because that would break the 5 GB limit on test vaults. The slowest query is bounded by the ranking window rather than the size of the vault, so it should hold up, but that's reasoning and hasn't been measured.
 
 | Measure | Result | Target |
@@ -638,7 +647,7 @@ Power cuts are simulated by damaging files the way a lost write cache could. Thi
 
 | Command | What it does |
 |---|---|
-| `make app` | Builds the debug app into `build/DerivedData`. |
+| `make app` | Builds the debug app into `build/Derived`. |
 | `make core` | Builds the Rust core, its bindings, and its framework. |
 | `make project` | Builds the core and generates `Remind.xcodeproj`. |
 | `make test` | Runs the Rust tests, the Swift tests, and the privacy checks. |
@@ -659,7 +668,7 @@ Development builds optimise the Rust core. Reading recordings means decrypting t
 There are more than 400 Rust and Swift tests:
 
 - **Rust** has unit tests, property tests for the chunk format, tokenizer, and text codec, and integration tests for durability, search end to end, storage, and working with stretches of time.
-- **Swift** has a suite per area: Ask, Audio, Capture, CoreLive, FrameEngine, Ingest, and the interface. Interface tests run against `CoreFake`, while the Ingest, FrameEngine, and Audio suites also use the real core through `CoreLive`.
+- **Swift** has a suite per area: Ask, Audio, Capture, CoreLive, FrameEngine, Ingest, and the interface. Interface tests run against `CoreFake`, while the Ingest, FrameEngine, and Audio suites also use the real core through `CoreLive`. Test settings stay in memory, so a run leaves no files in your Preferences folder.
 - **The real app** runs too, because an app can capture its own windows with no permission. `make scenarios`, `make bench`, `make interaction-test`, and `--spike endtoend` all exercise it. These found bugs the unit tests hadn't, and `docs/spikes.md` lists them.
 
 ### Measuring and checking by hand
@@ -681,7 +690,7 @@ cargo run --release -p fixturegen -- recall <union-dir> <per-frame-dir>
 Debug builds of the app have two more modes. Launch them through `open`, so macOS treats Remind as the app asking for permission:
 
 ```sh
-APP=build/DerivedData/Build/Products/Debug/Remind.app
+APP=build/Derived/Build/Products/Debug/Remind.app
 
 # Shows one screen with fixture data, screenshots its own window, and exits.
 open -n $APP --args --scenario search-expanded --out /path/to/shot.png
@@ -765,19 +774,19 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 - **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and an ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
 - **A real first run has only happened on one Mac, with other apps excluded.** It recorded two real displays into a scratch vault, and [docs/spikes.md](docs/spikes.md) has what it covered. Normal daily use, and energy use, haven't been measured.
-- **Very brief private windows can reach a recording.** Spike 2 found no marker in 13,561 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 3 of 49 allowed frames.
+- **Very brief private windows can reach a recording.** Spike 2 found no marker in 13,561 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 3 of 49 allowed frames. Remind only promises to catch windows open for at least 0.25 seconds.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
 **Known gaps:**
 
 - **A browser call has to be in the front tab to be noticed,** and calls in Firefox aren't detected at all. Use the Audio capture switch for these.
-- **Private window detection depends on titles.** A language missing from the table means private windows aren't detected in it, and this hasn't been checked in real browsers in each language. A private window open for less than 0.25 seconds may also go unseen.
+- **Private window detection depends on titles.** A language missing from the table means private windows aren't detected in it, and this hasn't been checked in real browsers in each language.
 - **Firefox web addresses aren't captured,** so **Open** reopens Firefox rather than the page. Private windows there are still recognised by title.
 - **Only one display records at a time:** the one your pointer is on.
 - **The interface is English only.** Strings are marked for localisation, but no translations exist yet.
 - **Apple Silicon only.** Builds are `arm64`.
 
-**Not yet tested with real hardware or people:** the swipe on a real trackpad and mouse, including whether the app underneath stays perfectly still, since the event tap itself hasn't run. Also scroll speed, the login item, pointer following between displays, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center button. The [release checklist](docs/release-checklist.md) has the full list.
+**Not yet tested with real hardware or people:** the swipe on a real trackpad and mouse, including whether the app underneath stays perfectly still, since the event tap itself hasn't run. Also scroll speed, the login item, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center button. The [release checklist](docs/release-checklist.md) has the full list.
 
 ## Documentation
 

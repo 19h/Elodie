@@ -27,6 +27,8 @@
 Automated tests can't cover these. Each needs a real Mac and real prompts.
 
 - [ ] First run on a clean account: permission prompts, Quit & Reopen, restoring the same step.
+      A `--sandbox` run on one Mac covered the permission rows and resuming at the same step. See
+      docs/spikes.md. A clean account, Quit & Reopen, and the Accessibility prompt are still to do.
 - [ ] macOS asking to confirm screen recording again: recording pauses, the gap shows, and it resumes in one click.
 - [ ] **Screen sharing: does anyone on a call see the overlay?** If `sharingType = .none` doesn't
       hold, opening the timeline during a share would expose your history. Spike 7. **Don't ship until this is known.**
@@ -41,6 +43,7 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 - [ ] Login item: turn it on, restart, and confirm the app comes back. Force quit it and confirm launchd
       relaunches it. Crash it three times and confirm it comes back paused and says why.
 - [ ] Pointer following: move between displays and confirm recording follows after about 2 seconds.
+      The real first run saw recording follow the pointer, but didn't record how long it took.
 - [ ] Dragging a frame out of the timeline into Finder and another app.
 - [ ] Input methods in search: Pinyin, Kotoeri, Korean, emoji, including where candidates appear.
 - [ ] Overlay over full-screen apps, in Mission Control, with Stage Manager, on a notched display, and on a second display.
