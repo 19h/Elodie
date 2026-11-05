@@ -259,12 +259,15 @@ enum Scenarios {
         let status = StatusMenu(controller: controller)
         var failure: (any Error)?
         var finished = false
+        // A menu that won't close must not stay open on someone's screen. This starts before
+        // the menu opens and runs off the main thread, which the menu's tracking loop can
+        // hold on to, so nothing the menu does can stop it.
+        let output = output
+        DispatchQueue.global().asyncAfter(deadline: .now() + 6) { exit(0) }
         Task { @MainActor in
             defer {
                 finished = true
                 status.closeMenu()
-                // A menu that won't close must not stay open on someone's screen.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exit(0) }
             }
             try? await Task.sleep(for: .milliseconds(800))
             do {
