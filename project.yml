@@ -1,0 +1,55 @@
+name: Remind
+options:
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+settings:
+  base:
+    ARCHS: arm64
+    DEVELOPMENT_TEAM: 3352WVT944
+    ENABLE_HARDENED_RUNTIME: YES
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    # A real identity keeps TCC grants stable across rebuilds.
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "Apple Development"
+packages:
+  RemindKit:
+    path: Packages/RemindKit
+targets:
+  Remind:
+    type: application
+    platform: macOS
+    sources:
+      - App
+    settings:
+      base:
+        # Placeholder until the name is cleared. Changing it after release
+        # orphans Keychain items and permission grants.
+        PRODUCT_BUNDLE_IDENTIFIER: app.remind.Remind.dev
+        INFOPLIST_FILE: App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: App/Remind.entitlements
+    dependencies:
+      - package: RemindKit
+        product: CoreAPI
+      - package: RemindKit
+        product: CoreLive
+      - package: RemindKit
+        product: DesignSystem
+    preBuildScripts:
+      - name: Build Rust core
+        basedOnDependencyAnalysis: false
+        script: |
+          profile=debug
+          [ "$CONFIGURATION" = "Release" ] && profile=release
+          "$SRCROOT/scripts/build-core.sh" "$profile"
+schemes:
+  Remind:
+    build:
+      targets:
+        Remind: all
+    run:
+      config: Debug
+    archive:
+      config: Release

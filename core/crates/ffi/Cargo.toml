@@ -1,0 +1,19 @@
+[package]
+name = "remind-ffi"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "remind_ffi"
+crate-type = ["lib", "staticlib", "cdylib"]
+
+[dependencies]
+uniffi.workspace = true
+thiserror.workspace = true
+remind-store.workspace = true
+rusqlite.workspace = true

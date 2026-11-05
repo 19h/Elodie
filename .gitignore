@@ -1,0 +1,21 @@
+# Build products
+/build/
+/core/target/
+/Packages/RemindKit/.build/
+/Packages/RemindKit/Frameworks/
+/Packages/RemindKit/Sources/CoreABI/Generated/
+DerivedData/
+*.xcodeproj/
+*.xcworkspace/
+!Packages/**/*.xcworkspace
+
+# Local state
+.DS_Store
+.swiftpm/
+*.xcuserstate
+xcuserdata/
+
+# Never commit recorded data or keys
+*.vault/
+*.sqlite3
+*.sqlite3-*
