@@ -136,6 +136,32 @@ public final class LiveCore: RemindCore {
         try core.frameText(frameId: frameID)
     }
 
+    public func appendTranscript(_ words: [CoreAPI.SpokenWord], title: String?) throws {
+        try core.appendTranscript(
+            words: words.map {
+                SpokenWordInput(
+                    text: $0.text,
+                    tMs: $0.time.milliseconds,
+                    durationMs: Int64($0.duration * 1000),
+                    confidence: $0.confidence,
+                    isMe: $0.isMe
+                )
+            },
+            title: title
+        )
+    }
+
+    public func transcript(from: Date, to: Date) throws -> [CoreAPI.TranscriptLine] {
+        try core.transcript(fromMs: from.milliseconds, toMs: to.milliseconds).map {
+            CoreAPI.TranscriptLine(
+                text: $0.text,
+                time: Date(milliseconds: $0.tMs),
+                duration: Double($0.durationMs) / 1000,
+                isMe: $0.isMe
+            )
+        }
+    }
+
     public func setStarred(_ starred: Bool, frameID: Int64) throws {
         try core.setStarred(frameId: frameID, starred: starred)
     }
@@ -200,7 +226,8 @@ extension LiveCore {
                 bundleIds: facets.bundleIDs,
                 fromMs: facets.from?.milliseconds,
                 toMs: facets.to?.milliseconds,
-                starredOnly: facets.starredOnly
+                starredOnly: facets.starredOnly,
+                transcriptsOnly: facets.transcriptsOnly
             ),
             order: order == .relevance ? .relevance : .newest
         )
@@ -223,7 +250,8 @@ private struct LiveSearchSession: CoreAPI.SearchSession {
                     window: hit.window,
                     url: hit.url,
                     rects: hit.rects.map(CGRect.init),
-                    snippet: hit.snippet
+                    snippet: hit.snippet,
+                    isTranscript: hit.isTranscript
                 )
             },
             hasMore: page.hasMore

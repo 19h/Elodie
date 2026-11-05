@@ -129,6 +129,7 @@ pub struct SearchFacets {
     pub from_ms: Option<i64>,
     pub to_ms: Option<i64>,
     pub starred_only: bool,
+    pub transcripts_only: bool,
 }
 
 /// A moment that matched a search.
@@ -142,6 +143,7 @@ pub struct SearchHit {
     pub url: Option<String>,
     pub rects: Vec<NormalizedRect>,
     pub snippet: String,
+    pub is_transcript: bool,
 }
 
 /// A page of search results.
@@ -176,6 +178,7 @@ impl SearchHandle {
                     url: hit.url,
                     rects: hit.rects.into_iter().map(Into::into).collect(),
                     snippet: hit.snippet,
+                    is_transcript: hit.is_transcript,
                 })
                 .collect(),
         })
@@ -257,6 +260,25 @@ pub struct TimelineRun {
 pub struct TimelineData {
     pub apps: Vec<Option<String>>,
     pub runs: Vec<TimelineRun>,
+}
+
+/// A transcribed word.
+#[derive(Debug, uniffi::Record)]
+pub struct SpokenWordInput {
+    pub text: String,
+    pub t_ms: i64,
+    pub duration_ms: i64,
+    pub confidence: f32,
+    pub is_me: bool,
+}
+
+/// A line of a transcript.
+#[derive(Debug, uniffi::Record)]
+pub struct TranscriptLineInfo {
+    pub text: String,
+    pub t_ms: i64,
+    pub duration_ms: i64,
+    pub is_me: bool,
 }
 
 /// What was on screen for a frame.
@@ -494,6 +516,42 @@ impl Core {
         })
     }
 
+    /// Stores transcribed words, dropping any that were only the speakers' echo.
+    pub fn append_transcript(
+        &self,
+        words: Vec<SpokenWordInput>,
+        title: Option<String>,
+    ) -> Result<(), CoreError> {
+        Ok(self.engine.append_transcript(
+            words
+                .into_iter()
+                .map(|word| remind_engine::SpokenWord {
+                    text: word.text,
+                    t_ms: word.t_ms,
+                    duration_ms: word.duration_ms,
+                    confidence: word.confidence,
+                    is_me: word.is_me,
+                })
+                .collect(),
+            title,
+        )?)
+    }
+
+    /// What was said in a period.
+    pub fn transcript(&self, from_ms: i64, to_ms: i64) -> Result<Vec<TranscriptLineInfo>, CoreError> {
+        Ok(self
+            .engine
+            .transcript(from_ms, to_ms)?
+            .into_iter()
+            .map(|line| TranscriptLineInfo {
+                text: line.text,
+                t_ms: line.t_ms,
+                duration_ms: line.duration_ms,
+                is_me: line.is_me,
+            })
+            .collect())
+    }
+
     /// The text a frame shows, front window first.
     pub fn frame_text(&self, frame_id: i64) -> Result<Vec<String>, CoreError> {
         Ok(self.engine.frame_text(frame_id)?)
@@ -574,6 +632,7 @@ impl Core {
                 from_ms: facets.from_ms,
                 to_ms: facets.to_ms,
                 starred_only: facets.starred_only,
+                transcripts_only: facets.transcripts_only,
             },
             match order {
                 SearchOrder::Relevance => Order::Relevance,

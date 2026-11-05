@@ -4,6 +4,7 @@ pub mod codec;
 pub mod ocr;
 pub mod run;
 pub mod tokenizer;
+pub mod transcript;
 
 pub use ocr::{OcrLine, PreparedLine, Rect, prepare_lines};
 pub use run::{OpenRun, RunLine, RunPolicy};

@@ -263,12 +263,55 @@ public struct SearchFacets: Sendable, Equatable {
     public var from: Date?
     public var to: Date?
     public var starredOnly: Bool
+    /// Only what was said, rather than what was on screen.
+    public var transcriptsOnly: Bool
 
-    public init(bundleIDs: [String] = [], from: Date? = nil, to: Date? = nil, starredOnly: Bool = false) {
+    public init(
+        bundleIDs: [String] = [],
+        from: Date? = nil,
+        to: Date? = nil,
+        starredOnly: Bool = false,
+        transcriptsOnly: Bool = false
+    ) {
         self.bundleIDs = bundleIDs
         self.from = from
         self.to = to
         self.starredOnly = starredOnly
+        self.transcriptsOnly = transcriptsOnly
+    }
+}
+
+/// A transcribed word.
+public struct SpokenWord: Sendable, Equatable {
+    public var text: String
+    public var time: Date
+    public var duration: TimeInterval
+    public var confidence: Float
+    /// Whether this came from the microphone rather than the computer's audio.
+    public var isMe: Bool
+
+    public init(text: String, time: Date, duration: TimeInterval, confidence: Float, isMe: Bool) {
+        self.text = text
+        self.time = time
+        self.duration = duration
+        self.confidence = confidence
+        self.isMe = isMe
+    }
+}
+
+/// A line of a transcript.
+public struct TranscriptLine: Sendable, Equatable, Identifiable {
+    public var text: String
+    public var time: Date
+    public var duration: TimeInterval
+    public var isMe: Bool
+    public var id: Date { time }
+
+    public init(text: String, time: Date, duration: TimeInterval, isMe: Bool) {
+        self.text = text
+        self.time = time
+        self.duration = duration
+        self.isMe = isMe
     }
 }
 
@@ -283,8 +326,10 @@ public struct SearchHit: Sendable, Equatable, Identifiable {
     /// Where the matches are, as fractions of the frame.
     public var rects: [CGRect]
     public var snippet: String
+    /// Whether this was said rather than shown. Such a hit has no frame of its own.
+    public var isTranscript: Bool
 
-    public var id: Int64 { frameID }
+    public var id: String { isTranscript ? "said-\(runID)-\(capturedAt.timeIntervalSince1970)" : "frame-\(frameID)" }
 
     public init(
         frameID: Int64,
@@ -294,7 +339,8 @@ public struct SearchHit: Sendable, Equatable, Identifiable {
         window: String?,
         url: String?,
         rects: [CGRect],
-        snippet: String
+        snippet: String,
+        isTranscript: Bool = false
     ) {
         self.frameID = frameID
         self.runID = runID
@@ -304,6 +350,7 @@ public struct SearchHit: Sendable, Equatable, Identifiable {
         self.url = url
         self.rects = rects
         self.snippet = snippet
+        self.isTranscript = isTranscript
     }
 }
 
@@ -354,6 +401,10 @@ public protocol RemindCore: Sendable {
     func recap(from: Date, to: Date, bucket: TimeInterval) throws -> Recap
     /// The text a frame shows, front window first.
     func frameText(of frameID: Int64) throws -> [String]
+    /// Stores transcribed words, dropping any that were only the speakers' echo.
+    func appendTranscript(_ words: [SpokenWord], title: String?) throws
+    /// What was said in a period.
+    func transcript(from: Date, to: Date) throws -> [TranscriptLine]
     func setStarred(_ starred: Bool, frameID: Int64) throws
     /// Permanently deletes frames in a period, and their text. Returns how many were
     /// removed, which can include a few after the period that depended on them. This

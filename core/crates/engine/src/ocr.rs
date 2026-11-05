@@ -62,11 +62,12 @@ pub(crate) struct PreparedResult {
 pub(crate) struct RunTracker {
     policy: RunPolicy,
     open: HashMap<i64, OpenRun>,
+    pub(crate) transcript: Option<crate::transcript::OpenTranscript>,
 }
 
 impl RunTracker {
     pub(crate) fn new(policy: RunPolicy) -> Self {
-        Self { policy, open: HashMap::new() }
+        Self { policy, open: HashMap::new(), transcript: None }
     }
 
     pub(crate) fn policy(&self) -> RunPolicy {

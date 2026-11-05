@@ -333,12 +333,16 @@ fn terms_by_frequency(conn: &Connection, vocabulary: &[String]) -> (Vec<String>,
 }
 
 fn timed_first_pages(conn: &Connection, queries: &[String], order: Order) -> (Duration, Duration, usize) {
+    timed_with_window(conn, queries, order, remind_search::DEFAULT_RANKING_WINDOW)
+}
+
+fn timed_with_window(conn: &Connection, queries: &[String], order: Order, window: i64) -> (Duration, Duration, usize) {
     let mut times = Vec::with_capacity(queries.len());
     let mut hits = 0;
     for query in queries {
         let parsed = Query::parse(query).unwrap();
         let started = Instant::now();
-        let mut search = Search::new(conn, parsed, Facets::default(), order).unwrap();
+        let mut search = Search::with_ranking_window(conn, parsed, Facets::default(), order, window).unwrap();
         let page = search.next_page(conn).unwrap();
         times.push(started.elapsed());
         hits += page.hits.len();
@@ -406,6 +410,31 @@ fn query(directory: &Path) {
     tx.execute("DELETE FROM text_run WHERE t_last < ?1", params![to]).unwrap();
     tx.commit().unwrap();
     println!("  deleting one day ({deleted} frames, {} runs) took {:.2?}", runs.len(), started.elapsed());
+}
+
+/// How much does the ranking window cost, and how much do results change?
+fn windows(directory: &Path) {
+    // A vault built by an older version needs bringing up to date first.
+    let started = Instant::now();
+    let mut writer = open_writer(&directory.join("vault.db"), &KEY).unwrap();
+    schema::migrate(&mut writer).unwrap();
+    drop(writer);
+    println!("migrated in {:.1?}", started.elapsed());
+    let conn = open_reader(&directory.join("vault.db"), &KEY).unwrap();
+    let vocabulary = vocabulary();
+    let (common, rare) = terms_by_frequency(&conn, &vocabulary);
+    assert!(!common.is_empty(), "no common terms were found");
+    let common_terms: Vec<String> = common.iter().map(|w| format!("{w} ")).collect();
+    let prefixes: Vec<String> = common.iter().filter(|w| w.len() >= 4).map(|w| w[..3].to_owned()).collect();
+    let rare_terms: Vec<String> = rare.iter().map(|w| format!("{w} ")).collect();
+
+    println!("window     common p50  common p95  prefix p95   rare p95");
+    for window in [100_000, 50_000, 25_000, 10_000, 5_000, 2_000] {
+        let (p50, p95, _) = timed_with_window(&conn, &common_terms, Order::Relevance, window);
+        let (_, prefix95, _) = timed_with_window(&conn, &prefixes, Order::Relevance, window);
+        let (_, rare95, _) = timed_with_window(&conn, &rare_terms, Order::Relevance, window);
+        println!("{window:>7} {:>11.1?} {:>11.1?} {:>11.1?} {:>10.1?}", p50, p95, prefix95, rare95);
+    }
 }
 
 /// Recall: does each frame's text still lead to that frame under this policy?
@@ -540,6 +569,7 @@ fn main() {
             args.get(5).map_or(0.0, |v| v.parse().unwrap()),
         ),
         Some("query") => query(Path::new(&args[2])),
+        Some("windows") => windows(Path::new(&args[2])),
         Some("recall") => recall(Path::new(&args[2]), Path::new(&args[3])),
         _ => eprintln!("usage: fixturegen build|query|recall ..."),
     }

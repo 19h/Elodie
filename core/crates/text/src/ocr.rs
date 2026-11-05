@@ -61,15 +61,18 @@ pub struct PreparedLine {
 pub fn line_key(text: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     let mut pending_space = false;
+    let mut started = false;
     for c in text.nfkc().flat_map(char::to_lowercase) {
         if c.is_whitespace() {
-            pending_space = true;
+            // Spacing at the start of a line says nothing about its text.
+            pending_space = started;
         } else {
             if pending_space {
                 ' '.hash(&mut hasher);
                 pending_space = false;
             }
             c.hash(&mut hasher);
+            started = true;
         }
     }
     hasher.finish()

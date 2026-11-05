@@ -105,6 +105,40 @@ const MIGRATIONS: &[&str] = &[
     // Version 3: deletion.
     "CREATE TABLE purge (path TEXT PRIMARY KEY);
      DROP TABLE tombstone;",
+    // Version 4: what was said. Transcripts are searchable like screen text, and they
+    // share `text_run` and `run_fts`. Audio itself isn't kept.
+    "ALTER TABLE text_run ADD COLUMN kind INTEGER NOT NULL DEFAULT 0;
+
+     CREATE TABLE transcript_line (
+         run_id INTEGER NOT NULL REFERENCES text_run(id) ON DELETE CASCADE,
+         line_no INTEGER NOT NULL,
+         t_ms INTEGER NOT NULL,
+         duration_ms INTEGER NOT NULL,
+         source INTEGER NOT NULL,
+         PRIMARY KEY (run_id, line_no)
+     ) WITHOUT ROWID;
+     CREATE INDEX transcript_line_time ON transcript_line(t_ms);
+
+     CREATE TABLE transcript_word (
+         id INTEGER PRIMARY KEY,
+         run_id INTEGER NOT NULL REFERENCES text_run(id) ON DELETE CASCADE,
+         line_no INTEGER NOT NULL,
+         word TEXT NOT NULL,
+         t_ms INTEGER NOT NULL,
+         duration_ms INTEGER NOT NULL,
+         confidence REAL NOT NULL,
+         source INTEGER NOT NULL
+     );
+     CREATE INDEX transcript_word_run ON transcript_word(run_id, line_no);
+
+     CREATE TABLE meeting (
+         id INTEGER PRIMARY KEY,
+         title TEXT,
+         t_start INTEGER NOT NULL,
+         t_end INTEGER,
+         summary TEXT
+     );
+     CREATE INDEX meeting_time ON meeting(t_start);",
 ];
 
 /// Brings the database up to the current schema.
@@ -131,6 +165,7 @@ mod tests {
     #[test]
     fn migrating_twice_changes_nothing() {
         let mut conn = Connection::open_in_memory().unwrap();
+        crate::fts5::register_tokenizer(&conn).unwrap();
         migrate(&mut conn).unwrap();
         migrate(&mut conn).unwrap();
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();

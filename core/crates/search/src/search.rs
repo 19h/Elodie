@@ -9,9 +9,15 @@ use rusqlite::{Connection, ToSql, params_from_iter};
 use crate::matching::{TermMatch, find_in_line};
 use crate::{Query, SearchError};
 
-/// Older matches beyond this aren't ranked by relevance. Ranking is proportional to
-/// matches, and a common word could have millions. The newest are usually wanted.
-const RANKING_WINDOW: i64 = 100_000;
+/// Only this many of the newest matches are ranked by relevance. Ranking costs time for
+/// every match, and a common word could have millions. Words rare enough for relevance
+/// to matter have fewer matches than this, so they're ranked across all of history, and
+/// for very common words, recency is a good stand-in.
+///
+/// Measured at 800,000 frames: common-word first pages took 75 ms at p95 with this
+/// value, against 353 ms with 100,000. Older matches stay reachable, because paging
+/// continues past the window, newest first.
+pub const DEFAULT_RANKING_WINDOW: i64 = 5_000;
 const PAGE_SIZE: usize = 30;
 /// Rows fetched per page, because re-checking can reject some.
 const ROWS_PER_PAGE: i64 = 90;
@@ -35,6 +41,8 @@ pub struct Facets {
     pub from_ms: Option<i64>,
     pub to_ms: Option<i64>,
     pub starred_only: bool,
+    /// Only what was said, rather than what was on screen.
+    pub transcripts_only: bool,
 }
 
 /// A moment that matched.
@@ -50,6 +58,8 @@ pub struct Hit {
     pub rects: Vec<Rect>,
     /// The line containing the first match.
     pub snippet: String,
+    /// Whether this was said rather than shown.
+    pub is_transcript: bool,
 }
 
 /// One page of results.
@@ -63,6 +73,8 @@ pub struct Page {
 /// A candidate run from the index, with what's needed to check it.
 struct Candidate {
     run_id: i64,
+    kind: i64,
+    transcript_lines: Vec<(i64, i64)>,
     bundle_id: Option<String>,
     window: Option<String>,
     url: Option<String>,
@@ -87,6 +99,8 @@ pub struct Search {
     /// The oldest run the relevance order will consider.
     floor: i64,
     offset: i64,
+    /// Whether the ranked window has been used up, and older matches are next.
+    past_window: bool,
     exhausted: bool,
     recent: Vec<(String, Rect)>,
     /// Hits fetched beyond the last page. Each fetch reads extra rows, because
@@ -101,6 +115,17 @@ impl Search {
         facets: Facets,
         order: Order,
     ) -> Result<Self, SearchError> {
+        Self::with_ranking_window(conn, query, facets, order, DEFAULT_RANKING_WINDOW)
+    }
+
+    /// Starts a search that ranks this many of the newest matches.
+    pub fn with_ranking_window(
+        conn: &Connection,
+        query: Query,
+        facets: Facets,
+        order: Order,
+        ranking_window: i64,
+    ) -> Result<Self, SearchError> {
         let snapshot: i64 =
             conn.query_row("SELECT coalesce(max(id), 0) FROM text_run", [], |r| r.get(0))?;
         let floor = if order == Order::Relevance {
@@ -109,7 +134,7 @@ impl Search {
                 "SELECT rowid FROM run_fts WHERE run_fts MATCH ?1 AND rowid <= ?2
                  ORDER BY rowid DESC LIMIT 1 OFFSET ?3",
             )?
-            .query_row(rusqlite::params![query.expression, snapshot, RANKING_WINDOW], |r| r.get(0))
+            .query_row(rusqlite::params![query.expression, snapshot, ranking_window], |r| r.get(0))
             .unwrap_or(0)
         } else {
             0
@@ -121,6 +146,7 @@ impl Search {
             snapshot,
             floor,
             offset: 0,
+            past_window: false,
             exhausted: false,
             recent: Vec::new(),
             buffered: VecDeque::new(),
@@ -134,7 +160,14 @@ impl Search {
             let fetched = candidates.len() as i64;
             self.offset += fetched;
             if fetched < ROWS_PER_PAGE {
-                self.exhausted = true;
+                // Anything older than the ranked window comes next, newest first, so
+                // nothing that matches ever becomes unreachable.
+                if self.order == Order::Relevance && !self.past_window && self.floor > 0 {
+                    self.past_window = true;
+                    self.offset = 0;
+                } else {
+                    self.exhausted = true;
+                }
             }
 
             // Decompressing and re-tokenising is the costly part, and each candidate
@@ -173,10 +206,16 @@ impl Search {
     }
 
     fn fetch_candidates(&self, conn: &Connection) -> Result<Vec<Candidate>, SearchError> {
+        // Each phase covers its own rows, so nothing appears twice.
+        let (newest, oldest) = if self.past_window {
+            (self.floor - 1, 0)
+        } else {
+            (self.snapshot, self.floor)
+        };
         let mut parameters: Vec<Box<dyn ToSql>> = vec![
             Box::new(self.query.expression.clone()),
-            Box::new(self.snapshot),
-            Box::new(self.floor),
+            Box::new(newest),
+            Box::new(oldest),
         ];
         let mut clauses = String::new();
 
@@ -195,20 +234,23 @@ impl Search {
             clauses.push_str(" AND r.t_first <= ?");
             parameters.push(Box::new(to));
         }
+        if self.facets.transcripts_only {
+            clauses.push_str(" AND r.kind = 1");
+        }
         if self.facets.starred_only {
             clauses.push_str(
                 " AND EXISTS (SELECT 1 FROM frame f WHERE f.run_id = r.id AND f.is_starred = 1)",
             );
         }
         let order = match self.order {
-            Order::Relevance => "bm25(run_fts, 1.0, 0.3, 3.0), run_fts.rowid DESC",
-            Order::Newest => "run_fts.rowid DESC",
+            Order::Relevance if !self.past_window => "bm25(run_fts, 1.0, 0.3, 3.0), run_fts.rowid DESC",
+            _ => "run_fts.rowid DESC",
         };
         parameters.push(Box::new(ROWS_PER_PAGE));
         parameters.push(Box::new(self.offset));
 
         let sql = format!(
-            "SELECT r.id, r.lines_z, s.bundle_id, s.window, s.url
+            "SELECT r.id, r.lines_z, s.bundle_id, s.window, s.url, r.kind
              FROM run_fts
              JOIN text_run r ON r.id = run_fts.rowid
              LEFT JOIN segment s ON s.id = r.segment_id
@@ -224,6 +266,8 @@ impl Search {
                     bundle_id: r.get(2)?,
                     window: r.get(3)?,
                     url: r.get(4)?,
+                    kind: r.get(5)?,
+                    transcript_lines: Vec::new(),
                     frames: Vec::new(),
                 })
             })?
@@ -236,7 +280,16 @@ impl Search {
              WHERE t.run_id = ?1{starred} ORDER BY f.t_ms DESC LIMIT ?2"
         );
         let mut frames = conn.prepare_cached(&frames_sql)?;
+        let mut said = conn.prepare_cached(
+            "SELECT line_no, t_ms FROM transcript_line WHERE run_id = ?1 ORDER BY line_no",
+        )?;
         for candidate in &mut candidates {
+            if candidate.kind == 1 {
+                candidate.transcript_lines = said
+                    .query_map(rusqlite::params![candidate.run_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                    .collect::<rusqlite::Result<_>>()?;
+                continue;
+            }
             candidate.frames = frames
                 .query_map(rusqlite::params![candidate.run_id, MAX_FRAMES_PER_RUN], |r| {
                     Ok(CandidateFrame {
@@ -292,6 +345,10 @@ fn resolve(
         matched_lines.push(found);
     }
 
+    if candidate.kind == 1 {
+        return Ok(resolve_transcript(candidate, &lines, &matched_lines, facets));
+    }
+
     for frame in &candidate.frames {
         if facets.from_ms.is_some_and(|from| frame.t_ms < from)
             || facets.to_ms.is_some_and(|to| frame.t_ms > to)
@@ -328,7 +385,40 @@ fn resolve(
             url: candidate.url.clone(),
             rects,
             snippet: snippet.unwrap_or_else(|| title.to_owned()),
+            is_transcript: false,
         }));
     }
     Ok(None)
+}
+
+/// A transcript has no frames, so a hit is the first line where a term was said. Every
+/// term must have been said in this stretch of conversation.
+fn resolve_transcript(
+    candidate: &Candidate,
+    lines: &[RunLine],
+    matched_lines: &[HashSet<u32>],
+    facets: &Facets,
+) -> Option<Hit> {
+    if matched_lines.iter().any(HashSet::is_empty) {
+        return None;
+    }
+    let first = matched_lines.iter().flatten().copied().min()?;
+    let (_, t_ms) = candidate
+        .transcript_lines
+        .iter()
+        .find(|(number, _)| *number == i64::from(first))?;
+    if facets.from_ms.is_some_and(|from| *t_ms < from) || facets.to_ms.is_some_and(|to| *t_ms > to) {
+        return None;
+    }
+    Some(Hit {
+        frame_id: 0,
+        run_id: candidate.run_id,
+        t_ms: *t_ms,
+        bundle_id: candidate.bundle_id.clone(),
+        window: candidate.window.clone(),
+        url: candidate.url.clone(),
+        rects: Vec::new(),
+        snippet: lines.get(first as usize)?.text.clone(),
+        is_transcript: true,
+    })
 }

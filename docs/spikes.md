@@ -144,3 +144,34 @@ These are recorded because each would have been a visible failure.
 frames re-encoded. Re-encoding needs Swift's encoder, and deletion runs in Rust, so those
 frames are dropped instead: at most one group of pictures after the deleted range, or about
 a minute at most.
+
+## Spike 5 at scale: passes after a change
+
+800,000 frames, 1% OCR jitter, 4.1 GB. That's about 56 days of the worst case (every tick
+stored for 8 hours), or more like 4 months of real use. **The plan said to scale to 3 years,
+which would break the 5 GB limit on test vaults, so this is not a 3-year test.** The slowest
+query is bounded by the ranking window, not the size of the vault, which is why it should
+hold up, but that's reasoning and hasn't been measured.
+
+The index costs 5,140 bytes per frame at this scale, up from 3,582 at 50,000 frames.
+
+| Query, first page | Ranked 100,000 | **Ranked 5,000, chosen** | Target |
+|---|---|---|---|
+| Common word, relevance p95 | 353 ms (**fails**) | **75 ms** | at most 300 ms |
+| 3-letter prefix, relevance p95 | 412 ms (**fails**) | **84 ms** | at most 300 ms |
+| Rare word, relevance p95 | 48 ms | 21 ms | |
+| Common word, newest p95 | 17 ms | 17 ms | |
+| Peak memory | 34 MB | | at most 150 MB |
+| Deleting one day | 1.9 s | | at most 30 s |
+
+Words rarer than 5,000 matches are still ranked across all of history. For more common words,
+recency stands in for relevance. Paging continues past the window, so every match stays reachable.
+
+The first large run reported "0 common terms" and exited 0, because a bug in the measuring tool
+skipped the slowest query entirely. It now refuses to report in that case.
+
+## Open items
+
+- **One test crash, not reproduced.** The test helper exited abnormally once while the 25-test
+  Ingest suite was running under heavy load. The error line got cut off, and four full runs
+  afterward passed all suites. Keep watching for this.

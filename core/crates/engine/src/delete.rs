@@ -161,6 +161,21 @@ pub(crate) fn apply(tx: &Transaction<'_>, request: &DeleteRequest) -> rusqlite::
         }
     }
 
+    // What was said in the range goes too.
+    let spoken: Vec<i64> = {
+        let mut statement = tx.prepare(
+            "SELECT id FROM text_run WHERE kind = 1 AND t_last >= ?1 AND t_first <= ?2",
+        )?;
+        statement.query_map(params![from, to], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    };
+    for run in spoken {
+        crate::transcript::remove_range(tx, run, from, to)?;
+    }
+    tx.execute(
+        "DELETE FROM meeting WHERE t_start >= ?1 AND coalesce(t_end, t_start) <= ?2",
+        params![from, to],
+    )?;
+
     prune_runs(tx, &affected_runs)?;
     prune_segments(tx, &affected_segments)?;
     Ok(outcome)

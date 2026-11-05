@@ -16,6 +16,7 @@ mod ocr;
 mod read;
 mod recovery;
 mod search;
+mod transcript;
 mod writer;
 
 use std::collections::HashMap;
@@ -34,6 +35,7 @@ pub use ocr::{OcrBatchOptions, OcrJob, OcrResult};
 pub use read::{FrameRef, Gop, GopSample};
 pub use recovery::RecoveryReport;
 pub use search::SearchSession;
+pub use transcript::{SpokenWord, TranscriptLine};
 pub use remind_store::FrameContext;
 pub use remind_text::{OcrLine, Rect, RunPolicy};
 pub use remind_timeline::{ActivityBlock, AppTime, Recap, Run as TimelineRun, Timeline};

@@ -117,6 +117,10 @@ public final class FakeCore: RemindCore, @unchecked Sendable {
         lock.withLock { recognized[frameID]?.map(\.text) ?? [] }
     }
 
+    public func appendTranscript(_ words: [SpokenWord], title: String?) throws {}
+
+    public func transcript(from: Date, to: Date) throws -> [TranscriptLine] { [] }
+
     public func setStarred(_ starred: Bool, frameID: Int64) throws {}
 
     @discardableResult

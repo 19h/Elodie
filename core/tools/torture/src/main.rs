@@ -101,6 +101,7 @@ fn run_child(root: &Path, start: u64, pace_us: u64, max_len: u64) -> ! {
             window: (counter % 7 != 0).then(|| format!("Window {}", (counter / 40) % 5)),
             url: None,
             profile: None,
+            front_rect: None,
         };
         let sample = Sample {
             display_uuid: DISPLAY,

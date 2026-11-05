@@ -391,6 +391,8 @@ private final class ScriptedCore: RemindCore, @unchecked Sendable {
         Recap(totalActive: 0, apps: [], activity: [], blocks: [])
     }
     func frameText(of frameID: Int64) throws -> [String] { [] }
+    func appendTranscript(_ words: [SpokenWord], title: String?) throws {}
+    func transcript(from: Date, to: Date) throws -> [TranscriptLine] { [] }
     func setStarred(_ starred: Bool, frameID: Int64) throws {}
     func deleteRange(from: Date, to: Date) throws -> UInt64 { 0 }
     func nextOCRBatch(max: Int, now: Date, includeDeferred: Bool) throws -> [OCRJob] { [] }

@@ -94,7 +94,7 @@ public final class SearchModel {
         let current = generation
         let core = self.core
         let query = text
-        let facets = SearchFacets(bundleIDs: selectedApps.sorted(), starredOnly: starredOnly)
+        let facets = SearchFacets(bundleIDs: selectedApps.sorted(), starredOnly: starredOnly, transcriptsOnly: meetingsOnly)
         let wait = debounce
         task = Task { [weak self] in
             try? await Task.sleep(for: wait)

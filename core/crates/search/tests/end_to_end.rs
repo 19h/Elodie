@@ -302,6 +302,49 @@ fn paging_returns_every_result_once_and_later_recordings_do_not_shift_it() {
     assert_eq!(unique.len(), 70);
 }
 
+/// A small window makes common words fast, but older matches still have to be
+/// reachable, or a word you search for could seem never to have appeared.
+#[test]
+fn matches_older_than_the_ranking_window_are_still_returned_once() {
+    let mut f = Fixture::new();
+    for n in 0..200 {
+        let t = 1000 + n as i64 * 300_000;
+        f.frame(t, &format!("com.app{n}"), "W", &[&format!("needle number {n}")]);
+    }
+    let parsed = Query::parse("needle ").unwrap();
+    let mut search =
+        Search::with_ranking_window(&f.conn, parsed, Facets::default(), Order::Relevance, 20).unwrap();
+
+    let mut seen = Vec::new();
+    loop {
+        let page = search.next_page(&f.conn).unwrap();
+        seen.extend(page.hits.iter().map(|h| h.frame_id));
+        if !page.has_more {
+            break;
+        }
+    }
+    assert_eq!(seen.len(), 200, "every match should be reachable");
+    let unique: std::collections::HashSet<_> = seen.iter().collect();
+    assert_eq!(unique.len(), 200, "nothing should appear twice");
+}
+
+#[test]
+fn a_rare_word_is_ranked_across_all_of_history() {
+    let mut f = Fixture::new();
+    // The title match is the oldest thing here, and it still ranks first.
+    f.frame(1000, "com.old", "Falcon", &["more filler words without the term"]);
+    for n in 1..30 {
+        let t = 1000 + n as i64 * 300_000;
+        f.frame(t, &format!("com.app{n}"), "W", &[&format!("falcon plus filler words here {n}")]);
+    }
+    let parsed = Query::parse("falcon ").unwrap();
+    // The window is larger than the word's 30 matches, so all of them get ranked.
+    let mut search =
+        Search::with_ranking_window(&f.conn, parsed, Facets::default(), Order::Relevance, 100).unwrap();
+    let page = search.next_page(&f.conn).unwrap();
+    assert_eq!(page.hits[0].window.as_deref(), Some("Falcon"));
+}
+
 #[test]
 fn query_syntax_in_a_search_is_harmless() {
     let mut f = Fixture::new();

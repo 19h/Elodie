@@ -12,7 +12,7 @@ mod search;
 
 pub use matching::{TermMatch, find_in_line};
 pub use query::{Query, QueryTerm};
-pub use search::{Facets, Hit, Order, Page, Search};
+pub use search::{DEFAULT_RANKING_WINDOW, Facets, Hit, Order, Page, Search};
 
 /// Errors while searching.
 #[derive(Debug, thiserror::Error)]

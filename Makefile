@@ -20,7 +20,7 @@ app: project
 test: test-rust test-swift
 
 test-rust:
-	cd core && cargo test --workspace --quiet
+	cd core && cargo test --workspace --no-fail-fast --quiet
 
 test-swift: core
 	swift test --package-path Packages/RemindKit --quiet

@@ -23,6 +23,7 @@ pub(crate) enum WriterMessage {
     OcrFailed(i64, Sender<Result<(), EngineError>>),
     SetStarred(i64, bool, Sender<Result<(), EngineError>>),
     DeleteRange(crate::delete::DeleteRequest, Sender<Result<u64, EngineError>>),
+    Transcript(Vec<crate::transcript::SpokenWord>, Option<String>, Sender<Result<(), EngineError>>),
 }
 
 impl WriterMessage {
@@ -137,6 +138,10 @@ fn commit(
                     "UPDATE frame SET is_starred = ?2 WHERE id = ?1",
                     params![frame_id, starred],
                 )?;
+                replies.push(Reply::Done(reply.clone()));
+            }
+            WriterMessage::Transcript(words, title, reply) => {
+                crate::transcript::store(&tx, tracker, words, title.as_deref())?;
                 replies.push(Reply::Done(reply.clone()));
             }
             WriterMessage::DeleteRange(request, reply) => {

@@ -616,3 +616,138 @@ mod deleting {
         engine.close().unwrap();
     }
 }
+
+mod transcripts {
+    use super::*;
+    use remind_engine::SpokenWord;
+    use remind_search::{Facets, Order, Query};
+
+    fn said(text: &str, t_ms: i64, is_me: bool) -> SpokenWord {
+        SpokenWord { text: text.to_owned(), t_ms, duration_ms: 300, confidence: 0.87, is_me }
+    }
+
+    fn sentence(text: &str, start: i64, is_me: bool) -> Vec<SpokenWord> {
+        text.split(' ')
+            .enumerate()
+            .map(|(index, word)| said(word, start + index as i64 * 350, is_me))
+            .collect()
+    }
+
+    fn search(engine: &Engine, query: &str, facets: Facets) -> Vec<remind_search::Hit> {
+        let session = engine.search(Query::parse(query).unwrap(), facets, Order::Newest).unwrap();
+        session.next_page().unwrap().hits
+    }
+
+    #[test]
+    fn what_was_said_can_be_found_at_the_moment_it_was_said() {
+        let dir = TempDir::new().unwrap();
+        let engine = open(dir.path());
+        engine.append_transcript(sentence("the quarterly budget looks fine", 50_000, false), Some("Design review".to_owned())).unwrap();
+
+        let hits = search(&engine, "budget ", Facets::default());
+        assert_eq!(hits.len(), 1);
+        assert!(hits[0].is_transcript);
+        assert_eq!(hits[0].t_ms, 50_000);
+        assert_eq!(hits[0].snippet, "the quarterly budget looks fine");
+        assert_eq!(hits[0].window.as_deref(), Some("Design review"));
+        engine.close().unwrap();
+    }
+
+    /// The reference app interpolated word times and fixed confidence at 1.0.
+    #[test]
+    fn real_word_times_and_confidence_are_kept() {
+        let dir = TempDir::new().unwrap();
+        let engine = open(dir.path());
+        engine.append_transcript(vec![said("alpha", 1000, true), said("beta", 1300, true)], None).unwrap();
+        let words = engine.transcript_words(0, 10_000).unwrap();
+        assert_eq!(words[0], ("alpha".to_owned(), 1000, 300, f64::from(0.87f32)));
+        assert_eq!(words[1].1, 1300);
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn the_microphones_echo_of_the_speakers_is_dropped() {
+        let dir = TempDir::new().unwrap();
+        let engine = open(dir.path());
+        let mut words = sentence("hello everyone", 1000, false);
+        words.extend(sentence("hello everyone", 1100, true));
+        words.push(said("thanks", 3000, true));
+        engine.append_transcript(words, None).unwrap();
+
+        let lines = engine.transcript(0, 10_000).unwrap();
+        let mine: Vec<_> = lines.iter().filter(|line| line.is_me).map(|line| line.text.as_str()).collect();
+        assert_eq!(mine, ["thanks"]);
+        assert_eq!(lines.iter().filter(|line| !line.is_me).count(), 1);
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn lines_split_on_a_change_of_speaker_or_a_pause() {
+        let dir = TempDir::new().unwrap();
+        let engine = open(dir.path());
+        let mut words = sentence("first thought", 1000, true);
+        words.extend(sentence("second thought", 5000, true));
+        words.extend(sentence("reply here", 6000, false));
+        engine.append_transcript(words, None).unwrap();
+        let texts: Vec<String> = engine.transcript(0, 20_000).unwrap().into_iter().map(|line| line.text).collect();
+        assert_eq!(texts, ["first thought", "second thought", "reply here"]);
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn the_meetings_filter_only_returns_what_was_said() {
+        let dir = TempDir::new().unwrap();
+        let engine = open(dir.path());
+        engine.append(sample(0, true)).unwrap();
+        wait_for(&engine, 1);
+        let jobs = engine
+            .next_ocr_batch(remind_engine::OcrBatchOptions { max: 8, now_ms: T, include_deferred: false })
+            .unwrap();
+        engine
+            .submit_ocr(vec![remind_engine::OcrResult {
+                frame_id: jobs[0].frame_id,
+                lines: vec![remind_engine::OcrLine { text: "budget on screen".to_owned(), rect: remind_engine::Rect::default() }],
+            }])
+            .unwrap();
+        engine.append_transcript(sentence("budget out loud", 2_000_000, false), None).unwrap();
+
+        assert_eq!(search(&engine, "budget ", Facets::default()).len(), 2);
+        let spoken = search(&engine, "budget ", Facets { transcripts_only: true, ..Facets::default() });
+        assert_eq!(spoken.len(), 1);
+        assert_eq!(spoken[0].snippet, "budget out loud");
+        engine.close().unwrap();
+    }
+
+    const T: i64 = 1_000_000;
+
+    #[test]
+    fn deleting_a_range_removes_what_was_said_in_it() {
+        let dir = TempDir::new().unwrap();
+        let engine = open(dir.path());
+        let mut words = sentence("keep this first", 1000, true);
+        words.extend(sentence("forget this secret", 10_000, true));
+        words.extend(sentence("keep this last", 20_000, true));
+        engine.append_transcript(words, None).unwrap();
+        assert_eq!(search(&engine, "secret ", Facets::default()).len(), 1);
+
+        engine.delete_range(9_000, 15_000).unwrap();
+        assert!(search(&engine, "secret ", Facets::default()).is_empty());
+        let texts: Vec<String> = engine.transcript(0, 100_000).unwrap().into_iter().map(|line| line.text).collect();
+        assert_eq!(texts, ["keep this first", "keep this last"]);
+        assert!(engine.transcript_words(9_000, 15_000).unwrap().is_empty());
+        assert_eq!(search(&engine, "last ", Facets::default()).len(), 1);
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn deleting_everything_removes_all_of_it() {
+        let dir = TempDir::new().unwrap();
+        let engine = open(dir.path());
+        engine.append_transcript(sentence("alpha beta", 1000, true), None).unwrap();
+        engine.delete_range(i64::MIN, i64::MAX).unwrap();
+        assert!(engine.transcript(0, i64::MAX).unwrap().is_empty());
+        assert!(search(&engine, "alpha ", Facets::default()).is_empty());
+        assert_eq!(scalar(&engine, "SELECT count(*) FROM text_run"), 0);
+        engine.close().unwrap();
+    }
+}
