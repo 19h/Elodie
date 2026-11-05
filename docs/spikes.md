@@ -244,7 +244,7 @@ constantly, far more than in real use.
 
 | Question | Result |
 |---|---|
-| Does `sharingType = .none` hide the panel from capture? | From another process, yes. In `--spike sharing`, a separate copy of the app captures the display. With the overlay's setting it finds nothing, by screenshot, stream, or asking for that window alone, and the same panel set to share normally shows up every time. **A real call is still to try** |
+| Does `sharingType = .none` hide the panel from capture? | From another process, yes. In `--spike sharing`, a separate copy of the app captures the display. With the overlay's setting it finds nothing, by screenshot, stream, or asking for that window alone, and the same panel set to share normally shows up every time. The check now also tries the system's `screencapture` tool, and that result isn't written down yet. **A real call is still to try** |
 | Does scrolling reach the timeline through the SwiftUI layer and the strip? | Yes, with real events through the real panel |
 | Does typing start a search, and does the field take over? | Yes |
 | Drag across text, then ⌘C | Copies it |

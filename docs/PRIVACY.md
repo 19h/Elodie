@@ -45,6 +45,10 @@ Remind asks for it. Anyone with that file and your recordings can read them, so 
 
 Anyone who can use your Mac while you're logged in can open Remind and see your history.
 
+The Control Center switch talks to Remind through system notifications, and any app can use them too.
+Another app can see whether Remind is recording, and can ask it to pause or resume. It can't read your
+recordings this way.
+
 ## Deleting
 
 You can delete a stretch on the timeline, a time range, everything recorded from one app, or

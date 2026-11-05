@@ -404,7 +404,9 @@ open "remind://moment/1800000000000"
 
 ### Control Center
 
-Add the **Remind recording** control to Control Center or the menu bar to pause and resume. It runs in a separate sandboxed process and signals the app with a notification that carries no data.
+Add the **Remind recording** control to Control Center or the menu bar. It's a switch that shows whether Remind is recording, and turning it off or on pauses or resumes. It says **Not recording** whatever the reason, whether that's a pause, a problem, or Remind not running. It can only ask, so turning it on doesn't start Remind if it isn't running.
+
+The switch runs in a separate sandboxed process, so it shares only system notifications with the app: one name to ask for a pause, one to ask to resume, and a number on a third that says what's true. The system forgets that number when Remind stops, so a crash can't leave the switch claiming to record.
 
 ## Privacy and security
 
@@ -451,6 +453,7 @@ Browsers offer no API for this, so Remind recognises private windows from their 
 ### What it can't protect you from
 
 - **Your own account.** Anyone who can use your Mac while you're logged in can open Remind and see your history.
+- **Other apps on your Mac.** The Control Center switch talks to Remind through system notifications, and any app can use them too. Another app can see whether Remind is recording, and can ask it to pause or resume. It can't read your recordings this way.
 - **Copies you make.** Exported videos, saved images, and dragged frames aren't encrypted. A saved recovery key can decrypt everything, so keep it somewhere safe.
 - **Deleted blocks.** Deleting removes recordings and their text from Remind's files, and a few frames just after a deleted period also go, because they can't be decoded without what came before. Like any file deletion, old encrypted blocks can stay on the drive or in APFS snapshots until they're overwritten.
 
@@ -704,7 +707,7 @@ open -n $APP --args --sandbox /path/to/folder
 ```
 
 - **Scenarios:** `timeline`, `timeline-zoom`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
-- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it. It examines frames in memory, counts only marker-coloured pixels where the panel sits, and stores nothing.
+- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it, including with the system's `screencapture` tool. It counts only marker-coloured pixels where the panel sits. It examines frames in memory, except that the tool's picture goes in a temporary file that's deleted straight away. `login-item` needs no permission and captures nothing. It reports the login item's status and which permissions the app has, and `--action on` or `--action off` registers or unregisters the login item for real.
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
 
@@ -714,7 +717,7 @@ A `--sandbox` run can also be driven from outside, without taking your keyboard 
 - **Search:** `search <words>`, `choose`, `filterStarred`, `hits`
 - **The key:** `recoveryKey`, `restore <recovery key>`, `startOver`
 - **Everything else:** `listen`, `pause`, `recap`, `ask`, `transcripts`, `settings`, `quit`
-- **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote
+- **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote. `state` also says which permissions the app has, whether the event tap is running, what the Control Center switch would read, and how many microphone buffers have arrived and how loud they were
 
 ### Working rules
 
@@ -786,7 +789,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 - **The interface is English only.** Strings are marked for localisation, but no translations exist yet.
 - **Apple Silicon only.** Builds are `arm64`.
 
-**Not yet tested with real hardware or people:** the swipe on a real trackpad and mouse, including whether the app underneath stays perfectly still, since the event tap itself hasn't run. Also scroll speed, the login item, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center button. The [release checklist](docs/release-checklist.md) has the full list.
+**Not yet tested with real hardware or people:** the swipe on a real trackpad and mouse, including whether the app underneath stays perfectly still, since the event tap itself hasn't run. Also scroll speed, the login item, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center switch. The [release checklist](docs/release-checklist.md) has the full list.
 
 ## Documentation
 

@@ -50,7 +50,8 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 - [ ] Private windows in real browsers, in each language you claim to support.
 - [ ] Haptics while scrubbing.
 - [ ] Transcribing a real meeting with a real microphone.
-- [ ] The Control Center button: it appears, and it pauses and resumes.
+- [ ] The Control Center switch: it appears, shows whether Remind is recording, pauses and resumes, and says
+      Not recording after Remind is force quit.
 
 ## Measurements still needed
 
