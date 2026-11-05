@@ -246,7 +246,7 @@ constantly, far more than in real use.
 
 | Question | Result |
 |---|---|
-| Does `sharingType = .none` hide the panel from capture? | From another process, yes, and from the system's `screencapture` tool too. In `--spike sharing`, a separate copy of the app captures the display. With the overlay's setting it finds nothing, by screenshot, stream, or asking for that window alone, and the same panel set to share normally shows up every time. The check now also tries the system's `screencapture` tool, and that result isn't written down yet. **A real call is still to try** |
+| Does `sharingType = .none` hide the panel from capture? | From another process, yes, and from the system's `screencapture` tool too. So does Chrome's real `getDisplayMedia`, which web call apps use: over a whole display at 3456×2234, an ordinary panel showed about 38,000 sampled pixels per frame, and the overlay's setting showed 0 in all 28 frames. In `--spike sharing`, a separate copy of the app captures the display. With the overlay's setting it finds nothing, by screenshot, stream, or asking for that window alone, and the same panel set to share normally shows up every time. The check now also tries the system's `screencapture` tool, and that result isn't written down yet. **A real call is still to try** |
 | Does scrolling reach the timeline through the SwiftUI layer and the strip? | Yes, with real events through the real panel |
 | Does typing start a search, and does the field take over? | Yes |
 | Drag across text, then ⌘C | Copies it |
@@ -354,13 +354,13 @@ showed as granted, Continue was on, and Start recording started recording with t
 | Also tested for real | Result |
 |---|---|
 | Login item, through `SMAppService` and launchd | Registers as enabled, launchd starts it, a second copy leaves, launchd brings it back 21 s after a SIGKILL, a proper quit isn't brought back, and unregistering stops it. Coming back after a restart hasn't been tried |
-| Microphone | Real buffers arrive at a real level, 1,551 in about 15 s. The output was muted, so nothing spoken reached it, and the microphone has yet to produce words |
+| Microphone | Real audio reaches speech recognition intact: 44.1 kHz float, whatever rate was asked for, becomes 16 kHz at the same level. Speech in exactly that form becomes words labelled as the person's own, in a test. The output was muted, so nothing spoken reached the real microphone, and it has yet to produce words from a real voice |
 | Control Center channel | A sandboxed process, like the button, read the state and paused and resumed the app. The button itself hasn't been seen in Control Center |
 
-**One mistake to learn from.** The login item test started the real app, not the sandbox, and put real
-onboarding on the screen of someone using the Mac. Setup got finished in it, so that copy recorded their real
-screen with nothing excluded, and it was then force-killed while they may have been using it. Anything
-that starts the app without `--sandbox` has to be treated as real.
+**One mistake to learn from.** A login item test started the real app, not the sandbox, on a Mac where someone
+had just finished real setup seconds earlier. Those copies carried on recording their real screen with nothing
+excluded until the test turned the login item off, and the test force-killed a copy they may have been using.
+Anything that starts the app without `--sandbox` has to be treated as real, and a running copy may not be yours.
 
 ## Open items
 
