@@ -213,11 +213,21 @@ seconds at a 20 ms interval, so frame status alone doesn't keep it quiet in this
 comparing against the last stored frame. **Energy isn't measured.** That needs `sudo powermetrics`,
 and a stream of a whole display.
 
+### Spike 2: the exclusion race (found two bugs, no passing run written down)
+
+`--spike privacy` opens private windows at random moments, and checks that none reaches a frame the
+gate allows through.
+
+| What it caught | What changed |
+|---|---|
+| Frames composed 1 to 5 ms after a filter update returned, with the window still in them | A new filter is only trusted after 0.25 s |
+| The window watcher ran 349 ms late on a busy Mac, and one frame reached the encoder | More than 0.25 s between looks now makes the frames from that time unsafe, and so does a window closing between the two reads of the list. The watcher runs on a strict timer at a higher priority, and App Nap can't slow it |
+
 ### Spike 7: overlay behaviour (partly answered)
 
 | Question | Result |
 |---|---|
-| Does `sharingType = .none` hide the panel from capture? | This process's own capture of the panel returns a flat, blank image, and its ordinary windows capture normally. **Encouraging, but not the answer.** Only another process's capture can settle this |
+| Does `sharingType = .none` hide the panel from capture? | From another process, yes. In `--spike sharing`, a separate copy of the app captures the display. With the overlay's setting it finds nothing, by screenshot, stream, or asking for that window alone, and the same panel set to share normally shows up every time. **A real call is still to try** |
 | Does scrolling reach the timeline through the SwiftUI layer and the strip? | Yes, with real events through the real panel |
 | Does typing start a search, and does the field take over? | Yes |
 | Drag across text, then ⌘C | Copies it |
@@ -281,7 +291,8 @@ Tinting made it worse: Liquid Glass adapts a tint to what's behind it. `make sce
 - **Two flaky tests were the tests' fault.** One checked before settling had been scheduled, and a
   shared fixture stopped waiting for indexing after 5 seconds without saying so, while commits can
   be 5 seconds apart. The fixture now waits longer and fails loudly. Six later runs of that suite passed.
-- **Still needs Screen Recording:** spike 2 (the exclusion race), a stream of a whole display, and a
-  real week of storage.
+- **Still needs Screen Recording:** a passing run of spike 2 (the exclusion race), a stream of a whole
+  display, and a real week of storage.
+- **Still needs a real call:** screen sharing with an actual call app. See spike 7.
 - **Still needs Accessibility:** the event tap, and with it the app underneath staying still.
 - **Hotkey to first pixel isn't measured.** It takes over the screen, so it isn't part of `make bench`.

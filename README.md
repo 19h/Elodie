@@ -22,7 +22,7 @@
 <p align="center"><sub>All screenshots show synthetic test data.</sub></p>
 
 > [!IMPORTANT]
-> **Remind is pre-release software, at version 0.1.0.** There's no download yet, so the only way to run it is to build it. The name and bundle ID aren't final, and some checks are still open, including whether the timeline stays hidden during screen sharing. See [Status](#status) and [Known limitations](#known-limitations).
+> **Remind is pre-release software, at version 0.1.0.** There's no download yet, so the only way to run it is to build it. The name and bundle ID aren't final, and some checks are still open, including whether the timeline stays hidden on a real call. See [Status](#status) and [Known limitations](#known-limitations).
 
 ## Contents
 
@@ -219,6 +219,10 @@ Three filters narrow a search:
 - **Apps** limits it to the apps you pick.
 - **Meetings** limits it to what was said.
 - **Starred** limits it to frames you've starred.
+
+<p align="center">
+  <img src="docs/images/search-apps.png" width="560" alt="The search panel with its Apps, Meetings, and Starred filters, and the Apps menu open, listing Xcode and Safari">
+</p>
 
 **Filters work without any words.** Turn one on with the search box empty to browse, most recent first: your starred moments, your past meetings, or the latest from some apps. This is how to find something when you can't remember a word from it.
 
@@ -440,7 +444,9 @@ Browsers offer no API for this, so Remind recognises private windows from their 
 
 **When in doubt, a frame is dropped.** A frame is kept only if the capture filter in effect when it was composed already hid every window that must be hidden. While a new private window is on its way into the filter, frames are thrown away. A browser window with no title yet counts as private until it has one. If a browser doesn't answer within 50 ms or gives an error, that frame is dropped too, and Settings tells you if it keeps happening.
 
-**Remind also watches between frames.** Frames only arrive every couple of seconds, which leaves time for a private window to open and close unseen. So it looks at the window list every 0.2 seconds, and usually has the filter updated before the next frame is composed. A new filter is only trusted after 0.25 seconds, because updating one returns a few milliseconds before frames stop showing what it hides. If a window that must be hidden closes before any filter covered it, everything composed up to that moment counts as unsafe. A private window open for less than 0.2 seconds may still go unseen.
+**Remind also watches between frames.** Frames only arrive every couple of seconds, which leaves time for a private window to open and close unseen. So it looks at the window list every 0.2 seconds, and usually has the filter updated before the next frame is composed. It does this on a strict timer at a higher priority, and App Nap can't slow it. A new filter is only trusted after 0.25 seconds, because updating one returns a few milliseconds before frames stop showing what it hides. If a window that must be hidden closes before any filter covered it, everything composed up to that moment counts as unsafe.
+
+**A late look makes frames unsafe too.** A busy Mac can't always keep to that timer. If more than 0.25 seconds pass between looks, nothing composed in that time can be vouched for, so those frames are dropped. The same happens if a window closes between the two reads of the list, because then there's no telling what it was. A busy Mac may lose a few frames this way. A private window open for less than 0.25 seconds may still go unseen.
 
 ### What it can't protect you from
 
@@ -495,7 +501,7 @@ Swift owns every Apple framework. Rust owns data and computation, and it never c
 
 1. **Capture.** A low-rate ScreenCaptureKit stream delivers frames at most every 2 seconds. An unchanged screen delivers nothing, and the cursor isn't captured.
 2. **Change check.** A Metal shader compares the frame with the last *stored* frame at half resolution. It takes about 1,000 changed pixels to keep a frame. Comparing with what's stored, rather than the previous capture, means slow changes add up until they count. Black frames are skipped.
-3. **Exclusion check.** It works out which windows must be hidden, and drops the frame unless the filter in effect already covered them.
+3. **Exclusion check.** It works out which windows must be hidden, and drops the frame unless the filter in effect already covered them. It also drops frames from any stretch when the window list wasn't read on time.
 4. **Encoding.** Hardware HEVC at constant quality 0.75, with a keyframe at least every 30 frames and whenever the front app changes. The encoder holds nothing back, so a crash can't lose frames inside it.
 5. **The log.** Rust encrypts the sample and appends it to a chunk file. This is the source of truth. A database row follows within a second or so, and the log never waits for it, so a stalled database can't delay a frame.
 6. **OCR.** A background task reads frames back from the log with Apple's Vision framework. It holds no pixels in memory while it's behind, and it picks up where it left off after a crash. When it's more than a minute behind, frames that stayed on screen for at least 4 seconds go first, because that's what you were likely reading.
@@ -688,8 +694,8 @@ open -n $APP --args --spike capture --out /path/to/report.txt
 open -n $APP --args --sandbox /path/to/folder
 ```
 
-- **Scenarios:** `timeline`, `timeline-zoom`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
-- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, and `browsers` need Screen Recording.
+- **Scenarios:** `timeline`, `timeline-zoom`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
+- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it. It examines frames in memory, counts only marker-coloured pixels where the panel sits, and stores nothing.
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
 
@@ -757,14 +763,14 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 **Check these before relying on Remind:**
 
-- **Screen sharing is unverified.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). Remind's own capture of the panel gets a blank image while its ordinary windows capture normally, which is encouraging, but only a share from another process can settle it. Until then, don't open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
-- **Recording a whole display has no recorded results yet.** The measurements here ran on a harness window, and [docs/spikes.md](docs/spikes.md) still lists a stream of a whole display and the race between a new private window and the capture filter as open. That race has been run enough to catch frames showing a window just after its filter was applied, which led to the settling time under [Private windows](#private-windows), but no result has been written down.
+- **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and an ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
+- **Recording a whole display has no recorded results yet.** The measurements here ran on a harness window, and [docs/spikes.md](docs/spikes.md) still lists a stream of a whole display and the race between a new private window and the capture filter as open. That race has been run enough to find two bugs, both now fixed as described under [Private windows](#private-windows): frames showing a window just after its filter was applied, and a watcher that ran 349 ms late on a busy Mac, which let one frame reach the encoder. No passing run has been written down.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
 **Known gaps:**
 
 - **A browser call has to be in the front tab to be noticed,** and calls in Firefox aren't detected at all. Use the Audio capture switch for these.
-- **Private window detection depends on titles.** A language missing from the table means private windows aren't detected in it, and this hasn't been checked in real browsers in each language. A private window open for less than 0.2 seconds may also go unseen.
+- **Private window detection depends on titles.** A language missing from the table means private windows aren't detected in it, and this hasn't been checked in real browsers in each language. A private window open for less than 0.25 seconds may also go unseen.
 - **Firefox web addresses aren't captured,** so **Open** reopens Firefox rather than the page. Private windows there are still recognised by title.
 - **Only one display records at a time:** the one your pointer is on.
 - **The interface is English only.** Strings are marked for localisation, but no translations exist yet.

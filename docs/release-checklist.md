@@ -30,8 +30,9 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 - [ ] macOS asking to confirm screen recording again: recording pauses, the gap shows, and it resumes in one click.
 - [ ] **Screen sharing: does anyone on a call see the overlay?** If `sharingType = .none` doesn't
       hold, opening the timeline during a share would expose your history. Spike 7. **Don't ship until this is known.**
-      So far this process's own capture gets a blank image, while its ordinary windows capture normally.
-      That's encouraging, but only a share from another process can settle it.
+      `--spike sharing` now captures the display from a separate process and finds nothing of the overlay,
+      by screenshot, stream, or asking for that window alone, while an ordinary panel shows up every time.
+      What's left is a real share, in the call apps people use.
 - [ ] The swipe, on a trackpad and on a mouse: ⌘⇧ and scroll up. It should look like your screen going
       back in time: no flash, no jump, the first movement counted, and the app underneath perfectly
       still. `make interaction-test` covers the logic, but only your eyes can judge the illusion.

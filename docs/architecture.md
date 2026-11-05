@@ -11,6 +11,9 @@
    the filter in effect already covered them when the frame was composed. It also looks at the
    window list every 0.2 seconds between frames, trusts a new filter only after 0.25 seconds, and
    remembers any uncovered window it saw, so a window that closes first still makes earlier frames unsafe.
+   More than 0.25 seconds between looks makes the frames from that time unsafe as well, and so does a
+   window closing between the two reads of the list. The watcher runs on a strict timer at a higher
+   priority, and App Nap can't slow it.
 4. **Encoding.** Hardware HEVC at constant quality 0.75, with a keyframe at least every 30 frames
    and whenever the front app changes.
 5. **The log.** Rust encrypts the sample and appends it to a chunk file. This is the source of
