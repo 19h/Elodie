@@ -9,7 +9,7 @@
 - [ ] **Legal review.** The behaviour was informed by analysing a decompiled commercial app, whose
       licence may restrict that. This repository keeps that material out, and uses its own code and
       wording, but that doesn't settle the question.
-- [ ] **Licence** for Remind itself.
+- [x] **Licence** for Remind itself: MIT.
 - [ ] **Hosting** for the update feed and disk image.
 
 ## Setup
