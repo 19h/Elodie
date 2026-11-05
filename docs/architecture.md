@@ -11,7 +11,8 @@
    the filter in effect already covered them when the frame was composed.
 4. **Encoding.** Hardware HEVC at constant quality 0.75, with a keyframe at least every 30 frames.
 5. **The log.** Rust encrypts the sample and appends it to a chunk file. This is the source of
-   truth. A database row follows within a second or so, and the database can be rebuilt from the log.
+   truth. A database row follows within a second or so, and frame records can be rebuilt from the log.
+   Stars, recognised text, and transcripts live only in the database.
 6. **OCR.** A background task reads frames back from the log and reads their text. It holds no
    pixels in memory while it's behind, and it picks up where it left off after a crash.
 7. **Text runs.** Consecutive frames with nearly the same text share one search document. Each
@@ -33,6 +34,18 @@ has. Chunks are never reopened, because that could reuse a nonce. See `core/crat
 A search first finds candidate runs in the index, then checks each against its individual frames,
 because a run's document combines several frames, and two words might never have been on screen
 together. BM25 ranks the newest 5,000 matches. Older ones follow, newest first.
+
+## Opening the timeline
+
+Each display keeps a panel ready, so opening only has to show it. The picture goes in before the
+window comes up, so the first thing to reach the screen is the frame, with no black refresh. The
+controls and strip rise a moment later, and they're hidden again on closing, so nothing from last
+time can flash up.
+
+With Accessibility on, an event tap takes the ⌘⇧ swipe away from the app underneath, on its own
+thread so a busy main thread can't make other apps stutter. It sees scroll events only, and it passes
+along everything except that gesture. Without Accessibility, a plain monitor opens the timeline, but
+the app underneath also sees the scroll.
 
 ## Keys
 

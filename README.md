@@ -17,7 +17,7 @@
   macOS 26 or later · Apple Silicon · No account · No analytics · No cloud
 </p>
 
-![The timeline opened for search: a recorded frame fills the screen, with the search panel at the top and the strip of apps along the bottom](docs/images/timeline.png)
+![The timeline: a recorded frame fills the screen, with the time pill, the Open button, and the strip of apps along the bottom](docs/images/timeline.png)
 
 <p align="center"><sub>All screenshots show synthetic test data.</sub></p>
 
@@ -133,9 +133,9 @@ After setup, Remind lives in the menu bar and starts recording. The first few ti
 
 ### The timeline
 
-Hold ⌘⇧ and scroll back from any app. The swipe that opens the timeline is the same one that moves through it, so it looks like the screen itself going back in time. Press Esc to return to what you were doing.
+Hold ⌘⇧ and scroll up from any app. The swipe that opens the timeline is the same one that moves through it, and it carries on after you let go of the keys and through momentum, so it looks like the screen itself going back in time. Press Esc to return to what you were doing.
 
-The overlay opens on the display under your pointer. It never activates Remind, so the app you were using stays active, opening causes no Space or stage switch, and Esc puts you back with focus where it was.
+The overlay opens on the display under your pointer. It never activates Remind, so the app you were using stays active, opening causes no Space or stage switch, and Esc puts you back with focus where it was. The frame reaches the screen before the window does, so there's no black flash, and the controls rise only after it.
 
 - **Scroll or swipe** to move through time. Scrolling moves the strip under a fixed playhead, and it follows your natural scrolling setting. Hold ⌥ to go 8 times faster.
 - **Pinch** to zoom the strip, from a whole day on screen down to seconds.
@@ -164,7 +164,7 @@ The **⋯** menu holds everything else:
 
 ### Search
 
-Press ⌘⇧Space from anywhere, or start typing while the timeline is open. Results appear as you type.
+Press ⌘⇧Space from anywhere, or start typing while the timeline is open. Opening by scrolling leaves the frame clear, so the search panel only appears once you ask for it. Results appear as you type.
 
 ![Search results for the word "accompany": a card showing a crop of the frame with the match outlined, the window title, and how long ago it was](docs/images/search-expanded.png)
 
@@ -263,7 +263,7 @@ Remind also adjusts by itself:
 
 | Input | Action |
 |---|---|
-| ⌘⇧ and scroll back | Open the timeline. |
+| ⌘⇧ and scroll up | Open the timeline. |
 | ⌘⇧Space | Open search. |
 | ⌘⇧- | Open Ask. This is the key to the right of 0, or `ß` on a German keyboard. |
 | Open Remind again while it's running | Open search. |
@@ -347,6 +347,7 @@ Add the **Remind recording** control to Control Center or the menu bar to pause 
 | **Recorded** | A picture of the display your pointer is on, about every 2 seconds when it has changed. The text on it. The app, window title, and web address of what's in front. A transcript, if you turn that on. |
 | **Left out** | Apps you exclude. Private and incognito browser windows. Remind's own windows. The audio behind a transcript. |
 | **Not protected** | **Password fields and other sensitive content in ordinary windows do get recorded if they're visible.** Exclude any app you don't want recorded. |
+| **Read to work** | Scroll events, with Accessibility on, so ⌘⇧ and scrolling up can take over from the app underneath. It sees scroll events only, never the keyboard, and passes along everything except that gesture. With calendar names on, the title of the event happening now. |
 
 ### Encryption
 
@@ -442,6 +443,12 @@ The index is an FTS5 table with no stored content, using a custom Rust tokenizer
 
 A search first finds candidate runs in the index, then checks each against its individual frames to find a moment that really showed every term, and where. In testing, the index matched word pairs in runs where no single frame showed both 5% of the time, so this check matters.
 
+### Opening the timeline
+
+Each display keeps a panel ready, so opening only has to show it. The picture goes in before the window comes up, so the first thing to reach the screen is the frame, in the right place. The controls and strip rise a moment later, and they're hidden again on closing, so nothing from last time can flash up.
+
+With Accessibility on, an event tap takes the ⌘⇧ swipe away from the app underneath, on its own thread so a busy main thread can't make other apps stutter. Without Accessibility, a plain monitor opens the timeline instead, but the app underneath also sees the scroll.
+
 ### Scrubbing
 
 Scrubbing outruns decoding, so the engine always works on the latest request and skips any in between. It decodes every frame when the playhead is slow, only keyframes when it's fast, and when it stops it decodes the exact frame and then the groups on either side, so the next step is instant. The picture never blanks: until the right frame is ready, the closest cached one stays up. The cache takes 10% of memory, between 700 MB and 1.4 GB, and is freed when the overlay closes.
@@ -464,12 +471,16 @@ Scrubbing outruns decoding, so the engine always works on the latest request and
 
 Remind uses system Liquid Glass with its own accent, verdigris, the patina time leaves on copper (`#45C9B1` in dark mode, `#0B7F70` in light). It's distinct from system blue and from the red and orange macOS uses for recording indicators. Search matches are marked in `#FFC83D`. Animations respect Reduce Motion.
 
+**Controls stay readable over anything.** A recorded frame can be any colour, and glass over a white page reads as pale grey. Liquid Glass also adapts any tint to what's behind it, so a tint made things worse. Control text sits on a 60% black fill under the glass instead, which took the time pill from 2.29:1 to 8.18:1 over a white page. `make scenarios` holds it to 4.5:1 on white, black, saturated, and noisy backdrops.
+
+![The timeline's controls over an all-white page: the time pill, the Open button, and the more and back-to-now buttons, all with white text on dark pills](docs/images/contrast-white.png)
+
 ## Measurements
 
 These come from [docs/spikes.md](docs/spikes.md), which has the full results and what each one changed.
 
 > [!CAUTION]
-> Everything here ran on an M4 Max with macOS 27.2, which flatters the numbers, and storage figures come from a synthetic screen. Remind hasn't been measured on a base MacBook Air, over a real week of use, or for energy. Treat these as evidence about the design, not as promises about your Mac.
+> Everything here ran on an M4 Max with macOS 27.2, which flatters the numbers, and storage figures come from a synthetic screen. Remind hasn't been measured on a base MacBook Air, over a real week of use, or for energy, and the time from hotkey to first pixel isn't measured yet. Treat these as evidence about the design, not as promises about your Mac.
 
 **Storage and seeking.** At 3024×1964, in the worst case, with all 14,400 ticks in 8 hours stored:
 
@@ -480,6 +491,17 @@ These come from [docs/spikes.md](docs/spikes.md), which has the full results and
 | Picture quality, mean | 49.8 dB | |
 | Picture quality, worst frame | 47.4 dB | |
 
+**Scrubbing.** From `make bench`, at 3024×1964 with a keyframe every 30 frames:
+
+| Measure | p50 | p95 | p99 | Budget |
+|---|---|---|---|---|
+| Cached scrub | 0.1 ms | 0.1 ms | 0.1 ms | p95 25 ms |
+| Backward miss, exact frame | 43 ms | 78 ms | 136 ms | p95 120 ms, p99 280 ms |
+| Backward miss, first change | 43 ms | 78 ms | 136 ms | 50 ms, **missed at p95** |
+| Fast flick, per update | 0.2 ms | 14 ms | 15 ms | Keeps up with 60 Hz |
+
+The missed budget is the fully cold case, with nothing nearby in the cache. In real scrubbing a nearby frame shows first.
+
 **Text recognition.** 2,000 frames at 3024×1964, while other heavy work was running:
 
 | Measure | Result | Target |
@@ -487,6 +509,19 @@ These come from [docs/spikes.md](docs/spikes.md), which has the full results and
 | Words from the live frame also read from stored video | 99.85% | At least 98.5% |
 | Time per frame | p50 200 ms, p95 432 ms | p95 at most 1 s |
 | Sustained at one frame per 2 seconds | About 10% of one core | At most 30% |
+
+A clean first run spent 31 s compiling Vision's models, and a slower Mac will take longer. Later launches are quick.
+
+**Contrast.** The time pill's text over a frame, as captured, against a gate of 4.5:1:
+
+| Backdrop | Glass alone | Glass over a 60% black fill, as shipped |
+|---|---|---|
+| White | 2.29:1 | 8.18:1 |
+| Saturated | 4.10:1 | 11.69:1 |
+| Dense black-on-white marks | 4.46:1 | 12.03:1 |
+| Black | 17.43:1 | 20.21:1 |
+
+**End to end.** A random word in a harness window went through ScreenCaptureKit, the Metal comparison, HEVC, the encrypted log, OCR, and search. It was found 0.4 s after OCR started, with the highlight inside the window where the word was. Change detection saw 1,000 of 1,000 scripted changes at 3456×2234.
 
 **Search.** 800,000 frames in 4.1 GB, which is about 56 days of the worst case or more like 4 months of real use. This isn't a 3-year test, because that would break the 5 GB limit on test vaults. The slowest query is bounded by the ranking window rather than the size of the vault, so it should hold up, but that's reasoning and hasn't been measured.
 
@@ -522,9 +557,14 @@ Power cuts are simulated by damaging files the way a lost write cache could. Thi
 | `make test-rust`, `make test-swift` | Runs one side of that. |
 | `make self-check` | Builds the app and proves a signed build can reach the Rust core. |
 | `make torture` | Runs the crash, power-cut, and full-disk tests. Takes a few minutes. `TORTURE_DIR` sets where they run. |
+| `make scenarios` | Draws every screen with fixture data into `build/scenarios`, and fails if controls fall below 4.5:1 contrast. Takes no focus and no permission. |
+| `make bench` | Measures scrubbing on an encoded fixture and writes `build/bench.txt`. Uses no window and needs no permission. |
+| `make interaction-test` | Sends real events through the real overlay. It takes over your screen and keyboard for a few seconds, so it asks first. Anything you type meanwhile can fail it. |
 | `make check-privacy` | Checks the privacy promises against the code. |
 | `make release` | Builds a signed release and disk image. Uploads nothing. |
 | `make clean` | Removes build products and everything generated. |
+
+Development builds optimise the Rust core. Reading recordings means decrypting them, and unoptimised, a group of frames took 240 ms to read instead of 8 ms, which made scrubbing feel broken and benchmarks meaningless. Set `REMIND_APP` to point `make scenarios` and `make interaction-test` at a build from somewhere else.
 
 ### Tests
 
@@ -532,6 +572,7 @@ There are more than 300 Rust and Swift tests:
 
 - **Rust** has unit tests, property tests for the chunk format, tokenizer, and text codec, and integration tests for durability, search end to end, and storage.
 - **Swift** has a suite per area: Ask, Audio, Capture, CoreLive, FrameEngine, Ingest, and the interface. Interface tests run against `CoreFake`, while the Ingest, FrameEngine, and Audio suites also use the real core through `CoreLive`.
+- **The real app** runs too, because an app can capture its own windows with no permission. `make scenarios`, `make bench`, `make interaction-test`, and `--spike endtoend` all exercise it. These found bugs the unit tests hadn't, and `docs/spikes.md` lists them.
 
 ### Measuring and checking by hand
 
@@ -561,10 +602,10 @@ open -n $APP --args --scenario search-expanded --out /path/to/shot.png
 open -n $APP --args --spike capture --out /path/to/report.txt
 ```
 
-- **Scenarios:** `timeline`, `search-compact`, `search-expanded`, `jump-to-date`, `coach-marks`, `status-menu`, `overlay-input`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, and `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`.
-- **Spikes:** `capture`, `privacy`, `energy`, `browsers`.
+- **Scenarios:** `timeline`, `search-compact`, `search-expanded`, `jump-to-date`, `coach-marks`, `status-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
+- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, and `browsers` need Screen Recording.
 
-`settings-screen` lists the apps installed on your Mac, so check it before sharing the picture.
+`settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
 
 ### Working rules
 
@@ -603,7 +644,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 | "Recording stopped because video encoding kept failing." | Choose **Try again** in the menu. |
 | "Recording is paused because Remind kept crashing." | Choose **Try again** in the menu. The count clears after 10 minutes without trouble. |
 | "Nothing recorded on this display yet" | Remind only records the display your pointer is on. |
-| New recordings can't be found by their text yet | The first text recognition under a new app identity compiles Vision's models, which can take minutes. Frames wait safely in the log. |
+| New recordings can't be found by their text yet | The first text recognition under a new app identity compiles Vision's models. That took 31 s on an M4 Max, and a slower Mac will take longer. Frames wait safely in the log. |
 | Ask shows moments but no written answer | It says why. Usually Apple Intelligence is off, or its model is still downloading. |
 | "Accessibility is off for Remind…" in Settings → Screen | Grant Accessibility in System Settings. Without it, Remind can only spot private windows by their titles. |
 | "… isn't responding to Remind…" in Settings → Screen | That browser's windows aren't being recorded until it answers again. This is deliberate. |
@@ -615,7 +656,8 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 **Check these before relying on Remind:**
 
-- **Screen sharing is unverified.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`), but it hasn't been established that this holds on a real call. Until it is, don't open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
+- **Screen sharing is unverified.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). Remind's own capture of the panel gets a blank image while its ordinary windows capture normally, which is encouraging, but only a share from another process can settle it. Until then, don't open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
+- **Recording a whole display hasn't been tested yet.** The test build hasn't been granted Screen Recording, so capture has only run end to end on a harness window. The race between a new private window and the capture filter hasn't run either, so that protection rests on its design and unit tests for now.
 - **A recovery key can be saved, but not yet restored.** Settings saves the key to a file, but the app has no way to read it back. If the keychain item is lost, recovery isn't currently possible from within Remind.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
@@ -630,7 +672,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 - **The interface is English only.** Strings are marked for localisation, but no translations exist yet.
 - **Apple Silicon only.** Builds are `arm64`.
 
-**Not yet tested with real hardware or people:** input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center button. The [release checklist](docs/release-checklist.md) has the full list.
+**Not yet tested with real hardware or people:** the swipe on a real trackpad and mouse, including whether the app underneath stays perfectly still, since the event tap itself hasn't run. Also scroll speed, the login item, pointer following between displays, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center button. The [release checklist](docs/release-checklist.md) has the full list.
 
 ## Documentation
 

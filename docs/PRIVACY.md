@@ -35,7 +35,8 @@ visible on screen. Exclude apps you don't want recorded.
 Recordings are encrypted with a key in your login keychain, in
 `~/Library/Application Support/<Remind's identifier>/vault`. They're excluded from Time Machine,
 because a backup couldn't be read without that key anyway. If you lose the key, your history can't
-be recovered, so Settings can save a recovery key.
+be recovered. Settings can save a recovery key to a file, but Remind can't read one back yet, so
+restoring from it isn't possible within the app.
 
 Anyone who can use your Mac while you're logged in can open Remind and see your history.
 
