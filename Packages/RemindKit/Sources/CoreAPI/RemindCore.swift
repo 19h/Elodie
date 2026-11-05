@@ -300,6 +300,20 @@ public struct SpokenWord: Sendable, Equatable {
 }
 
 /// A line of a transcript.
+/// A meeting that was transcribed.
+public struct RecordedMeeting: Sendable, Equatable, Identifiable {
+    public var title: String?
+    public var start: Date
+    public var end: Date?
+    public var id: Date { start }
+
+    public init(title: String?, start: Date, end: Date?) {
+        self.title = title
+        self.start = start
+        self.end = end
+    }
+}
+
 public struct TranscriptLine: Sendable, Equatable, Identifiable {
     public var text: String
     public var time: Date
@@ -401,6 +415,12 @@ public protocol RemindCore: Sendable {
     func recap(from: Date, to: Date, bucket: TimeInterval) throws -> Recap
     /// The text a frame shows, front window first.
     func frameText(of frameID: Int64) throws -> [String]
+    /// The lines of text a frame shows and where they are, front window first.
+    func frameLines(of frameID: Int64) throws -> [RecognizedLine]
+    /// Notes a meeting that was transcribed.
+    func recordMeeting(title: String?, from: Date, to: Date) throws
+    /// Meetings that started in a period, earliest first.
+    func meetings(from: Date, to: Date) throws -> [RecordedMeeting]
     /// Stores transcribed words, dropping any that were only the speakers' echo.
     func appendTranscript(_ words: [SpokenWord], title: String?) throws
     /// What was said in a period.

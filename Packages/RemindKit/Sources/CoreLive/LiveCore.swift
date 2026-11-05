@@ -136,6 +136,34 @@ public final class LiveCore: RemindCore {
         try core.frameText(frameId: frameID)
     }
 
+    public func frameLines(of frameID: Int64) throws -> [CoreAPI.RecognizedLine] {
+        try core.frameLines(frameId: frameID).map { line in
+            CoreAPI.RecognizedLine(
+                text: line.text,
+                rect: CGRect(
+                    x: CGFloat(line.rect.x),
+                    y: CGFloat(line.rect.y),
+                    width: CGFloat(line.rect.width),
+                    height: CGFloat(line.rect.height)
+                )
+            )
+        }
+    }
+
+    public func recordMeeting(title: String?, from: Date, to: Date) throws {
+        try core.recordMeeting(title: title, tStartMs: from.milliseconds, tEndMs: to.milliseconds)
+    }
+
+    public func meetings(from: Date, to: Date) throws -> [CoreAPI.RecordedMeeting] {
+        try core.meetings(fromMs: from.milliseconds, toMs: to.milliseconds).map { meeting in
+            CoreAPI.RecordedMeeting(
+                title: meeting.title,
+                start: Date(timeIntervalSince1970: Double(meeting.tStartMs) / 1000),
+                end: meeting.tEndMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+            )
+        }
+    }
+
     public func appendTranscript(_ words: [CoreAPI.SpokenWord], title: String?) throws {
         try core.appendTranscript(
             words: words.map {

@@ -59,7 +59,7 @@ let package = Package(
         .testTarget(name: "CaptureTests", dependencies: ["Capture"]),
         .testTarget(name: "AskTests", dependencies: ["FeatureAsk", "CoreAPI", "CoreFake"]),
         .testTarget(name: "AudioTests", dependencies: ["Audio", "Capture", "CoreAPI", "CoreLive", "CoreFake"]),
-        .testTarget(name: "InterfaceTests", dependencies: ["DesignSystem", "StripRenderer", "OverlayShell", "FeatureSearch", "FeatureOnboarding", "FeatureSettings", "CoreAPI", "CoreFake"]),
+        .testTarget(name: "InterfaceTests", dependencies: ["DesignSystem", "StripRenderer", "OverlayShell", "FeatureTimeline", "FeatureSearch", "FeatureOnboarding", "FeatureSettings", "CoreAPI", "CoreFake"]),
         .testTarget(name: "FrameEngineTests", dependencies: ["FrameEngine", "CoreAPI", "CoreLive", "CoreFake", "TestKit"]),
         .testTarget(name: "IngestTests", dependencies: ["Ingest", "Capture", "FrameEngine", "TestKit", "CoreAPI", "CoreLive", "CoreFake"]),
     ]

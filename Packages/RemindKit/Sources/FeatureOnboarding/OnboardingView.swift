@@ -15,7 +15,8 @@ public struct OnboardingView: View {
     private let appIcon: NSImage?
     private let onStepChange: (OnboardingStep) -> Void
     private let onRelaunch: () -> Void
-    private let onFinish: () -> Void
+    private let onFinish: (_ openAtLogin: Bool) -> Void
+    @State private var openAtLogin = true
 
     public init(
         permissions: PermissionMonitor,
@@ -23,7 +24,7 @@ public struct OnboardingView: View {
         appIcon: NSImage?,
         onStepChange: @escaping (OnboardingStep) -> Void = { _ in },
         onRelaunch: @escaping () -> Void,
-        onFinish: @escaping () -> Void
+        onFinish: @escaping (_ openAtLogin: Bool) -> Void
     ) {
         self.permissions = permissions
         _step = State(initialValue: step)
@@ -35,6 +36,14 @@ public struct OnboardingView: View {
 
     public var body: some View {
         ZStack {
+            // A little patina behind the first thing you see.
+            RadialGradient(
+                colors: [Palette.verdigris.opacity(0.16), .clear],
+                center: UnitPoint(x: 0.5, y: 0.3),
+                startRadius: 40,
+                endRadius: 420
+            )
+            .ignoresSafeArea()
             switch step {
             case .welcome: welcome
             case .howItWorks: howItWorks
@@ -61,7 +70,7 @@ public struct OnboardingView: View {
                 Image(nsImage: appIcon)
                     .resizable()
                     .frame(width: 160, height: 160)
-                    .shadow(color: .black.opacity(0.25), radius: 24, y: 14)
+                    .shadow(color: .black.opacity(0.3), radius: 24, y: 14)
             }
             Text("Remind")
                 .font(.system(size: 34, weight: .bold))
@@ -164,9 +173,15 @@ public struct OnboardingView: View {
                     .padding(.horizontal, 90)
             }
 
-            primaryButton("Continue", isEnabled: permissions.allRequiredGranted, action: onFinish)
-                .padding(.top, 18)
-                .padding(.bottom, 44)
+            // Recording only helps if it's running, but this is yours to decide.
+            Toggle("Open Remind when you log in", isOn: $openAtLogin)
+                .toggleStyle(.checkbox)
+                .font(.system(size: 13))
+                .padding(.top, 14)
+
+            primaryButton("Continue", isEnabled: permissions.allRequiredGranted) { onFinish(openAtLogin) }
+                .padding(.top, 12)
+                .padding(.bottom, 36)
         }
     }
 
@@ -175,8 +190,7 @@ public struct OnboardingView: View {
             Text("Screen Recording is on. Remind needs to reopen to use it.")
                 .font(.system(size: 13))
             Button("Reopen", action: onRelaunch)
-                .controlSize(.small)
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(PrimaryActionStyle(font: .system(size: 13, weight: .semibold), horizontalPadding: 12, verticalPadding: 5))
         }
     }
 
@@ -214,8 +228,7 @@ public struct OnboardingView: View {
                     .transition(.scale.combined(with: .opacity))
             } else {
                 Button("Allow") { permissions.request(permission) }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
+                    .buttonStyle(PrimaryActionStyle())
                     .frame(width: 96)
             }
         }
@@ -229,12 +242,9 @@ public struct OnboardingView: View {
     ) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 18, weight: .semibold))
                 .frame(width: 180, height: 44)
         }
-        .buttonStyle(.borderedProminent)
-        .controlSize(.extraLarge)
-        .buttonBorderShape(.capsule)
+        .buttonStyle(PrimaryActionStyle(font: .system(size: 18, weight: .semibold), horizontalPadding: 0, verticalPadding: 0))
         .disabled(!isEnabled)
         .keyboardShortcut(.defaultAction)
     }

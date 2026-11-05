@@ -117,6 +117,14 @@ public final class FakeCore: RemindCore, @unchecked Sendable {
         lock.withLock { recognized[frameID]?.map(\.text) ?? [] }
     }
 
+    public func frameLines(of frameID: Int64) throws -> [RecognizedLine] {
+        lock.withLock { recognized[frameID] ?? [] }
+    }
+
+    public func recordMeeting(title: String?, from: Date, to: Date) throws {}
+
+    public func meetings(from: Date, to: Date) throws -> [RecordedMeeting] { [] }
+
     public func appendTranscript(_ words: [SpokenWord], title: String?) throws {}
 
     public func transcript(from: Date, to: Date) throws -> [TranscriptLine] { [] }

@@ -80,6 +80,8 @@ public final class SettingsModel {
     public var retention: RetentionPeriod {
         didSet { defaults.set(retention.rawValue, forKey: "retention") }
     }
+    /// Why private windows might not be spotted right now, for the Screen tab.
+    public var privateBrowsingWarning: String?
     public var hasFinishedOnboarding: Bool {
         didSet { defaults.set(hasFinishedOnboarding, forKey: "hasFinishedOnboarding") }
     }
@@ -138,6 +140,7 @@ public protocol SettingsActions: AnyObject {
     func setLaunchAtLogin(_ enabled: Bool)
     var launchAtLogin: Bool { get }
     func setChecksForUpdates(_ enabled: Bool)
+    func setShowInDock(_ show: Bool)
     var runningApps: [AppChoice] { get }
 }
 

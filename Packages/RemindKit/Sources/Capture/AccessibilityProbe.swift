@@ -5,10 +5,13 @@ import Foundation
 public struct FrontWindowInfo: Sendable, Equatable {
     public var title: String?
     public var url: String?
+    /// The browser itself marked this window as private, which doesn't depend on language.
+    public var isMarkedPrivate: Bool
 
-    public init(title: String? = nil, url: String? = nil) {
+    public init(title: String? = nil, url: String? = nil, isMarkedPrivate: Bool = false) {
         self.title = title
         self.url = url
+        self.isMarkedPrivate = isMarkedPrivate
     }
 }
 
@@ -50,6 +53,11 @@ public enum AccessibilityProbe {
         var info = FrontWindowInfo(title: string(window, kAXTitleAttribute))
 
         guard let family else { return .success(info) }
+
+        info.isMarkedPrivate = PrivateWindowRules.isPrivate(
+            identifier: string(window, kAXIdentifierAttribute),
+            family: family
+        )
 
         // Safari reports its page directly.
         if let document = string(window, kAXDocumentAttribute), !document.isEmpty {

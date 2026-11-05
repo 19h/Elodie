@@ -388,13 +388,16 @@ struct OverlayContent: View {
                 )
 
                 if timeline.model.isJumpToDateOpen {
-                    JumpToDateView(
-                        core: core,
-                        current: timeline.playhead,
-                        onJump: { timeline.move(to: $0) }
-                    )
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 128)
+                    VStack {
+                        Spacer(minLength: 0)
+                        JumpToDateView(
+                            core: core,
+                            current: timeline.playhead,
+                            onJump: { timeline.move(to: $0) },
+                            onClose: { timeline.model.isJumpToDateOpen = false }
+                        )
+                        .padding(.bottom, 80 + 36 + 2)
+                    }
                 }
 
                 VStack {
@@ -411,9 +414,13 @@ struct OverlayContent: View {
                         onOpen: onOpenHit
                     )
                     .padding(.top, 72)
-                    .padding(.bottom, search.layout == .expanded ? 160 : 0)
+                    .padding(.bottom, search.layout == .expanded ? 136 : 0)
+                    .padding(.horizontal, 80)
                     if search.layout == .compact { Spacer() }
                 }
+                // The field stays alive underneath, so typing still reaches it.
+                .opacity(timeline.model.isJumpToDateOpen ? 0 : 1)
+                .allowsHitTesting(!timeline.model.isJumpToDateOpen)
             }
         }
     }
@@ -456,24 +463,11 @@ struct OverflowMenu: View {
     @State private var confirmingForget = false
 
     var body: some View {
-        Menu {
-            Button("Star this moment", systemImage: "star", action: actions.star)
-            Button("Copy image", systemImage: "doc.on.clipboard", action: actions.copyImage)
-            Button("Save image…", systemImage: "square.and.arrow.down", action: actions.saveImage)
-            Button("Copy link to this moment", systemImage: "link", action: actions.copyLink)
-            Button("Export 5 minutes as video…", systemImage: "film", action: actions.exportClip)
-            Divider()
-            Button("Exclude this app from recording", systemImage: "eye.slash", action: actions.exclude)
-            Button("Forget the last 5 minutes…", systemImage: "clock.arrow.circlepath", role: .destructive) {
-                confirmingForget = true
-            }
-        } label: {
+        Button(action: showMenu) {
             Image(systemName: "ellipsis")
         }
-        .menuStyle(.button)
-        .buttonStyle(ChromeControlStyle())
-        .menuIndicator(.hidden)
-        .fixedSize()
+        .buttonStyle(ChromeIconStyle())
+        .help("More")
         // Deleting can't be undone, so this asks in place. A separate alert window
         // wouldn't work over a panel that never activates.
         .overlay(alignment: .bottomTrailing) {
@@ -504,6 +498,44 @@ struct OverflowMenu: View {
             }
         }
     }
+
+    /// A plain menu, which shows above the overlay and works without activating the app.
+    private func showMenu() {
+        let menu = NSMenu()
+        func add(_ title: String, _ symbol: String, _ action: @escaping () -> Void) {
+            let item = ActionMenuItem(title: title, action: action)
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+            if #available(macOS 27, *) {
+                item.preferredImageVisibility = .visible
+            }
+            menu.addItem(item)
+        }
+        add(String(localized: "Star this moment"), "star", actions.star)
+        add(String(localized: "Copy image"), "doc.on.clipboard", actions.copyImage)
+        add(String(localized: "Save image…"), "square.and.arrow.down", actions.saveImage)
+        add(String(localized: "Copy link to this moment"), "link", actions.copyLink)
+        add(String(localized: "Export 5 minutes as video…"), "film", actions.exportClip)
+        menu.addItem(.separator())
+        add(String(localized: "Exclude this app from recording"), "eye.slash", actions.exclude)
+        add(String(localized: "Forget the last 5 minutes…"), "clock.arrow.circlepath") { confirmingForget = true }
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+}
+
+/// A menu item that runs a closure.
+final class ActionMenuItem: NSMenuItem {
+    private let handler: () -> Void
+
+    init(title: String, action handler: @escaping () -> Void) {
+        self.handler = handler
+        super.init(title: title, action: #selector(fire), keyEquivalent: "")
+        target = self
+    }
+
+    @available(*, unavailable)
+    required init(coder: NSCoder) { fatalError("Not used") }
+
+    @objc private func fire() { handler() }
 }
 
 /// A crop of a result's frame, centred on the match.

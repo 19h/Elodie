@@ -12,6 +12,42 @@ public enum RecordingState: Sendable, Equatable {
     case interrupted(StreamStop)
 }
 
+/// Why private windows might not be spotted right now.
+public enum PrivacyCheckTrouble: Sendable, Equatable {
+    /// Without Accessibility, only window titles can reveal private windows.
+    case accessibilityOff
+    /// A browser isn't answering, so its windows are being left out until it does.
+    case browserNotResponding(bundleID: String)
+}
+
+/// Decides when capture should move to another display. The pointer often crosses a
+/// display briefly, and restarting capture isn't free, so it has to stay a moment.
+public struct DisplayFollower: Sendable {
+    public static let settleTime: TimeInterval = 2
+    private var candidate: (display: CGDirectDisplayID, since: Date)?
+
+    public init() {}
+
+    /// Returns the display to move to, if it's time to move.
+    public mutating func observe(
+        pointerOn display: CGDirectDisplayID,
+        current: CGDirectDisplayID,
+        now: Date
+    ) -> CGDirectDisplayID? {
+        guard display != current else {
+            candidate = nil
+            return nil
+        }
+        guard let candidate, candidate.display == display else {
+            self.candidate = (display, now)
+            return nil
+        }
+        guard now.timeIntervalSince(candidate.since) >= Self.settleTime else { return nil }
+        self.candidate = nil
+        return display
+    }
+}
+
 /// Runs capture for the display the pointer is on.
 ///
 /// It decides what's safe to keep, by asking which windows must be hidden and
@@ -26,6 +62,12 @@ public final class RecordingController: @unchecked Sendable {
     private var stream: DisplayStream?
     private var pipeline: DisplayPipeline?
     private var state = RecordingState.stopped
+    private var trouble: PrivacyCheckTrouble?
+    private var browserTimeouts = 0
+    private var follower = DisplayFollower()
+    private var followTimer: DispatchSourceTimer?
+    private var isMoving = false
+    private var powerObserver: (any NSObjectProtocol)?
 
     public var onStateChange: (@Sendable (RecordingState) -> Void)?
 
@@ -33,6 +75,18 @@ public final class RecordingController: @unchecked Sendable {
         self.core = core
         self.settings = settings
         monitor = ExclusionMonitor(policy: policy, inventory: inventory)
+    }
+
+    deinit {
+        followTimer?.cancel()
+        if let powerObserver {
+            NotificationCenter.default.removeObserver(powerObserver)
+        }
+    }
+
+    /// Why private windows might not be spotted right now.
+    public var privacyCheckTrouble: PrivacyCheckTrouble? {
+        lock.withLock { trouble }
     }
 
     public var currentState: RecordingState {
@@ -73,7 +127,7 @@ public final class RecordingController: @unchecked Sendable {
     }
 
     public func start(displayID: CGDirectDisplayID = RecordingController.activeDisplay()) async throws {
-        await stop()
+        await stopStream()
         guard let uuid = ScreenContent.stableID(of: displayID) else {
             throw DisplayStreamError.displayNotFound(displayID)
         }
@@ -86,14 +140,24 @@ public final class RecordingController: @unchecked Sendable {
             onFrame: { [weak pipeline] frame in pipeline?.ingest(frame) },
             onStop: { [weak self] reason in self?.streamStopped(reason) }
         )
-        try await monitor.start(stream)
+        pipeline.onEncoderFailure = { [weak self] in self?.encoderKeptFailing() }
+        let interval = ProcessInfo.processInfo.isLowPowerModeEnabled
+            ? DisplayStream.lowPowerInterval
+            : DisplayStream.captureInterval
+        try await monitor.start(stream, interval: interval)
         setState(.recording(displayID: displayID)) {
             self.stream = stream
             self.pipeline = pipeline
         }
+        beginFollowing()
     }
 
     public func stop() async {
+        endFollowing()
+        await stopStream()
+    }
+
+    private func stopStream() async {
         let stream = lock.withLock { () -> DisplayStream? in
             let stream = self.stream
             self.stream = nil
@@ -114,9 +178,77 @@ public final class RecordingController: @unchecked Sendable {
     }
 
     private func streamStopped(_ reason: StreamStop) {
+        endFollowing()
         setState(.interrupted(reason)) {
             stream = nil
             pipeline = nil
+        }
+    }
+
+    private func encoderKeptFailing() {
+        Task { [weak self] in
+            await self?.stop()
+            self?.streamStopped(.encoderFailed)
+        }
+    }
+
+    // MARK: Following the pointer
+
+    private func beginFollowing() {
+        lock.withLock {
+            guard followTimer == nil else { return }
+            follower = DisplayFollower()
+            let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+            timer.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(250))
+            timer.setEventHandler { [weak self] in self?.checkPointer() }
+            timer.resume()
+            followTimer = timer
+        }
+        if powerObserver == nil {
+            // Low Power Mode changes how often frames are captured.
+            powerObserver = NotificationCenter.default.addObserver(
+                forName: .NSProcessInfoPowerStateDidChange,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                guard let self, case .recording(let display) = self.currentState else { return }
+                self.move(to: display)
+            }
+        }
+    }
+
+    private func endFollowing() {
+        lock.withLock {
+            followTimer?.cancel()
+            followTimer = nil
+        }
+    }
+
+    private func checkPointer() {
+        guard case .recording(let current) = currentState else { return }
+        let target = lock.withLock {
+            isMoving ? nil : follower.observe(pointerOn: Self.activeDisplay(), current: current, now: Date())
+        }
+        if let target { move(to: target) }
+    }
+
+    /// Restarts capture on a display. If that fails, it says so instead of quietly
+    /// recording nothing.
+    private func move(to display: CGDirectDisplayID) {
+        let proceed = lock.withLock { () -> Bool in
+            guard !isMoving else { return false }
+            isMoving = true
+            return true
+        }
+        guard proceed else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await self.start(displayID: display)
+            } catch {
+                self.streamStopped(.other(code: (error as NSError).code))
+            }
+            self.lock.withLock { self.isMoving = false }
         }
     }
 
@@ -143,6 +275,31 @@ public final class RecordingController: @unchecked Sendable {
         )
     }
 
+    private enum BrowserCheck {
+        case answered
+        case notTrusted
+        case timedOut(bundleID: String)
+    }
+
+    /// One slow answer is normal, so a browser only counts as not responding after
+    /// several in a row.
+    private func noteBrowserCheck(_ check: BrowserCheck) {
+        lock.withLock {
+            switch check {
+            case .answered:
+                browserTimeouts = 0
+                trouble = nil
+            case .notTrusted:
+                trouble = .accessibilityOff
+            case .timedOut(let bundleID):
+                browserTimeouts += 1
+                if browserTimeouts >= 5 {
+                    trouble = .browserNotResponding(bundleID: bundleID)
+                }
+            }
+        }
+    }
+
     /// Works out what the frame shows: the frontmost ordinary window on this display.
     private func context(
         from windows: [WindowInfo],
@@ -166,19 +323,25 @@ public final class RecordingController: @unchecked Sendable {
         }
         switch AccessibilityProbe.frontWindow(pid: front.ownerPID, family: family) {
         case .success(let info):
+            noteBrowserCheck(.answered)
             context.url = info.url
             context.window = info.title ?? context.window
             // Accessibility can reveal a title the window list didn't.
-            if PrivateWindowRules.isPrivate(title: info.title, family: family) {
+            if info.isMarkedPrivate || PrivateWindowRules.isPrivate(title: info.title, family: family) {
                 return .drop(reason: "the front window is private")
             }
             return .keep(context)
-        case .failure(.notTrusted), .failure(.noFocusedWindow):
+        case .failure(.notTrusted):
             // Titles above already covered private windows, and only the URL is
-            // lost here.
+            // lost here. The Screen settings tab explains what that means.
+            noteBrowserCheck(.notTrusted)
+            return .keep(context)
+        case .failure(.noFocusedWindow):
+            noteBrowserCheck(.answered)
             return .keep(context)
         case .failure(.timedOut):
             // The browser didn't answer in time, so this can't be confirmed safe.
+            noteBrowserCheck(.timedOut(bundleID: identity.bundleID ?? ""))
             return .drop(reason: "the browser didn't respond")
         }
     }

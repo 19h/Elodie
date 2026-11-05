@@ -22,6 +22,7 @@ pub(crate) enum WriterMessage {
     OcrResults(Vec<PreparedResult>, Sender<Result<(), EngineError>>),
     OcrFailed(i64, Sender<Result<(), EngineError>>),
     SetStarred(i64, bool, Sender<Result<(), EngineError>>),
+    Meeting(Option<String>, i64, i64, Sender<Result<(), EngineError>>),
     DeleteRange(crate::delete::DeleteRequest, Sender<Result<u64, EngineError>>),
     Transcript(Vec<crate::transcript::SpokenWord>, Option<String>, Sender<Result<(), EngineError>>),
 }
@@ -137,6 +138,13 @@ fn commit(
                 tx.execute(
                     "UPDATE frame SET is_starred = ?2 WHERE id = ?1",
                     params![frame_id, starred],
+                )?;
+                replies.push(Reply::Done(reply.clone()));
+            }
+            WriterMessage::Meeting(title, t_start, t_end, reply) => {
+                tx.execute(
+                    "INSERT INTO meeting(title, t_start, t_end) VALUES (?1, ?2, ?3)",
+                    params![title, t_start, t_end],
                 )?;
                 replies.push(Reply::Done(reply.clone()));
             }

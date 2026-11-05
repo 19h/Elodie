@@ -40,8 +40,7 @@ public struct MeetingPrompt: View {
                 Button(action: onRecord) {
                     Text("Transcribe this meeting").frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
+                .buttonStyle(PrimaryActionStyle())
                 Button(action: onDismiss) {
                     Text("Not now").frame(maxWidth: .infinity)
                 }

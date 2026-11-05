@@ -30,6 +30,8 @@ enum RecordingProblem: Equatable {
     case keyMissing
     case keychainLocked
     case diskFull
+    case encoderFailed
+    case keptCrashing
     case other(String)
 
     var message: String {
@@ -38,7 +40,18 @@ enum RecordingProblem: Equatable {
         case .keyMissing: "The key for your recordings is missing from your keychain."
         case .keychainLocked: "Your keychain is locked, so recordings can't be opened yet."
         case .diskFull: "Recording stopped because the disk is nearly full."
+        case .encoderFailed: "Recording stopped because video encoding kept failing."
+        case .keptCrashing: "Recording is paused because Remind kept crashing."
         case .other(let text): text
+        }
+    }
+
+    /// Whether trying again might help. A missing key or a full disk needs something else
+    /// to change first.
+    var canRetry: Bool {
+        switch self {
+        case .permissionMissing, .encoderFailed, .keptCrashing, .other: true
+        case .keyMissing, .keychainLocked, .diskFull: false
         }
     }
 }
@@ -79,7 +92,12 @@ final class AppController: NSObject {
     private(set) static weak var shared: AppController?
     private var scrollMonitor: ScrollToOpen?
     private var resumeTimer: Timer?
-    private var diskTimer: Timer?
+    private var maintenanceTimer: Timer?
+    private var pausedReminder: Timer?
+    private var lastRetention = Date()
+    private let launchedAt = Date()
+    private let crashGuard = CrashGuard()
+    private static let loginAgent = SMAppService.agent(plistName: "app.remind.Remind.agent.plist")
     private(set) var problem: RecordingProblem?
     private(set) var isPaused = false
 
@@ -94,6 +112,10 @@ final class AppController: NSObject {
         updater.checksAutomatically = settings.checkForUpdates
         listenForControlCenter()
         NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
+        if crashGuard.launchShouldStayPaused() {
+            isPaused = true
+            problem = .keptCrashing
+        }
         menu = StatusMenu(controller: self)
         registerShortcuts()
 
@@ -106,6 +128,7 @@ final class AppController: NSObject {
 
     func prepareToQuit() {
         try? core?.sealAll()
+        crashGuard.markCleanExit()
     }
 
     private func registerShortcuts() {
@@ -162,6 +185,7 @@ final class AppController: NSObject {
         self.overlay = overlay
 
         let worker = OCRWorker(core: core)
+        worker.usesAdditionalLanguages = settings.textRecognition == .additionalLanguages
         worker.start()
         ocr = worker
 
@@ -177,11 +201,32 @@ final class AppController: NSObject {
         }
         audio = AudioRecorder(core: core)
         observeSystemEvents()
+        observeSettings()
         startRecording()
         applyRetention()
-        startDiskWatch()
+        startMaintenance()
         startMeetingWatch()
         menu?.refresh()
+    }
+
+    /// Keeps the recorder in step with Settings. What's excluded matters most: leaving an
+    /// app out of recording has to take effect at once, not on the next launch.
+    private func observeSettings() {
+        withObservationTracking {
+            _ = settings.excludedApps
+            _ = settings.excludePrivateWindows
+            _ = settings.textRecognition
+        } onChange: { [weak self] in
+            // This fires just before the change lands.
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.recording?.update(policy: self.currentPolicy())
+                    self.ocr?.usesAdditionalLanguages = self.settings.textRecognition == .additionalLanguages
+                    self.observeSettings()
+                }
+            }
+        }
     }
 
     // MARK: Transcribing
@@ -225,6 +270,8 @@ final class AppController: NSObject {
     }
 
     var hasTranscript: Bool { lastTranscript != nil }
+
+    var currentMeetingName: String? { currentMeeting?.app }
 
     func openLastTranscript() {
         guard let core, let lastTranscript else { return }
@@ -281,7 +328,6 @@ final class AppController: NSObject {
     }
 
     private func showMeetingPrompt(_ meeting: DetectedMeeting) {
-        closeMeetingPrompt()
         let view = MeetingPrompt(
             appName: meeting.app,
             title: meeting.title,
@@ -294,6 +340,12 @@ final class AppController: NSObject {
                 self?.closeMeetingPrompt()
             }
         )
+        showCard(view)
+    }
+
+    /// Shows a small card near the menu bar, without taking focus.
+    private func showCard<Content: View>(_ view: Content) {
+        closeMeetingPrompt()
         let hosting = NSHostingView(rootView: view)
         let size = hosting.fittingSize
         let panel = NSPanel(
@@ -371,7 +423,7 @@ final class AppController: NSObject {
     // MARK: Recording
 
     private func startRecording() {
-        guard let recording, !isPaused else { return }
+        guard let recording, !isPaused, problem != .diskFull else { return }
         recording.update(policy: currentPolicy())
         Task {
             do {
@@ -394,6 +446,8 @@ final class AppController: NSObject {
                 setPaused(true)
             case .displayGone:
                 startRecording()
+            case .encoderFailed:
+                show(problem: .encoderFailed)
             case .other(let code):
                 show(problem: .other("Recording stopped unexpectedly (\(code))."))
             }
@@ -408,15 +462,33 @@ final class AppController: NSObject {
         menu?.refresh()
     }
 
+    /// Starts again after a problem, once someone has dealt with its cause.
+    func tryAgain() {
+        problem = nil
+        if core == nil {
+            openVaultAndRecord()
+        } else {
+            setPaused(false)
+        }
+        menu?.refresh()
+    }
+
     func setPaused(_ paused: Bool, for duration: TimeInterval? = nil) {
         isPaused = paused
         resumeTimer?.invalidate()
         resumeTimer = nil
+        pausedReminder?.invalidate()
+        pausedReminder = nil
         if paused {
             Task { await recording?.stop() }
             if let duration {
                 resumeTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { [weak self] _ in
                     MainActor.assumeIsolated { self?.setPaused(false) }
+                }
+            } else {
+                // Open-ended pauses are easy to forget, and the cost is a gap in your history.
+                pausedReminder = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.remindPaused() }
                 }
             }
         } else {
@@ -459,16 +531,92 @@ final class AppController: NSObject {
         startRecording()
     }
 
-    private func startDiskWatch() {
-        diskTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.checkDisk() }
+    private func remindPaused() {
+        guard settings.remindWhenPaused else { return }
+        showCard(NoticeCard(
+            symbol: "pause.circle",
+            title: "Remind is still paused",
+            detail: "Nothing on your screen is being recorded.",
+            primary: "Resume recording",
+            secondary: "Keep paused",
+            onPrimary: { [weak self] in
+                self?.closeMeetingPrompt()
+                self?.setPaused(false)
+            },
+            onSecondary: { [weak self] in self?.closeMeetingPrompt() }
+        ))
+    }
+
+    /// Asks once, a week in, by which time there's history worth protecting.
+    private func remindAboutRecoveryKey(now: Date = Date()) {
+        let defaults = UserDefaults.standard
+        guard let firstRun = defaults.object(forKey: "firstRunDate") as? Date else {
+            defaults.set(now, forKey: "firstRunDate")
+            return
         }
+        guard now.timeIntervalSince(firstRun) > 7 * 86_400,
+              !defaults.bool(forKey: "recoveryKeySaved"),
+              !defaults.bool(forKey: "recoveryKeyReminderShown"),
+              promptPanel == nil
+        else { return }
+        defaults.set(true, forKey: "recoveryKeyReminderShown")
+        showCard(NoticeCard(
+            symbol: "key",
+            title: "Save your recovery key",
+            detail: "If the key in your keychain is ever lost, this is the only way to read your recordings.",
+            primary: "Save recovery key…",
+            secondary: "Not now",
+            onPrimary: { [weak self] in
+                self?.closeMeetingPrompt()
+                self?.saveRecoveryKey()
+            },
+            onSecondary: { [weak self] in self?.closeMeetingPrompt() }
+        ))
+    }
+
+    private func startMaintenance() {
+        maintenanceTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.maintain() }
+        }
+        maintain()
+    }
+
+    /// Everything that needs checking now and then.
+    private func maintain(now: Date = Date()) {
         checkDisk()
+        updatePrivacyWarning()
+        remindAboutRecoveryKey(now: now)
+        // Without this, an app left running for months would keep expired recordings.
+        if now.timeIntervalSince(lastRetention) > 3600 {
+            lastRetention = now
+            applyRetention()
+        }
+        if now.timeIntervalSince(launchedAt) > 600 {
+            crashGuard.markStable()
+        }
+    }
+
+    private func updatePrivacyWarning() {
+        switch recording?.privacyCheckTrouble {
+        case .accessibilityOff:
+            settings.privateBrowsingWarning = String(
+                localized: "Accessibility is off for Remind, so it can only spot private windows by their titles."
+            )
+        case .browserNotResponding(let bundleID):
+            let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
+                .deletingPathExtension().lastPathComponent ?? bundleID
+            settings.privateBrowsingWarning = String(
+                localized: "\(name) isn't responding to Remind, so its windows aren't being recorded right now."
+            )
+        case nil:
+            settings.privateBrowsingWarning = nil
+        }
     }
 
     private func checkDisk() {
         let free = (try? vaultDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?
             .volumeAvailableCapacityForImportantUsage ?? Int64.max
+        ocr?.allowsBackfill = free >= Self.lowDiskBytes
         if free < Self.criticalDiskBytes {
             if problem != .diskFull {
                 Task {
@@ -534,16 +682,11 @@ final class AppController: NSObject {
 
     func openSettings() {
         if settingsWindow == nil {
-            let hosting = NSHostingController(rootView: SettingsView(
+            settingsWindow = SettingsWindow.make(
                 model: settings,
                 actions: self,
                 shortcuts: AnyView(ShortcutsTab())
-            ))
-            let window = NSWindow(contentViewController: hosting)
-            window.title = String(localized: "Settings")
-            window.styleMask = [.titled, .closable, .miniaturizable]
-            window.isReleasedWhenClosed = false
-            settingsWindow = window
+            )
         }
         NSApp.activate()
         settingsWindow?.center()
@@ -558,7 +701,7 @@ final class AppController: NSObject {
             appIcon: NSApp.applicationIconImage,
             onStepChange: { UserDefaults.standard.set($0.rawValue, forKey: "onboardingStep") },
             onRelaunch: { [weak self] in self?.relaunch() },
-            onFinish: { [weak self] in self?.finishOnboarding() }
+            onFinish: { [weak self] openAtLogin in self?.finishOnboarding(openAtLogin: openAtLogin) }
         )
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
         window.styleMask = [.titled, .closable, .fullSizeContentView]
@@ -566,6 +709,8 @@ final class AppController: NSObject {
         window.titleVisibility = .hidden
         window.isMovableByWindowBackground = true
         window.isReleasedWhenClosed = false
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.center()
         onboardingWindow = window
         NSApp.activate()
@@ -581,7 +726,10 @@ final class AppController: NSObject {
         }
     }
 
-    private func finishOnboarding() {
+    private func finishOnboarding(openAtLogin: Bool) {
+        if openAtLogin {
+            setLaunchAtLogin(true)
+        }
         settings.hasFinishedOnboarding = true
         UserDefaults.standard.removeObject(forKey: "onboardingStep")
         onboardingWindow?.close()
@@ -655,8 +803,9 @@ extension AppController: SettingsActions {
 
         This decrypts your recordings. Keep it somewhere safe and private.
         """
-        try? text.write(to: url, atomically: true, encoding: .utf8)
+        guard (try? text.write(to: url, atomically: true, encoding: .utf8)) != nil else { return }
         try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        UserDefaults.standard.set(true, forKey: "recoveryKeySaved")
     }
 
     func revealVault() {
@@ -664,7 +813,12 @@ extension AppController: SettingsActions {
     }
 
     var launchAtLogin: Bool {
-        SMAppService.mainApp.status == .enabled
+        Self.loginAgent.status == .enabled
+    }
+
+    func setShowInDock(_ show: Bool) {
+        settings.showInDock = show
+        NSApp.setActivationPolicy(show ? .regular : .accessory)
     }
 
     func setChecksForUpdates(_ enabled: Bool) {
@@ -674,9 +828,9 @@ extension AppController: SettingsActions {
 
     func setLaunchAtLogin(_ enabled: Bool) {
         if enabled {
-            try? SMAppService.mainApp.register()
+            try? Self.loginAgent.register()
         } else {
-            try? SMAppService.mainApp.unregister()
+            try? Self.loginAgent.unregister()
         }
     }
 

@@ -12,6 +12,10 @@ public struct SearchPanel: View {
     private let field: AnyView
 
     @State private var isAppsOpen = false
+    @State private var gridWidth: CGFloat = 0
+
+    private static let cardWidth: CGFloat = 300
+    private static let cardSpacing: CGFloat = 16
 
     public init(
         model: SearchModel,
@@ -38,7 +42,7 @@ public struct SearchPanel: View {
                 }
             }
         }
-        .frame(width: model.layout == .expanded ? 880 : 560)
+        .frame(maxWidth: model.layout == .expanded ? 1040 : 500)
         .frame(maxHeight: model.layout == .expanded ? .infinity : nil, alignment: .top)
         .shadow(color: .black.opacity(0.4), radius: 30, y: 12)
         .animation(.smooth(duration: 0.2), value: model.layout)
@@ -139,7 +143,7 @@ public struct SearchPanel: View {
             message(LocalizedStringKey(failure))
         } else if model.hits.isEmpty {
             if model.isSearching {
-                ProgressView().controlSize(.small).frame(maxWidth: .infinity, minHeight: 200)
+                ProgressView().controlSize(.small).frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.hasSearched {
                 message("No matches. Try fewer words, or check the filters.")
             } else {
@@ -147,7 +151,14 @@ public struct SearchPanel: View {
             }
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 260, maximum: 320), spacing: 16)], spacing: 20) {
+                // Fixed columns, as many as there are results to fill, so a few results sit
+                // together in the middle.
+                let perRow = max(1, Int((gridWidth + Self.cardSpacing) / (Self.cardWidth + Self.cardSpacing)))
+                let columns = Array(
+                    repeating: GridItem(.fixed(Self.cardWidth), spacing: Self.cardSpacing),
+                    count: min(model.hits.count, perRow)
+                )
+                LazyVGrid(columns: columns, spacing: 20) {
                     ForEach(model.hits) { hit in
                         ResultCard(
                             hit: hit,
@@ -161,7 +172,9 @@ public struct SearchPanel: View {
                     }
                 }
                 .padding(18)
+                .frame(maxWidth: .infinity)
             }
+            .onGeometryChange(for: CGFloat.self, of: { $0.size.width - 36 }) { gridWidth = $0 }
         }
     }
 
@@ -169,7 +182,7 @@ public struct SearchPanel: View {
         Text(text)
             .font(.system(size: 14))
             .foregroundStyle(.white.opacity(0.6))
-            .frame(maxWidth: .infinity, minHeight: 200)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -4,6 +4,7 @@ import Ingest
 
 public enum FixtureError: Error {
     case frameRefused(index: Int, outcome: AppendOutcome)
+    case notIndexed(indexed: UInt64, expected: Int)
 }
 
 /// Records synthetic frames into a vault, for tests and benchmarks.
@@ -32,7 +33,8 @@ public enum FixtureVault {
         keyframeInterval: Int = 30,
         display: UUID = UUID(),
         start: Date = Date(timeIntervalSince1970: 1_800_000_000),
-        spacing: TimeInterval = 2
+        spacing: TimeInterval = 2,
+        appForScene: @Sendable (String) -> String = { "com.example.\($0)" }
     ) async throws -> Recording {
         let screen = SyntheticScreen(width: width, height: height)
         let encoder = try HEVCEncoder(settings: EncoderSettings(
@@ -63,7 +65,7 @@ public enum FixtureVault {
                 capturedAt: start.addingTimeInterval(Double(index) * spacing),
                 monotonicNanoseconds: UInt64(index),
                 isKeyframe: encoded.isKeyframe,
-                context: FrameContext(bundleID: "com.example.\(frame.scene)", window: "Fixture \(frame.scene)"),
+                context: FrameContext(bundleID: appForScene(frame.scene), window: "Fixture \(frame.scene)"),
                 data: encoded.data
             )
             // Real capture is far slower than writing, but fixtures aren't, and a busy
@@ -80,7 +82,13 @@ public enum FixtureVault {
             appended += 1
         }
         try core.sealAll()
-        for _ in 0..<500 where core.stats().indexedFrames < UInt64(appended) {
+        // Commits come in batches up to 5 seconds apart, and a busy machine takes longer.
+        // A test on half a recording would fail in confusing ways, so this has to finish.
+        let deadline = Date().addingTimeInterval(60)
+        while core.stats().indexedFrames < UInt64(appended) {
+            guard Date() < deadline else {
+                throw FixtureError.notIndexed(indexed: core.stats().indexedFrames, expected: appended)
+            }
             try await Task.sleep(for: .milliseconds(10))
         }
         return Recording(display: display, start: start, spacing: spacing, words: words, barcodeY: screen.barcodeY)

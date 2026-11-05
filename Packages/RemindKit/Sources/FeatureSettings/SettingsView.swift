@@ -4,35 +4,101 @@ import Speech
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// Settings, using the system's tabbed window and right-aligned form layout.
-public struct SettingsView: View {
-    @Bindable private var model: SettingsModel
-    private let actions: any SettingsActions
-    private let shortcuts: AnyView
+/// The settings tabs, in the order they appear.
+public enum SettingsTab: Int, CaseIterable, Sendable {
+    case general, screen, audio, meetings, storage, shortcuts
 
-    public init(model: SettingsModel, actions: any SettingsActions, shortcuts: AnyView) {
-        self.model = model
-        self.actions = actions
-        self.shortcuts = shortcuts
+    var title: String {
+        switch self {
+        case .general: String(localized: "General")
+        case .screen: String(localized: "Screen")
+        case .audio: String(localized: "Audio")
+        case .meetings: String(localized: "Meetings")
+        case .storage: String(localized: "Storage")
+        case .shortcuts: String(localized: "Shortcuts")
+        }
     }
 
-    public var body: some View {
-        TabView {
-            GeneralTab(model: model, actions: actions)
-                .tabItem { Label("General", systemImage: "gearshape") }
-            ScreenTab(model: model, actions: actions)
-                .tabItem { Label("Screen", systemImage: "display") }
-            AudioTab(model: model)
-                .tabItem { Label("Audio", systemImage: "waveform") }
-            MeetingsTab(model: model)
-                .tabItem { Label("Meetings", systemImage: "calendar") }
-            StorageTab(model: model, actions: actions)
-                .tabItem { Label("Storage", systemImage: "internaldrive") }
-            shortcuts
-                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+    var symbol: String {
+        switch self {
+        case .general: "gearshape"
+        case .screen: "display"
+        case .audio: "waveform"
+        case .meetings: "calendar"
+        case .storage: "internaldrive"
+        case .shortcuts: "keyboard"
         }
-        .frame(width: 640)
-        .tint(Palette.verdigris)
+    }
+}
+
+/// Makes the settings window: the system's preferences toolbar, with a window that
+/// resizes to fit each tab.
+@MainActor
+public enum SettingsWindow {
+    public static func make(
+        model: SettingsModel,
+        actions: any SettingsActions,
+        shortcuts: AnyView,
+        selecting selected: SettingsTab = .general
+    ) -> NSWindow {
+        let window = NSWindow(contentViewController: controller(
+            model: model,
+            actions: actions,
+            shortcuts: shortcuts,
+            selecting: selected
+        ))
+        configure(window)
+        return window
+    }
+
+    /// Gives a window the look settings needs.
+    public static func configure(_ window: NSWindow) {
+        window.styleMask = [.titled, .closable, .miniaturizable]
+        window.toolbarStyle = .preference
+        window.title = String(localized: "Settings")
+        window.isReleasedWhenClosed = false
+    }
+
+    public static func controller(
+        model: SettingsModel,
+        actions: any SettingsActions,
+        shortcuts: AnyView,
+        selecting selected: SettingsTab = .general
+    ) -> NSViewController {
+        let tabs = NSTabViewController()
+        tabs.tabStyle = .toolbar
+        tabs.canPropagateSelectedChildViewControllerTitle = false
+        for tab in SettingsTab.allCases {
+            let root = pane(for: tab, model: model, actions: actions, shortcuts: shortcuts)
+                .frame(width: 640)
+                .fixedSize(horizontal: false, vertical: true)
+                .tint(Palette.verdigris)
+            let hosting = NSHostingController(rootView: root)
+            hosting.sizingOptions = [.preferredContentSize]
+            let item = NSTabViewItem(viewController: hosting)
+            item.label = tab.title
+            item.image = NSImage(systemSymbolName: tab.symbol, accessibilityDescription: tab.title)
+            tabs.addTabViewItem(item)
+        }
+        tabs.selectedTabViewItemIndex = selected.rawValue
+        return tabs
+    }
+
+    @ViewBuilder
+    private static func pane(
+        for tab: SettingsTab,
+        model: SettingsModel,
+        actions: any SettingsActions,
+        shortcuts: AnyView
+    ) -> some View {
+        switch tab {
+        case .general: GeneralTab(model: model, actions: actions)
+        case .screen: ScreenTab(model: model, actions: actions)
+        case .audio: AudioTab(model: model)
+        case .meetings: MeetingsTab(model: model)
+        case .storage: StorageTab(model: model, actions: actions)
+        case .shortcuts: shortcuts
+        }
     }
 }
 
@@ -47,7 +113,10 @@ private struct GeneralTab: View {
                 set: { actions.setLaunchAtLogin($0) }
             ))
             Toggle("Remind me when recording is paused", isOn: $model.remindWhenPaused)
-            Toggle("Show in Dock", isOn: $model.showInDock)
+            Toggle("Show in Dock", isOn: Binding(
+                get: { model.showInDock },
+                set: { actions.setShowInDock($0) }
+            ))
             Toggle("Check for updates automatically", isOn: Binding(
                 get: { model.checkForUpdates },
                 set: { actions.setChecksForUpdates($0) }
@@ -61,56 +130,70 @@ private struct GeneralTab: View {
 private struct ScreenTab: View {
     @Bindable var model: SettingsModel
     let actions: any SettingsActions
-    @State private var showRunningOnly = false
+    @State private var showRunningApps = false
+    @State private var installed: [AppChoice] = []
 
     var body: some View {
-        Form {
-            Section {
-                Text("Screen recordings stay on this Mac. They're never uploaded.")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.bottom, 10)
-            }
-            LabeledContent("Exclude apps:") {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Windows from these apps are left out of recordings.")
-                        .foregroundStyle(.secondary)
-                    AppExclusionList(
-                        choices: actions.runningApps,
-                        excluded: $model.excludedApps
-                    )
-                    .frame(height: 210)
-                    Button {
-                        addApp()
-                    } label: {
-                        Image(systemName: "plus").frame(width: 22)
+        VStack(spacing: 18) {
+            Text("Screen recordings stay on this Mac. They're never uploaded.")
+                .font(.headline)
+            Form {
+                LabeledContent("Exclude apps:") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Windows from these apps are left out of recordings.")
+                            .foregroundStyle(.secondary)
+                        AppExclusionList(
+                            choices: showRunningApps ? installed + actions.runningApps : installed,
+                            excluded: $model.excludedApps
+                        )
+                        .frame(height: 190)
+                        HStack(spacing: 10) {
+                            Button {
+                                addApp()
+                            } label: {
+                                Image(systemName: "plus").frame(width: 22)
+                            }
+                            .help("Choose an app to exclude")
+                            Toggle("Show running apps", isOn: $showRunningApps)
+                                .toggleStyle(.checkbox)
+                        }
                     }
-                    .help("Choose an app to exclude")
                 }
-            }
-            LabeledContent("Private browsing:") {
-                Toggle(isOn: $model.excludePrivateWindows) {
-                    Text("Don't record private or incognito browser windows")
-                }
-                .toggleStyle(.checkbox)
-            }
-            .padding(.top, 8)
-            LabeledContent("Text recognition:") {
-                VStack(alignment: .leading, spacing: 4) {
-                    Picker("", selection: $model.textRecognition) {
-                        Text("Standard").tag(TextRecognitionMode.standard)
-                        Text("Additional languages").tag(TextRecognitionMode.additionalLanguages)
+                LabeledContent("Private browsing:") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Toggle(isOn: $model.excludePrivateWindows) {
+                            Text("Don't record private or incognito browser windows")
+                        }
+                        .toggleStyle(.checkbox)
+                        if let warning = model.privateBrowsingWarning {
+                            Label(warning, systemImage: "exclamationmark.triangle.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
-                    .labelsHidden()
-                    Text("Additional languages use more system resources.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
+                .padding(.top, 8)
+                LabeledContent("Text recognition:") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Picker("", selection: $model.textRecognition) {
+                            Text("Standard").tag(TextRecognitionMode.standard)
+                            Text("Additional languages").tag(TextRecognitionMode.additionalLanguages)
+                        }
+                        .labelsHidden()
+                        Text("Additional languages use more system resources.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 8)
             }
-            .padding(.top, 8)
+            .formStyle(.columns)
         }
-        .formStyle(.columns)
         .padding(28)
+        .task {
+            installed = await Task.detached(priority: .userInitiated) { InstalledApps.scan() }.value
+        }
     }
 
     private func addApp() {
@@ -124,15 +207,38 @@ private struct ScreenTab: View {
     }
 }
 
+/// The apps on this Mac.
+enum InstalledApps {
+    static func scan() -> [AppChoice] {
+        let folders = [
+            "/Applications",
+            "/Applications/Utilities",
+            "/System/Applications",
+            "/System/Applications/Utilities",
+            NSHomeDirectory() + "/Applications",
+        ]
+        let manager = FileManager.default
+        return folders.flatMap { folder -> [AppChoice] in
+            let names = (try? manager.contentsOfDirectory(atPath: folder)) ?? []
+            return names.filter { $0.hasSuffix(".app") }.compactMap { name in
+                let path = folder + "/" + name
+                guard let id = Bundle(path: path)?.bundleIdentifier else { return nil }
+                return AppChoice(bundleID: id, name: String(name.dropLast(4)), path: path)
+            }
+        }
+    }
+}
+
 private struct AppExclusionList: View {
     let choices: [AppChoice]
     @Binding var excluded: Set<String>
 
-    /// Every running app, plus excluded ones that aren't running now.
+    /// Every app offered, plus excluded ones that aren't. A running app can have several
+    /// instances, and each app only gets one row.
     private var rows: [AppChoice] {
-        var all = choices
-        let known = Set(choices.map(\.bundleID))
-        for id in excluded.subtracting(known) {
+        var seen = Set<String>()
+        var all = choices.filter { seen.insert($0.bundleID).inserted }
+        for id in excluded where !seen.contains(id) {
             let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id)
             all.append(AppChoice(
                 bundleID: id,

@@ -50,6 +50,10 @@ public final class DisplayPipeline: @unchecked Sendable {
     private let decide: @Sendable (CapturedFrame) -> FrameDecision
     private let differ: FrameDiffer
 
+    /// Called when encoding keeps failing, since retrying won't help.
+    public var onEncoderFailure: (@Sendable () -> Void)?
+    private var encoderFailures: [Date] = []
+
     private var encoder: HEVCEncoder?
     private var encoderSize: (width: Int, height: Int)?
     private var comparing = false
@@ -157,6 +161,18 @@ public final class DisplayPipeline: @unchecked Sendable {
         }
     }
 
+    /// Frames are 2 seconds apart, so rebuilding on the next one is already a gentle retry.
+    /// Three failures within a minute means it isn't recovering. Raw frames are never
+    /// stored instead, so capture has to stop and say so.
+    private func noteEncoderFailure(now: Date = Date()) {
+        encoderFailures.removeAll { now.timeIntervalSince($0) > 60 }
+        encoderFailures.append(now)
+        if encoderFailures.count >= 3 {
+            encoderFailures.removeAll()
+            onEncoderFailure?()
+        }
+    }
+
     private func encoder(width: Int, height: Int) throws -> HEVCEncoder {
         if let encoder, encoderSize?.width == width, encoderSize?.height == height {
             return encoder
@@ -187,6 +203,7 @@ public final class DisplayPipeline: @unchecked Sendable {
             needsKeyframe = true
             encoder = nil
             encoderSize = nil
+            noteEncoderFailure()
             return
         }
         do {

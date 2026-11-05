@@ -32,7 +32,7 @@ use remind_vault::{MasterKey, VaultError};
 use rusqlite::Connection;
 
 pub use ocr::{OcrBatchOptions, OcrJob, OcrResult};
-pub use read::{FrameRef, Gop, GopSample};
+pub use read::{FrameRef, FrameTextLine, Gop, GopSample, Meeting};
 pub use recovery::RecoveryReport;
 pub use search::SearchSession;
 pub use transcript::{SpokenWord, TranscriptLine};

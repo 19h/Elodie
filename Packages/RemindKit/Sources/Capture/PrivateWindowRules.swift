@@ -43,6 +43,13 @@ public enum PrivateWindowRules {
         }
     }
 
+    /// Whether a window's Accessibility identifier marks it as private. Arc names its
+    /// incognito windows this way, in every language.
+    public static func isPrivate(identifier: String?, family: BrowserFamily) -> Bool {
+        guard family == .arc, let identifier else { return false }
+        return identifier.lowercased().contains("incognito")
+    }
+
     /// The last ` - ` part of a Chromium title, or the whole title with no separator.
     private static func chromiumTail(of title: String) -> String {
         for separator in [" - ", " – ", " — "] {

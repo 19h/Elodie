@@ -77,6 +77,21 @@ pub struct NormalizedRect {
     pub height: f32,
 }
 
+/// A line of text in a frame.
+#[derive(Debug, uniffi::Record)]
+pub struct FrameLineInfo {
+    pub text: String,
+    pub rect: NormalizedRect,
+}
+
+/// A meeting that was transcribed.
+#[derive(Debug, uniffi::Record)]
+pub struct MeetingInfo {
+    pub title: Option<String>,
+    pub t_start_ms: i64,
+    pub t_end_ms: Option<i64>,
+}
+
 impl From<Rect> for NormalizedRect {
     fn from(rect: Rect) -> Self {
         Self { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
@@ -555,6 +570,35 @@ impl Core {
     /// The text a frame shows, front window first.
     pub fn frame_text(&self, frame_id: i64) -> Result<Vec<String>, CoreError> {
         Ok(self.engine.frame_text(frame_id)?)
+    }
+
+    /// The lines of text a frame shows and where they are.
+    pub fn frame_lines(&self, frame_id: i64) -> Result<Vec<FrameLineInfo>, CoreError> {
+        Ok(self
+            .engine
+            .frame_lines(frame_id)?
+            .into_iter()
+            .map(|line| FrameLineInfo { text: line.text, rect: line.rect.into() })
+            .collect())
+    }
+
+    /// Notes a meeting that was transcribed.
+    pub fn record_meeting(&self, title: Option<String>, t_start_ms: i64, t_end_ms: i64) -> Result<(), CoreError> {
+        Ok(self.engine.record_meeting(title, t_start_ms, t_end_ms)?)
+    }
+
+    /// Meetings that started in a period, earliest first.
+    pub fn meetings(&self, from_ms: i64, to_ms: i64) -> Result<Vec<MeetingInfo>, CoreError> {
+        Ok(self
+            .engine
+            .meetings(from_ms, to_ms)?
+            .into_iter()
+            .map(|meeting| MeetingInfo {
+                title: meeting.title,
+                t_start_ms: meeting.t_start,
+                t_end_ms: meeting.t_end,
+            })
+            .collect())
     }
 
     /// Every app that has been recorded, most recent first.

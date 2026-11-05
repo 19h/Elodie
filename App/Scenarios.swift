@@ -52,11 +52,23 @@ enum Scenarios {
             try await capture(onboarding(.howItWorks), size: NSSize(width: 800, height: 628), to: output)
         case "onboarding-permissions":
             try await capture(onboarding(.permissions), size: NSSize(width: 800, height: 628), to: output)
-        case "settings-screen", "settings-storage":
-            let view = SettingsPreview(tab: name == "settings-screen" ? 1 : 4)
-            try await capture(AnyView(view), size: NSSize(width: 640, height: 620), to: output)
+        case "settings-general", "settings-screen", "settings-audio", "settings-meetings", "settings-storage", "settings-shortcuts":
+            let tabs = ["general": SettingsTab.general, "screen": .screen, "audio": .audio, "meetings": .meetings, "storage": .storage, "shortcuts": .shortcuts]
+            let window = ScenarioWindow(contentViewController: SettingsWindow.controller(
+                model: SettingsModel(defaults: UserDefaults(suiteName: "remind-scenario")!),
+                actions: PreviewActions(),
+                shortcuts: AnyView(ShortcutsTab()),
+                selecting: tabs[String(name.dropFirst("settings-".count))] ?? .general
+            ))
+            SettingsWindow.configure(window)
+            window.center()
+            present(window)
+            try await Task.sleep(for: .milliseconds(900))
+            try await screenshot(window, to: output)
         case "timeline", "search-compact", "search-expanded", "jump-to-date":
             try await captureOverlay(name, to: output)
+        case "status-menu":
+            try await captureStatusMenu(to: output)
         default:
             throw ScenarioError.unknown(name)
         }
@@ -69,39 +81,31 @@ enum Scenarios {
             step: step,
             appIcon: NSApp.applicationIconImage,
             onRelaunch: {},
-            onFinish: {}
+            onFinish: { _ in }
         ))
     }
 
     enum ScenarioError: Error {
         case unknown(String)
-        case couldNotDraw
     }
 
     /// Screenshots a window through ScreenCaptureKit, so glass renders as it really does.
-    ///
-    /// Without Screen Recording permission, the window draws itself into a bitmap instead.
-    /// Layout and text are right in that image, but glass has no backdrop to sample and
-    /// anything drawn through Metal or an IOSurface may be missing.
+    /// An app can capture its own windows without Screen Recording permission.
     @MainActor
     private static func screenshot(_ window: NSWindow, to output: URL) async throws {
-        if CGPreflightScreenCaptureAccess() {
-            try await ScreenContent.saveScreenshot(ofWindow: CGWindowID(window.windowNumber), to: output)
-            return
-        }
-        guard let view = window.contentView,
-              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
-        else { throw ScenarioError.couldNotDraw }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        guard let data = bitmap.representation(using: .png, properties: [:]) else {
-            throw ScenarioError.couldNotDraw
-        }
-        try data.write(to: output)
+        try await ScreenContent.saveScreenshot(ofWindow: CGWindowID(window.windowNumber), to: output)
+    }
+
+    /// Shows a window without taking focus from whatever someone's doing.
+    @MainActor
+    private static func present(_ window: NSWindow) {
+        window.orderFrontRegardless()
+        window.makeKey()
     }
 
     @MainActor
     private static func capture(_ view: AnyView, size: NSSize, to output: URL) async throws {
-        let window = NSWindow(
+        let window = ScenarioWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.titled, .closable, .fullSizeContentView],
             backing: .buffered,
@@ -110,10 +114,41 @@ enum Scenarios {
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.contentView = NSHostingView(rootView: view)
+        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.center()
-        window.orderFrontRegardless()
+        present(window)
         try await Task.sleep(for: .milliseconds(700))
         try await screenshot(window, to: output)
+    }
+
+    /// Opens the real menu from the menu bar, as a click would, and photographs it from a
+    /// task that runs while it tracks.
+    @MainActor
+    private static func captureStatusMenu(to output: URL) async throws {
+        let controller = AppController()
+        let status = StatusMenu(controller: controller)
+        var failure: (any Error)?
+        var finished = false
+        Task { @MainActor in
+            defer {
+                finished = true
+                status.closeMenu()
+            }
+            try? await Task.sleep(for: .milliseconds(800))
+            do {
+                try await ScreenContent.saveScreenshotOfLargestOwnWindow(to: output)
+            } catch {
+                failure = error
+            }
+        }
+        try await Task.sleep(for: .milliseconds(200))
+        status.openMenu()
+        while !finished {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        withExtendedLifetime(status) {}
+        if let failure { throw failure }
     }
 
     @MainActor
@@ -134,7 +169,16 @@ enum Scenarios {
             height: Int(size.height) * 2,
             count: count,
             display: display,
-            start: end.addingTimeInterval(-Double(count) * 2)
+            start: end.addingTimeInterval(-Double(count) * 2),
+            appForScene: { scene in
+                switch scene {
+                case "editor": "com.apple.dt.Xcode"
+                case "article": "com.apple.Safari"
+                case "terminal": "com.apple.Terminal"
+                case "table": "com.apple.Notes"
+                default: "com.apple.QuickTimePlayerX"
+                }
+            }
         )
 
         let window = NSWindow(
@@ -163,18 +207,39 @@ enum Scenarios {
         ))
         window.contentView = controller.rootView
         window.center()
-        window.orderFrontRegardless()
+        present(window)
         controller.present(at: recording.time(of: count - 12))
 
         if name == "search-expanded" || name == "search-compact" {
             // OCR, so there's something to find.
             let worker = OCRWorker(core: core)
             worker.start()
-            for _ in 0..<300 where worker.framesProcessed < count {
+            let began = Date()
+            var trace = "thermal \(ProcessInfo.processInfo.thermalState.rawValue), lowPower \(ProcessInfo.processInfo.isLowPowerModeEnabled)\n"
+            var lastProcessed = -1
+            var wasWarming = true
+            while worker.framesProcessed < count, Date().timeIntervalSince(began) < 900 {
+                if worker.framesProcessed != lastProcessed || worker.isWarmingUp != wasWarming {
+                    lastProcessed = worker.framesProcessed
+                    wasWarming = worker.isWarmingUp
+                    trace += String(format: "after %.1f s: processed %d, warming up: %@\n", Date().timeIntervalSince(began), lastProcessed, "\(wasWarming)")
+                }
                 try await Task.sleep(for: .milliseconds(100))
             }
+            trace += String(format: "finished after %.1f s\n", Date().timeIntervalSince(began))
+            try? trace.write(toFile: output.path + ".trace", atomically: true, encoding: .utf8)
             worker.stop()
             if name == "search-expanded", let word = recording.words[count - 12].filter({ $0.count >= 6 }).sorted().first {
+                // Results commit in batches, so this waits until the word can be found.
+                var log = "word \(word), processed \(worker.framesProcessed)\n"
+                for attempt in 0..<100 {
+                    let session = try core.search(word, facets: SearchFacets(), order: .relevance)
+                    let hits = try session?.nextPage().hits.count ?? -1
+                    if attempt % 20 == 0 || hits > 0 { log += "attempt \(attempt): \(hits) hits, stats \(core.stats())\n" }
+                    if hits > 0 { break }
+                    try await Task.sleep(for: .milliseconds(100))
+                }
+                try? log.write(toFile: output.path + ".log", atomically: true, encoding: .utf8)
                 search.text = word
             }
         }
@@ -187,19 +252,14 @@ enum Scenarios {
     }
 }
 
-/// Settings with no real actions behind it, opened on one tab.
-private struct SettingsPreview: View {
-    let tab: Int
-
-    var body: some View {
-        SettingsView(
-            model: SettingsModel(defaults: UserDefaults(suiteName: "remind-scenario")!),
-            actions: PreviewActions(),
-            shortcuts: AnyView(ShortcutsTab())
-        )
-    }
+/// Draws its controls in their active colours without activating the app, so taking a
+/// screenshot doesn't take focus away from whatever someone's doing.
+private final class ScenarioWindow: NSWindow {
+    override var isKeyWindow: Bool { true }
+    override var isMainWindow: Bool { true }
 }
 
+/// Settings with no real actions behind it.
 @MainActor
 private final class PreviewActions: SettingsActions {
     func storageUsage() async -> StorageUsage {
@@ -212,6 +272,7 @@ private final class PreviewActions: SettingsActions {
     func revealVault() {}
     func setLaunchAtLogin(_ enabled: Bool) {}
     func setChecksForUpdates(_ enabled: Bool) {}
+    func setShowInDock(_ show: Bool) {}
     var launchAtLogin: Bool { true }
     var runningApps: [AppChoice] {
         NSWorkspace.shared.runningApplications

@@ -19,6 +19,7 @@ public final class TimelineController: NSObject {
     private let frameView: FrameLayerView
     private let inputView = OverlayInputView()
     private let stripView: StripView?
+    private let playheadView: PlayheadView
     private var chromeHost: NSHostingView<AnyView>?
 
     private var interpreter = ScrollInterpreter(pointsPerSecond: TimelineZoom.defaultPointsPerSecond)
@@ -29,6 +30,7 @@ public final class TimelineController: NSObject {
     private var loadedRange: ClosedRange<Date>?
     private var loadedZoom = 0.0
     private var colors: [String: SIMD4<Float>] = [:]
+    private var icons: [String: CGImage] = [:]
     private var needsStripDraw = true
     private var displayLink: CADisplayLink?
     private var shownFrameID: Int64?
@@ -47,7 +49,18 @@ public final class TimelineController: NSObject {
         self.display = display
         scrub = ScrubEngine(core: core, display: display)
         frameView = FrameLayerView(frame: frame)
-        stripView = StripView(stripFrame: NSRect(x: 0, y: 24, width: frame.width, height: 40))
+        stripView = StripView(stripFrame: NSRect(
+            x: 0,
+            y: TimelineMetrics.stripBottom,
+            width: frame.width,
+            height: TimelineMetrics.stripHeight
+        ))
+        playheadView = PlayheadView(frame: NSRect(
+            x: (frame.width - 3) / 2,
+            y: 0,
+            width: 3,
+            height: TimelineMetrics.playheadHeight
+        ))
         let root = NSView(frame: frame)
         root.autoresizingMask = [.width, .height]
         root.wantsLayer = true
@@ -80,6 +93,8 @@ public final class TimelineController: NSObject {
             stripView.autoresizingMask = [.width]
             rootView.addSubview(stripView, positioned: .above, relativeTo: host)
         }
+        playheadView.autoresizingMask = [.minXMargin, .maxXMargin]
+        rootView.addSubview(playheadView, positioned: .above, relativeTo: stripView ?? host)
     }
 
     /// The view that should receive keys when nothing else has focus.
@@ -214,7 +229,8 @@ public final class TimelineController: NSObject {
             center: playhead.timeIntervalSince(timelineOrigin),
             pointsPerSecond: interpreter.pointsPerSecond,
             widthPoints: Double(rootView.bounds.width),
-            heightPoints: 40
+            heightPoints: Double(TimelineMetrics.stripHeight),
+            capsuleHeightPoints: 9
         )
     }
 
@@ -254,17 +270,32 @@ public final class TimelineController: NSObject {
     private func apply(_ data: TimelineData, origin: Date) {
         timelineOrigin = origin
         let palette = data.apps.map(color(for:))
-        stripView?.setRuns(data.runs.map { run in
+        let images = data.apps.map(icon(for:))
+        let runs = data.runs.map { run in
             StripRun(
                 start: Float(run.start.timeIntervalSince(origin)),
                 end: Float(run.end.timeIntervalSince(origin)),
                 color: palette[run.app]
             )
-        })
+        }
+        let icons = zip(runs, data.runs).compactMap { strip, run in
+            images[run.app].map { StripIcon(start: strip.start, end: strip.end, image: $0) }
+        }
+        stripView?.setRuns(runs, icons: icons)
         if let first = data.runs.first, earliest == nil {
             earliest = first.start
         }
         needsStripDraw = true
+    }
+
+    private func icon(for bundleID: String?) -> CGImage? {
+        guard let bundleID else { return nil }
+        if let known = icons[bundleID] { return known }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return nil }
+        var rect = CGRect(x: 0, y: 0, width: 48, height: 48)
+        let image = NSWorkspace.shared.icon(forFile: url.path).cgImage(forProposedRect: &rect, context: nil, hints: nil)
+        icons[bundleID] = image
+        return image
     }
 
     private func color(for bundleID: String?) -> SIMD4<Float> {

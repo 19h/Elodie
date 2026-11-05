@@ -41,6 +41,8 @@ public enum StreamStop: Sendable, Equatable {
     case stoppedBySystem
     case permissionMissing
     case displayGone
+    /// Video encoding kept failing.
+    case encoderFailed
     case other(code: Int)
 
     init(_ error: any Error) {
@@ -71,6 +73,8 @@ public enum DisplayStreamError: Error {
 /// so whoever receives one must let it go quickly.
 public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     public static let captureInterval: TimeInterval = 2
+    /// In Low Power Mode, half as often.
+    public static let lowPowerInterval: TimeInterval = 4
     /// Three in flight, plus one kept to show the instant the timeline opens.
     private static let queueDepth = 4
     /// The height of the menu bar, in points.
@@ -228,10 +232,31 @@ public enum ScreenContent {
         ))
     }
 
-    /// Saves a screenshot of one window. Glass and shadows render as they really do,
-    /// which a view snapshot doesn't manage.
+    /// This process's windows on screen, largest first. The window server's own list is
+    /// the authority on who owns what, and it needs no permission for one's own windows.
+    private static func ownWindowsOnScreen() -> [CGWindowID] {
+        let own = getpid()
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[CFString: Any]] ?? []
+        func area(_ window: [CFString: Any]) -> CGFloat {
+            guard let bounds = window[kCGWindowBounds] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: bounds)
+            else { return 0 }
+            return rect.width * rect.height
+        }
+        return list
+            .filter { ($0[kCGWindowOwnerPID] as? pid_t) == own }
+            .sorted { area($0) > area($1) }
+            .compactMap { ($0[kCGWindowNumber] as? NSNumber).map { CGWindowID($0.uint32Value) } }
+    }
+
+    /// Saves a screenshot of one of this app's windows. Glass and shadows render as they
+    /// really do, which a view snapshot doesn't manage. It refuses anything else, because
+    /// the current-process list can include windows that aren't ours, such as the desktop.
     public static func saveScreenshot(ofWindow windowID: CGWindowID, to url: URL) async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard ownWindowsOnScreen().contains(windowID) else {
+            throw DisplayStreamError.displayNotFound(windowID)
+        }
+        let content = try await SCShareableContent.currentProcess
         guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
             throw DisplayStreamError.displayNotFound(windowID)
         }
@@ -247,6 +272,12 @@ public enum ScreenContent {
         }
         CGImageDestinationAddImage(destination, image, nil)
         CGImageDestinationFinalize(destination)
+    }
+
+    /// Saves a screenshot of this app's largest window on screen.
+    public static func saveScreenshotOfLargestOwnWindow(to url: URL) async throws {
+        guard let largest = ownWindowsOnScreen().first else { throw DisplayStreamError.displayNotFound(0) }
+        try await saveScreenshot(ofWindow: largest, to: url)
     }
 
     /// A filter showing a display with the given windows left out.

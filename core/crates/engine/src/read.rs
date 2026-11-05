@@ -6,6 +6,21 @@ use rusqlite::{OptionalExtension, params};
 use crate::appender::path_in;
 use crate::{Engine, EngineError, Result};
 
+/// A line of text in a frame, and where it is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FrameTextLine {
+    pub text: String,
+    pub rect: remind_text::Rect,
+}
+
+/// A meeting that was transcribed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Meeting {
+    pub title: Option<String>,
+    pub t_start: i64,
+    pub t_end: Option<i64>,
+}
+
 /// A frame's identity and when it was captured.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameRef {
@@ -129,6 +144,11 @@ impl Engine {
 
     /// The text a frame shows, front window first, for answering questions about it.
     pub fn frame_text(&self, frame_id: i64) -> Result<Vec<String>> {
+        Ok(self.frame_lines(frame_id)?.into_iter().map(|line| line.text).collect())
+    }
+
+    /// The lines of text a frame shows and where they are, front window first.
+    pub fn frame_lines(&self, frame_id: i64) -> Result<Vec<FrameTextLine>> {
         let (lines_z, frame_z): (Vec<u8>, Vec<u8>) = {
             let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
             let row = reader
@@ -147,11 +167,37 @@ impl Engine {
         let in_order = |front: bool| {
             shown
                 .iter()
-                .filter_map(|(number, _)| lines.get(*number as usize))
-                .filter(move |line| line.is_front == front)
-                .map(|line| line.text.clone())
+                .filter_map(|(number, rect)| Some((lines.get(*number as usize)?, *rect)))
+                .filter(move |(line, _)| line.is_front == front)
+                .map(|(line, rect)| FrameTextLine { text: line.text.clone(), rect })
         };
         Ok(in_order(true).chain(in_order(false)).collect())
+    }
+
+    /// Notes a meeting that was transcribed.
+    pub fn record_meeting(&self, title: Option<String>, t_start: i64, t_end: i64) -> Result<()> {
+        let (reply, response) = crossbeam_channel::bounded(1);
+        self.writes
+            .as_ref()
+            .ok_or(EngineError::Stopped)?
+            .send(crate::writer::WriterMessage::Meeting(title, t_start, t_end, reply))
+            .map_err(|_| EngineError::Stopped)?;
+        response.recv().map_err(|_| EngineError::Stopped)?
+    }
+
+    /// Meetings that started in a period, earliest first.
+    pub fn meetings(&self, from_ms: i64, to_ms: i64) -> Result<Vec<Meeting>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut statement = reader.prepare_cached(
+            "SELECT title, t_start, t_end FROM meeting
+             WHERE t_start >= ?1 AND t_start < ?2 ORDER BY t_start",
+        )?;
+        let meetings = statement
+            .query_map(params![from_ms, to_ms], |r| {
+                Ok(Meeting { title: r.get(0)?, t_start: r.get(1)?, t_end: r.get(2)? })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(meetings)
     }
 
     /// Every app that has been recorded, most recent first, for filtering searches.

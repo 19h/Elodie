@@ -32,9 +32,12 @@ private func barcode(_ update: ScrubUpdate?, _ recording: FixtureVault.Recording
     return try #require(FrameBarcode.read(from: buffer, originY: recording.barcodeY))
 }
 
-/// Waits for settling work to finish.
+/// Waits for settling work to finish. Settling is only scheduled once the requests have
+/// been worked through, however long that takes, so that has to finish before the wait
+/// for it starts.
 private func settle(_ engine: ScrubEngine) async throws {
-    try await Task.sleep(for: .milliseconds(150))
+    engine.waitUntilIdle()
+    try await Task.sleep(for: .milliseconds(300))
     engine.waitUntilIdle()
 }
 

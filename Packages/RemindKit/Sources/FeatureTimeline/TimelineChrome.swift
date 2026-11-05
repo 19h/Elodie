@@ -3,8 +3,18 @@ import CoreAPI
 import DesignSystem
 import SwiftUI
 
-/// The controls over a frame: the time pill and playhead, plus Open and overflow.
-/// The strip itself is drawn underneath in Metal.
+/// Where things sit at the bottom of the timeline, in points from the bottom edge.
+enum TimelineMetrics {
+    /// The strip is drawn in Metal, so it's laid out by the controller.
+    static let stripBottom: CGFloat = 26
+    static let stripHeight: CGFloat = 40
+    static let stripCenter: CGFloat = stripBottom + stripHeight / 2
+    static let playheadHeight: CGFloat = 74
+    static let controlsBottom: CGFloat = playheadHeight + 6
+}
+
+/// The controls over a frame: the time pill, Open, and overflow. The strip and playhead
+/// are drawn above these, outside SwiftUI, since they move on every scroll event.
 public struct TimelineChrome: View {
     @Bindable private var model: TimelineModel
     private let onOpen: () -> Void
@@ -28,15 +38,9 @@ public struct TimelineChrome: View {
             ChromeScrim()
 
             GlassEffectContainer {
-                HStack(alignment: .bottom) {
-                    Spacer()
-                    VStack(spacing: 0) {
-                        timePill
-                        playhead
-                    }
-                    Spacer()
-                }
+                timePill
             }
+            .padding(.bottom, TimelineMetrics.controlsBottom)
 
             HStack(spacing: 8) {
                 Spacer()
@@ -44,17 +48,24 @@ public struct TimelineChrome: View {
                     openButton(for: context)
                 }
                 overflow
-                if !model.isAtNow {
+            }
+            .padding(.trailing, 24)
+            .padding(.bottom, TimelineMetrics.controlsBottom)
+
+            // Sits at the end of the strip, which is where "now" is.
+            if !model.isAtNow {
+                HStack {
+                    Spacer()
                     Button(action: onJumpToNow) {
                         Image(systemName: "arrow.right")
                     }
-                    .buttonStyle(ChromeControlStyle())
+                    .buttonStyle(ChromeIconStyle())
                     .help("Back to now")
                     .keyboardShortcut(.end, modifiers: [])
                 }
+                .padding(.trailing, 24)
+                .padding(.bottom, TimelineMetrics.stripCenter - 18)
             }
-            .padding(.trailing, 24)
-            .padding(.bottom, 78)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
@@ -73,16 +84,6 @@ public struct TimelineChrome: View {
         }
         .buttonStyle(ChromeControlStyle())
         .accessibilityLabel("Jump to a date and time. Showing \(model.timeLabel).")
-        .padding(.bottom, 6)
-    }
-
-    /// White with a dark outline, so it reads on any frame.
-    private var playhead: some View {
-        RoundedRectangle(cornerRadius: 1.5)
-            .fill(.white)
-            .frame(width: 3, height: 66)
-            .overlay(RoundedRectangle(cornerRadius: 1.5).strokeBorder(.black.opacity(0.45), lineWidth: 1).padding(-1))
-            .allowsHitTesting(false)
     }
 
     private func openButton(for context: FrameContext) -> some View {
