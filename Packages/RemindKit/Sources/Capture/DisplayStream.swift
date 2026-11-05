@@ -141,7 +141,8 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
     /// Starts capture of one window only. Used by tests that should see nothing else.
     public func start(including windowNumber: Int, interval: TimeInterval) async throws {
-        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        // An app can capture its own windows with no permission, so tests can run anywhere.
+        let content = try await SCShareableContent.currentProcess
         guard let display = content.displays.first(where: { $0.displayID == displayID }),
               let window = content.windows.first(where: { Int($0.windowID) == windowNumber })
         else {

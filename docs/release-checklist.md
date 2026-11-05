@@ -30,6 +30,17 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 - [ ] macOS asking to confirm screen recording again: recording pauses, the gap shows, and it resumes in one click.
 - [ ] **Screen sharing: does anyone on a call see the overlay?** If `sharingType = .none` doesn't
       hold, opening the timeline during a share would expose your history. Spike 7. **Don't ship until this is known.**
+      So far this process's own capture gets a blank image, while its ordinary windows capture normally.
+      That's encouraging, but only a share from another process can settle it.
+- [ ] The swipe, on a trackpad and on a mouse: ⌘⇧ and scroll up. It should look like your screen going
+      back in time: no flash, no jump, the first movement counted, and the app underneath perfectly
+      still. `make interaction-test` covers the logic, but only your eyes can judge the illusion.
+- [ ] Scroll speed at the start of the swipe. `TimelineZoom.defaultPointsPerSecond` sets how far a
+      movement goes, and it hasn't been tried on real fingers.
+- [ ] Login item: turn it on, restart, and confirm the app comes back. Force quit it and confirm launchd
+      relaunches it. Crash it three times and confirm it comes back paused and says why.
+- [ ] Pointer following: move between displays and confirm recording follows after about 2 seconds.
+- [ ] Dragging a frame out of the timeline into Finder and another app.
 - [ ] Input methods in search: Pinyin, Kotoeri, Korean, emoji, including where candidates appear.
 - [ ] Overlay over full-screen apps, in Mission Control, with Stage Manager, on a notched display, and on a second display.
 - [ ] Private windows in real browsers, in each language you claim to support.
@@ -39,7 +50,8 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 
 ## Measurements still needed
 
-- [ ] `make bench`-style budgets on an M1 or base MacBook Air. Everything so far ran on an M4 Max, which flatters them.
+- [ ] `make bench` on an M1 or base MacBook Air. Everything so far ran on an M4 Max, which flatters it.
+- [ ] Hotkey to first pixel and Esc to hidden, on real displays. `make bench` covers scrubbing only.
 - [ ] A real week of daily use, for storage per day. Every storage figure so far comes from a synthetic screen.
 - [ ] Energy with `sudo powermetrics`.
 - [ ] Search scaled past 800,000 frames, if a larger scratch disk is available.

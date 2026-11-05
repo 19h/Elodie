@@ -1,13 +1,16 @@
 #if DEBUG
 import AppKit
 import Capture
+import CoreAPI
+import CoreLive
 import CoreVideo
 import Darwin
 import Foundation
 import Ingest
 import TestKit
 
-/// Spikes 1 and 2, which need the Screen Recording permission.
+/// Live capture checks. Spike 2 and the energy measurement need the Screen Recording
+/// permission, and the others only capture this app's own windows, which doesn't.
 ///
 /// Frames are examined in memory and thrown away, so nothing gets stored. The
 /// windows these draw are the only thing they look for.
@@ -29,7 +32,10 @@ enum LiveSpikes {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
 
-        guard CGPreflightScreenCaptureAccess() else {
+        let name = value(after: "--spike") ?? "capture"
+        // These only capture the harness's own windows, which needs no permission.
+        let needsPermission = !["capture", "endtoend"].contains(name)
+        guard !needsPermission || CGPreflightScreenCaptureAccess() else {
             report.line("Screen Recording isn't granted.")
             let granted = CGRequestScreenCaptureAccess()
             report.line("Requested it, and the answer was: \(granted). Grant it in System Settings, then run this again.")
@@ -37,7 +43,6 @@ enum LiveSpikes {
             exit(3)
         }
 
-        let name = value(after: "--spike") ?? "capture"
         Task { @MainActor in
             do {
                 switch name {
@@ -45,6 +50,7 @@ enum LiveSpikes {
                 case "privacy": try await Self.privacyRace(iterations: Int(value(after: "--iterations") ?? "") ?? 1000)
                 case "energy": try await Self.energy(seconds: Int(value(after: "--seconds") ?? "") ?? 60)
                 case "browsers": try await Self.browserTitles()
+                case "endtoend": try await Self.endToEnd()
                 default: report.line("Unknown spike \(name)")
                 }
                 report.line("FINISHED")
@@ -117,6 +123,85 @@ enum LiveSpikes {
     }
 
     // MARK: Spike 1: change detection
+
+    /// A word on screen, through real capture, encoding, the encrypted log, OCR, and search,
+    /// then back to where it was on screen. It only ever captures its own window, which
+    /// needs no permission.
+    @MainActor
+    private static func endToEnd() async throws {
+        report.line("End to end: a word on screen, found by search")
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "remind-e2e-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let displayID = CGMainDisplayID()
+        guard let uuid = ScreenContent.stableID(of: displayID), let screen = NSScreen.screens.first else { return }
+        let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 8, count: 32))
+        let letters = Array("abcdefghjkmnpqrstuvwxyz")
+        let marker = "remind" + String((0..<8).map { _ in letters.randomElement()! })
+
+        let frame = NSRect(x: 120, y: screen.frame.height - 420, width: 900, height: 160)
+        let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.level = .floating
+        window.backgroundColor = .white
+        let label = NSTextField(labelWithString: marker)
+        label.font = .systemFont(ofSize: 72, weight: .regular)
+        label.textColor = .black
+        label.frame = NSRect(x: 40, y: 30, width: 820, height: 100)
+        window.contentView?.addSubview(label)
+        window.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(300))
+
+        let pipeline = try DisplayPipeline(core: core, displayUUID: uuid) { _ in
+            .keep(FrameContext(bundleID: "app.remind.endtoend", window: "End to end"))
+        }
+        let stream = DisplayStream(
+            displayID: displayID,
+            queue: pipeline.queue,
+            onFrame: { [weak pipeline] frame in pipeline?.ingest(frame) },
+            onStop: { reason in report.line("  the stream stopped: \(reason)") }
+        )
+        try await stream.start(including: window.windowNumber, interval: 0.25)
+        // Long enough for several frames, with a change so they aren't all dropped as the same.
+        for tick in 0..<8 {
+            window.contentView?.layer?.backgroundColor = NSColor(white: tick.isMultiple(of: 2) ? 1 : 0.97, alpha: 1).cgColor
+            window.backgroundColor = NSColor(white: tick.isMultiple(of: 2) ? 1 : 0.97, alpha: 1)
+            try await Task.sleep(for: .milliseconds(400))
+        }
+        report.line("  the newest frame is ready to show at once: \(pipeline.latestFrame != nil)")
+        await stream.stop()
+        window.orderOut(nil)
+        try core.sealAll()
+        report.line("  stored \(core.stats().loggedFrames) frames, stats \(pipeline.stats)")
+
+        let worker = OCRWorker(core: core)
+        worker.start()
+        defer { worker.stop() }
+        var found: SearchHit?
+        let began = Date()
+        while found == nil, Date().timeIntervalSince(began) < 300 {
+            if let session = try core.search(marker, facets: SearchFacets(), order: .relevance) {
+                found = try session.nextPage().hits.first
+            }
+            if found == nil { try await Task.sleep(for: .milliseconds(200)) }
+        }
+        guard let found, let rect = found.rects.first else {
+            report.line("  FAIL: \(marker) was never found (\(worker.framesProcessed) frames read)")
+            return
+        }
+        report.line(String(format: "  PASS: found %@ after %.1f s, in %@", marker, Date().timeIntervalSince(began), found.bundleID ?? "?"))
+
+        // Where the word should be, as a fraction of the display, from the top left.
+        let expected = CGRect(
+            x: frame.minX / screen.frame.width,
+            y: (screen.frame.height - frame.maxY) / screen.frame.height,
+            width: frame.width / screen.frame.width,
+            height: frame.height / screen.frame.height
+        )
+        let lands = expected.contains(CGPoint(x: rect.midX, y: rect.midY))
+        report.line("  \(lands ? "PASS" : "FAIL"): the highlight is where the word was on screen (match \(rect), window \(expected))")
+    }
 
     /// Does the stream show every change, and stay quiet when nothing changes?
     @MainActor

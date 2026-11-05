@@ -34,6 +34,16 @@ roaring = "0.12"
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
 
+# Development builds are optimised, and keep their debug info and overflow checks. Reading
+# recordings means decrypting them, and unoptimised, a group of frames took 240 ms to read
+# instead of 8 ms, which made scrubbing feel broken and benchmarks meaningless. The cipher's
+# generic code gets compiled into these crates, so optimising dependencies alone isn't enough.
+[profile.dev]
+opt-level = 2
+
+[profile.dev.package."*"]
+opt-level = 3
+
 [profile.release]
 lto = "thin"
 debug = "line-tables-only"

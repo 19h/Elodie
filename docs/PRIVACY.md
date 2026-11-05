@@ -22,6 +22,14 @@ and it doesn't upload your recordings, text, or transcripts anywhere.
 **Password fields and other sensitive content in ordinary windows do get recorded** if they're
 visible on screen. Exclude apps you don't want recorded.
 
+## What it reads to work
+
+- **Scrolling, to open the timeline.** With Accessibility on, Remind watches scroll events so that
+  ⌘⇧ and scrolling up can take over from the app underneath. It sees scroll events only, never the
+  keyboard, and it passes along everything except that gesture.
+- **Your calendar, only if you turn it on.** Remind reads the title of the event happening now, to
+  name a meeting. The title stays on your Mac with the transcript.
+
 ## Where it's kept
 
 Recordings are encrypted with a key in your login keychain, in

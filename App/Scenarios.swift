@@ -4,6 +4,8 @@ import Capture
 import CoreAPI
 import CoreFake
 import CoreLive
+import CoreVideo
+import DesignSystem
 import FeatureOnboarding
 import FeatureSearch
 import FeatureSettings
@@ -69,6 +71,12 @@ enum Scenarios {
             try await captureOverlay(name, to: output)
         case "overlay-input":
             try await InputSelfTest.run(to: output)
+        case "overlay-swipe":
+            try await InputSelfTest.runSwipe(to: output)
+        case "bench":
+            try await Bench.run(to: output)
+        case "contrast-white", "contrast-black", "contrast-noisy", "contrast-saturated":
+            try await captureContrast(String(name.dropFirst("contrast-".count)), to: output)
         case "status-menu":
             try await captureStatusMenu(to: output)
         default:
@@ -122,6 +130,125 @@ enum Scenarios {
         present(window)
         try await Task.sleep(for: .milliseconds(700))
         try await screenshot(window, to: output)
+    }
+
+    /// The controls over the kinds of backdrop that are hardest to read on, with no recording
+    /// behind them. Writes the measured contrast next to the image.
+    @MainActor
+    private static func captureContrast(_ backdrop: String, to output: URL) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "remind-contrast-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 5, count: 32))
+
+        let size = NSSize(width: 1512, height: 982)
+        let window = ScenarioWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        let controller = TimelineController(core: core, display: UUID(), frame: NSRect(origin: .zero, size: size))
+        let search = SearchModel(core: core, debounce: .milliseconds(1))
+        controller.install(chrome: OverlayContent(
+            core: core,
+            timeline: controller,
+            search: search,
+            highlights: HighlightModel(),
+            onOpen: {},
+            onDismiss: {},
+            actions: OverflowActions(),
+            onSelectHit: { _, _ in },
+            onOpenHit: { _ in },
+            fieldCreated: { _ in },
+            searchEditing: { _ in },
+            searchCancelled: {},
+            coachMarks: CoachMarkProgress(defaults: scenarioDefaults(coachMarksAt: 3))
+        ))
+        window.contentView = controller.rootView
+        window.center()
+        present(window)
+        controller.present(at: Date().addingTimeInterval(-90), immediate: try backdropBuffer(backdrop, size: size))
+        controller.model.isSearchVisible = false
+        controller.model.showContext(FrameContext(bundleID: "com.apple.Safari", window: "Backdrop"))
+        try await Task.sleep(for: .milliseconds(1000))
+        controller.model.isEmpty = false
+        try await Task.sleep(for: .milliseconds(200))
+        try await screenshot(window, to: output)
+
+        // Around the time pill: its text is the bright end, and its background the dark.
+        guard let data = try? Data(contentsOf: output), let bitmap = NSBitmapImageRep(data: data) else { return }
+        let scale = CGFloat(bitmap.pixelsWide) / size.width
+        let pill = CGRect(x: size.width / 2 - 70, y: size.height - 80 - 30, width: 140, height: 24)
+        var luminances: [Double] = []
+        for y in stride(from: pill.minY * scale, to: pill.maxY * scale, by: 1) {
+            for x in stride(from: pill.minX * scale, to: pill.maxX * scale, by: 1) {
+                guard let color = bitmap.colorAt(x: Int(x), y: Int(y))?.usingColorSpace(.sRGB) else { continue }
+                luminances.append(Contrast.luminance(
+                    red: Double(color.redComponent),
+                    green: Double(color.greenComponent),
+                    blue: Double(color.blueComponent)
+                ))
+            }
+        }
+        luminances.sort()
+        let dark = luminances[luminances.count / 5]
+        let bright = luminances[luminances.count * 99 / 100]
+        let ratio = Contrast.ratio(bright, dark)
+        try String(format: "%@ %.2f:1 (text %.3f, behind it %.3f)\n", backdrop, ratio, bright, dark)
+            .write(toFile: output.path + ".txt", atomically: true, encoding: .utf8)
+    }
+
+    /// One of the hard backdrops, as a frame.
+    private static func backdropBuffer(_ kind: String, size: NSSize) throws -> CVPixelBuffer {
+        let width = Int(size.width) * 2
+        let height = Int(size.height) * 2
+        var buffer: CVPixelBuffer?
+        CVPixelBufferCreate(
+            nil, width, height, kCVPixelFormatType_32BGRA,
+            [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary,
+            &buffer
+        )
+        guard let buffer else { throw ScenarioError.unknown("no buffer") }
+        CVPixelBufferLockBaseAddress(buffer, [])
+        defer { CVPixelBufferUnlockBaseAddress(buffer, []) }
+        let context = CGContext(
+            data: CVPixelBufferGetBaseAddress(buffer),
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: CVPixelBufferGetBytesPerRow(buffer),
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+        )!
+        let bounds = CGRect(x: 0, y: 0, width: width, height: height)
+        switch kind {
+        case "white":
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(bounds)
+        case "black":
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            context.fill(bounds)
+        case "saturated":
+            context.setFillColor(CGColor(srgbRed: 1, green: 0.1, blue: 0.3, alpha: 1))
+            context.fill(bounds)
+        default:
+            // Dense black-on-white marks, which are the worst case for reading on top of.
+            context.setFillColor(CGColor(gray: 1, alpha: 1))
+            context.fill(bounds)
+            context.setFillColor(CGColor(gray: 0, alpha: 1))
+            var random = SystemRandomNumberGenerator()
+            for y in stride(from: 0, to: height, by: 28) {
+                var x = 0
+                while x < width {
+                    let word = Int.random(in: 16...90, using: &random)
+                    context.fill(CGRect(x: x, y: y, width: word, height: 14))
+                    x += word + 10
+                }
+            }
+        }
+        return buffer
     }
 
     /// Opens the real menu from the menu bar, as a click would, and photographs it from a

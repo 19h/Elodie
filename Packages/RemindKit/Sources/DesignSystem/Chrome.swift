@@ -11,6 +11,11 @@ public enum ChromeMetrics {
     public static let scrimOpacity: Double = 0.6
     /// How dark it gets when the system's Reduce Transparency is on.
     public static let reducedTransparencyOpacity: Double = 0.85
+    /// How dark the fill behind control text is. Glass over a white page reads as pale grey,
+    /// and it adapts any tint to what's behind it, so white text needs a fill of its own.
+    /// This does the job without darkening more of the frame, so it still looks like your
+    /// screen. The contrast scenarios measure this against the 4.5:1 gate.
+    public static let controlFillOpacity: Double = 0.6
     /// Panels that hold reading text stay nearly opaque.
     public static let readingSurfaceOpacity: Double = 0.94
 }
@@ -43,6 +48,7 @@ public struct ChromeControlStyle: ButtonStyle {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .padding(.vertical, 8)
+            .background(.black.opacity(ChromeMetrics.controlFillOpacity), in: .capsule)
             .glassEffect(.regular.interactive(), in: .capsule)
             .opacity(configuration.isPressed ? 0.8 : 1)
             .environment(\.colorScheme, .dark)
@@ -86,6 +92,7 @@ public struct ChromeIconStyle: ButtonStyle {
             .foregroundStyle(.white)
             .frame(width: 36, height: 36)
             .contentShape(Circle())
+            .background(.black.opacity(ChromeMetrics.controlFillOpacity), in: .circle)
             .glassEffect(.regular.interactive(), in: .circle)
             .opacity(configuration.isPressed ? 0.8 : 1)
             .environment(\.colorScheme, .dark)

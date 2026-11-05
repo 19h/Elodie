@@ -9,6 +9,7 @@ import FeatureTimeline
 import FrameEngine
 import Observation
 import OverlayShell
+import QuartzCore
 import SwiftUI
 
 /// Opens and closes the overlay, and connects the search panel to the timeline.
@@ -139,11 +140,18 @@ final class OverlayCoordinator {
         openedForSearch = focusSearch
         overlay.timeline.model.isSearchVisible = focusSearch
 
-        overlay.panel.makeKeyAndOrderFront(nil)
-        overlay.panel.makeFirstResponder(overlay.timeline.keyView)
-        overlay.timeline.present(at: time, immediate: latestFrame(display))
+        // The picture goes in before the window comes up, so the first thing to reach the
+        // screen is the frame, in the right place, with no black refresh in between. That's
+        // what makes it look like your screen stopping, instead of a window opening.
+        let immediate = latestFrame(display)
+        overlay.timeline.present(at: time, immediate: immediate) { [weak self, weak overlay] in
+            guard let self, let overlay, self.active === overlay else { return }
+            CATransaction.flush()
+            overlay.panel.makeKeyAndOrderFront(nil)
+            overlay.panel.makeFirstResponder(overlay.timeline.keyView)
+            if focusSearch { self.focusSearchField() }
+        }
         search.loadApps()
-        if focusSearch { focusSearchField() }
     }
 
     /// A scroll taken over from whatever app was underneath. The swipe that opens the
@@ -159,6 +167,13 @@ final class OverlayCoordinator {
         }
         timeline?.keyView.scrollWheel(with: event)
     }
+
+    #if DEBUG
+    /// Where the timeline is, for checks that drive it with real events.
+    var debugPlayhead: Date? { timeline?.playhead }
+    var debugIsPanelVisible: Bool { panel?.isVisible ?? false }
+    var debugIsReady: Bool { !prepared.isEmpty }
+    #endif
 
     /// A display that appeared without the usual notice.
     private func makeMissingOverlay(for display: CGDirectDisplayID) -> Prepared? {

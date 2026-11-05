@@ -32,8 +32,9 @@ public final class OCRWorker: @unchecked Sendable {
         lock.withLock { processed }
     }
 
-    /// Whether text recognition is still getting ready, which can take minutes the first
-    /// time. Until it finishes, new recordings can't be found by their text yet.
+    /// Whether text recognition is still getting ready, which took about 30 seconds the
+    /// first time on an M4 Max, and will take longer on slower Macs. Until it finishes, new
+    /// recordings can't be found by their text yet.
     public var isWarmingUp: Bool {
         lock.withLock { warmingUp }
     }
@@ -75,7 +76,7 @@ public final class OCRWorker: @unchecked Sendable {
     }
 
     /// The first recognition under a new app identity compiles Vision's models for the
-    /// Neural Engine, which takes minutes. It happens here, on a small picture, so no
+    /// Neural Engine. It happens here, on a small picture, so no
     /// recorded frame uses up an attempt on it. Frames wait safely in the log meanwhile.
     private func warmUp() async {
         guard let image = Self.warmUpImage() else { return }

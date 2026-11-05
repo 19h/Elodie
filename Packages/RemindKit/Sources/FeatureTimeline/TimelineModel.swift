@@ -42,7 +42,7 @@ public final class TimelineModel {
     }
 
     /// Hidden for an instant on opening, so the controls rise after the screen has stopped.
-    public var isChromeVisible = true
+    public var isChromeVisible = false
     /// Whether the search panel is showing. Opening by scrolling leaves the frame clear,
     /// so it looks like the screen itself going back in time.
     public var isSearchVisible = true

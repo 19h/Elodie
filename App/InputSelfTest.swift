@@ -226,6 +226,96 @@ enum InputSelfTest {
         return true
     }
 
+    // MARK: The swipe
+
+    /// Drives the real coordinator with real scroll events, as the event tap would. This
+    /// takes over the screen and keyboard for about a second.
+    @MainActor
+    static func runSwipe(to output: URL) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "remind-swipe-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+
+        let displayID = RecordingController.activeDisplay()
+        guard let display = ScreenContent.stableID(of: displayID) else { throw Failure(description: "no display") }
+        let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 4, count: 32))
+        let count = 60
+        _ = try await FixtureVault.record(
+            into: core,
+            width: 1280,
+            height: 800,
+            count: count,
+            display: display,
+            start: Date().addingTimeInterval(-Double(count) * 2)
+        )
+
+        let coordinator = OverlayCoordinator(core: core)
+        for _ in 0..<100 where !coordinator.debugIsReady {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        var results: [String] = []
+        func check(_ name: String, _ passed: Bool, _ detail: String = "") {
+            results.append("\(passed ? "PASS" : "FAIL") \(name)\(detail.isEmpty ? "" : " (\(detail))")")
+        }
+
+        func event(deltaY: Int32, keys: Bool, phase: Int64 = 2, momentum: Int64 = 0) -> NSEvent {
+            let cgEvent = CGEvent(
+                scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: deltaY, wheel2: 0, wheel3: 0
+            )!
+            cgEvent.flags = keys ? [.maskCommand, .maskShift] : []
+            cgEvent.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cgEvent.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+            cgEvent.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+            return NSEvent(cgEvent: cgEvent)!
+        }
+
+        coordinator.handleScroll(event(deltaY: 20, keys: false))
+        check("scrolling without the keys doesn't open it", !coordinator.isOpen)
+        coordinator.handleScroll(event(deltaY: -20, keys: true))
+        check("scrolling down with the keys doesn't open it", !coordinator.isOpen)
+
+        let began = Date()
+        let opening = ContinuousClock.now
+        coordinator.handleScroll(event(deltaY: 20, keys: true))
+        let cost = ContinuousClock.now - opening
+        check("scrolling up with the keys opens it", coordinator.isOpen)
+        let first = coordinator.debugPlayhead
+        let firstBack = first.map { began.timeIntervalSince($0) } ?? 0
+        check("the first scroll isn't lost", firstBack > 1, String(format: "%.1f s back after one event", firstBack))
+        results.append("NOTE opening took \(cost) on the main thread")
+
+        // The keys come up partway through, and the swipe carries on.
+        for _ in 0..<5 {
+            coordinator.handleScroll(event(deltaY: 10, keys: false))
+        }
+        check(
+            "the swipe keeps moving after the keys are let go",
+            (coordinator.debugPlayhead ?? .distantFuture) < (first ?? .distantPast)
+        )
+        let beforeGlide = coordinator.debugPlayhead
+        coordinator.handleScroll(event(deltaY: 10, keys: false, phase: 0, momentum: 2))
+        check(
+            "the glide after the fingers lift moves it too",
+            (coordinator.debugPlayhead ?? .distantFuture) < (beforeGlide ?? .distantPast)
+        )
+        let beforeForward = coordinator.debugPlayhead
+        coordinator.handleScroll(event(deltaY: -10, keys: false))
+        check(
+            "scrolling down comes forward again",
+            (coordinator.debugPlayhead ?? .distantPast) > (beforeForward ?? .distantFuture)
+        )
+
+        try await Task.sleep(for: .milliseconds(400))
+        check("the panel came up", coordinator.debugIsPanelVisible)
+        coordinator.dismiss()
+        check("it closes", !coordinator.isOpen && !coordinator.debugIsPanelVisible)
+        results.append("NOTE Accessibility is \(AXIsProcessTrusted() ? "on" : "off") for Remind, so \(AXIsProcessTrusted() ? "the event tap keeps the app underneath still" : "only the fallback runs: the app underneath will also scroll")")
+
+        try results.joined(separator: "\n").write(to: output, atomically: true, encoding: .utf8)
+    }
+
     private static func requireValue<T>(_ value: T?) throws -> T {
         guard let value else { throw Failure(description: "expected a value") }
         return value

@@ -5,7 +5,7 @@ APP := $(DERIVED)/Build/Products/Debug/Remind.app
 # Where crash tests keep their vaults. Everything is removed afterward.
 TORTURE_DIR ?= build/torture
 
-.PHONY: core project app test test-rust test-swift self-check torture check-privacy release clean
+.PHONY: core project app test test-rust test-swift self-check torture check-privacy scenarios bench interaction-test release clean
 
 core:
 	scripts/build-core.sh debug
@@ -30,6 +30,24 @@ self-check: app
 
 torture:
 	scripts/torture.sh $(TORTURE_DIR)
+
+# Draws every screen, and checks that controls stay readable on hard backdrops. This takes
+# no focus and no permission, and the images land in build/scenarios.
+scenarios: app
+	scripts/scenarios.sh
+
+# Measures scrubbing against the plan's budgets on an encoded fixture.
+bench: app
+	@mkdir -p build
+	@rm -f build/bench.txt build/bench.txt.error
+	@open -n "$(PWD)/$(APP)" --args --scenario bench --out "$(PWD)/build/bench.txt"
+	@for i in $$(seq 1 480); do [ -f build/bench.txt ] || [ -f build/bench.txt.error ] && break; sleep 0.5; done
+	@cat build/bench.txt build/bench.txt.error 2>/dev/null; echo
+
+# Real events through the real overlay. It takes over the screen and keyboard for a few
+# seconds, so it asks first.
+interaction-test: app
+	scripts/interaction-test.sh
 
 # Everything Remind promises about the network and cloud services, checked against the code.
 check-privacy: core

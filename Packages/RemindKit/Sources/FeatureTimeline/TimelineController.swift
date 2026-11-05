@@ -42,6 +42,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
     private var selected: [RecognizedLine] = []
     private var dragStart: CGPoint?
     private var dragKind = DragKind.none
+    private var firstFrameHandler: (() -> Void)?
 
     private enum DragKind {
         case none
@@ -114,6 +115,12 @@ public final class TimelineController: NSObject, NSDraggingSource {
         }
         playheadView.autoresizingMask = [.minXMargin, .maxXMargin]
         rootView.addSubview(playheadView, positioned: .above, relativeTo: stripView ?? host)
+        setStripVisible(false)
+    }
+
+    private func setStripVisible(_ visible: Bool) {
+        stripView?.alphaValue = visible ? 1 : 0
+        playheadView.alphaValue = visible ? 1 : 0
     }
 
     /// The view that should receive keys when nothing else has focus.
@@ -121,11 +128,18 @@ public final class TimelineController: NSObject, NSDraggingSource {
 
     /// Starts showing history from a moment, with the picture already on screen if
     /// there's one to hand, so opening feels instant.
-    public func present(at time: Date, immediate: CVPixelBuffer? = nil) {
+    public func present(at time: Date, immediate: CVPixelBuffer? = nil, onFirstFrame: (() -> Void)? = nil) {
         interpreter.reset()
         model.isEmpty = false
         if let immediate {
             frameView.show(immediate)
+            onFirstFrame?()
+        } else {
+            firstFrameHandler = onFirstFrame
+            // Nothing may be recorded here, so this doesn't wait long for a frame.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                self?.deliverFirstFrame()
+            }
         }
         riseChrome()
         // Long enough for a first frame, so this doesn't flash on every open.
@@ -149,21 +163,36 @@ public final class TimelineController: NSObject, NSDraggingSource {
         shownBuffer = nil
         lines = nil
         selected = []
+        firstFrameHandler = nil
         model.isJumpToDateOpen = false
+        // Hidden now, so nothing from this time can flash up at the start of the next.
+        model.isChromeVisible = false
+        setStripVisible(false)
         // Decoded frames can run to a gigabyte, and this may not open again for hours.
         scrub.purge()
+    }
+
+    private func deliverFirstFrame() {
+        let handler = firstFrameHandler
+        firstFrameHandler = nil
+        handler?()
     }
 
     /// The frame stops first. Only then do the controls rise, which is the app's one flourish.
     private func riseChrome() {
         guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             model.isChromeVisible = true
+            setStripVisible(true)
             return
         }
-        model.isChromeVisible = false
         DispatchQueue.main.async { [weak self] in
             withAnimation(.easeOut(duration: 0.16)) {
                 self?.model.isChromeVisible = true
+            }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                self?.stripView?.animator().alphaValue = 1
+                self?.playheadView.animator().alphaValue = 1
             }
         }
     }
@@ -390,6 +419,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
         frameView.show(update.frame.buffer)
         shownBuffer = update.frame.buffer
         model.isEmpty = false
+        deliverFirstFrame()
         guard update.frame.frameID != shownFrameID else { return }
         shownFrameID = update.frame.frameID
         lines = nil

@@ -170,8 +170,115 @@ recency stands in for relevance. Paging continues past the window, so every matc
 The first large run reported "0 common terms" and exited 0, because a bug in the measuring tool
 skipped the slowest query entirely. It now refuses to report in that case.
 
+## Running the real app, with no permission needed
+
+Screen Recording still hasn't been granted to the test build. But `SCShareableContent.currentProcess`
+lets an app capture its own windows without it, including real glass, Metal, and IOSurface content.
+That let everything below run. It's the closest thing yet to real use, and it found bugs that
+356 passing tests hadn't.
+
+**One thing to watch.** The current-process list isn't only this process's windows. Taking the largest
+window from it returned the desktop wallpaper. `saveScreenshot` now checks ownership against the window
+server's list and refuses anything else, so harness captures stay limited to harness windows.
+
+### Bugs this found
+
+| What | Why it mattered |
+|---|---|
+| OCR's 10-second timeout during first-run model compilation | Vision can't be cancelled, so timed-out calls piled up on its lock, about 30 at once, and each used up one of a frame's 3 attempts. New users would permanently lose text from their first frames. The timeout is gone, and compiling now happens on a small picture first |
+| Exclusions in Settings didn't reach the recorder | An app excluded in Settings kept being recorded until the next launch |
+| The text recognition setting did nothing, and OCR only read English | Now it uses the Mac's languages, or detects any language if chosen |
+| Blank transcription language picker | The Mac's locale, such as English in Germany, often isn't one speech supports |
+| Primary buttons went dark-on-grey in inactive windows | That's what onboarding looks like while you're in System Settings granting a permission |
+| Controls unreadable over white pages: 2.29:1 | See the contrast table below |
+| A black refresh, and stale controls, on opening | The panel came up before its frame was set, and kept its state from last time |
+| The first scroll of the gesture was dropped, and the rest went to the app underneath | See the swipe below |
+| Unoptimised Rust in development builds | Reading a group took 240 ms instead of 8 ms, so scrubbing would have felt broken |
+| Duplicate apps in the exclusion list; retention only applied at launch; Show in Dock needed a relaunch | Smaller, but real |
+
+### End to end (passed)
+
+`--spike endtoend` puts a random word in a harness window and takes it through ScreenCaptureKit, the
+Metal comparison, HEVC, the encrypted log, OCR, and search. The word was found 0.4 s after OCR started,
+and the highlight landed inside the window where the word was. Of 14 frames received, 13 were dropped
+as unchanged and 1 was stored.
+
+### Spike 1: change detection (passed, on a harness window)
+
+1,000 of 1,000 scripted changes seen, 0 missed, at 3456×2234. The stream delivered 228 frames in 5 idle
+seconds at a 20 ms interval, so frame status alone doesn't keep it quiet in this mode. That supports
+comparing against the last stored frame. **Energy isn't measured.** That needs `sudo powermetrics`,
+and a stream of a whole display.
+
+### Spike 7: overlay behaviour (partly answered)
+
+| Question | Result |
+|---|---|
+| Does `sharingType = .none` hide the panel from capture? | This process's own capture of the panel returns a flat, blank image, and its ordinary windows capture normally. **Encouraging, but not the answer.** Only another process's capture can settle this |
+| Does scrolling reach the timeline through the SwiftUI layer and the strip? | Yes, with real events through the real panel |
+| Does typing start a search, and does the field take over? | Yes |
+| Drag across text, then ⌘C | Copies it |
+| ⌘Q | Closes the overlay, and doesn't quit |
+| Input methods, full-screen apps, Stage Manager | Not tested. These need a person |
+
+The panel takes keyboard focus without activating the app, as designed. So `make interaction-test`
+really does take the keyboard for a few seconds, and it asks first. A key typed during one run landed
+in the test and failed it.
+
+### The swipe
+
+⌘⇧ and scrolling up is one motion: the swipe that opens the timeline keeps moving through it, and
+the app underneath stays still. With real events through the real coordinator, the first scroll isn't
+lost, the swipe carries on after the keys are let go and through momentum, and opening costs 24 ms on
+the main thread. **The event tap itself hasn't run**, because that needs Accessibility, so the app
+underneath staying still is unproven. Its routing rules are unit tested.
+
+### Spike 8 and the scrub budgets (M4 Max, 3024×1964, keyframe every 30)
+
+| Measure | p50 | p95 | p99 | Budget |
+|---|---|---|---|---|
+| Cached scrub | 0.1 ms | 0.1 ms | 0.1 ms | p95 25 ms |
+| Backward miss, exact frame | 43 ms | 78 ms | 136 ms | p95 120 ms, p99 280 ms |
+| Backward miss, first change | 43 ms | 78 ms | 136 ms | 50 ms: **missed at p95** |
+| Fast flick, per update | 0.2 ms | 14 ms | 15 ms | Keeps up with 60 Hz |
+| Reading a group of 1.5 MB | 10 ms | 12 ms | 12 ms | |
+| Creating a decoder | 2 ms | 3 ms | 3 ms | |
+| Decoding a frame | 2.2 ms | 2.2 ms | 2.2 ms | Plan assumed 8 ms |
+
+The first-change miss is the fully cold case, with nothing nearby in the cache. In real scrubbing a
+nearby frame shows first. Showing the group's keyframe sooner would meet the number, but going backward
+it would jump past the target and return, which is worse to look at. So it stays as it is.
+
+Colour tags reaching the surface, lossless surfaces, and haptics aren't measured yet.
+
+### First run
+
+A clean first OCR spent **31 s** compiling Vision's models, on this M4 Max, and later launches are quick.
+A slower Mac will take longer. Frames wait safely in the log meanwhile, but new recordings can't be
+found by their text until it finishes.
+
+### Contrast over hard backdrops (gate: 4.5:1)
+
+The time pill's text over a frame, as captured, with real glass.
+
+| Backdrop | Glass alone | Glass with an adaptive black tint | Glass over a 60% black fill (shipped) |
+|---|---|---|---|
+| White | 2.29:1 | 1.95:1 | **8.18:1** |
+| Saturated | 4.10:1 | 3.91:1 | **11.69:1** |
+| Dense black-on-white marks | 4.46:1 | 3.69:1 | **12.03:1** |
+| Black | 17.43:1 | 21.00:1 | **20.21:1** |
+
+Tinting made it worse: Liquid Glass adapts a tint to what's behind it. `make scenarios` checks this now.
+
 ## Open items
 
 - **One test crash, not reproduced.** The test helper exited abnormally once while the 25-test
-  Ingest suite was running under heavy load. The error line got cut off, and four full runs
-  afterward passed all suites. Keep watching for this.
+  Ingest suite was running under heavy load. The error line got cut off, and every full run since
+  has passed all suites. Keep watching for this.
+- **Two flaky tests were the tests' fault.** One checked before settling had been scheduled, and a
+  shared fixture stopped waiting for indexing after 5 seconds without saying so, while commits can
+  be 5 seconds apart. The fixture now waits longer and fails loudly. Six later runs of that suite passed.
+- **Still needs Screen Recording:** spike 2 (the exclusion race), a stream of a whole display, and a
+  real week of storage.
+- **Still needs Accessibility:** the event tap, and with it the app underneath staying still.
+- **Hotkey to first pixel isn't measured.** It takes over the screen, so it isn't part of `make bench`.
