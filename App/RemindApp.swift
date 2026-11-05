@@ -119,7 +119,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, @unchecked Sendable {
     }
 
     @objc private func allowTermination() {
-        NSApp.reply(toApplicationShouldTerminate: true)
+        MainActor.assumeIsolated {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

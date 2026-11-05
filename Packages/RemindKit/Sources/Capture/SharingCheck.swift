@@ -81,7 +81,8 @@ public enum SharingCheck {
         )
     }
 
-    private static func count(in image: CGImage, rect: CGRect) -> Int {
+    /// Counts marker-coloured pixels in a picture taken at twice the size of the rectangle's points.
+    public static func count(in image: CGImage, rect: CGRect) -> Int {
         let width = image.width
         let height = image.height
         guard let context = CGContext(

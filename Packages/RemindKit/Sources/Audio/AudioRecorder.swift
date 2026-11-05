@@ -216,6 +216,9 @@ public final class AudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
     public func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard sampleBuffer.isValid, let buffer = Self.pcmBuffer(from: sampleBuffer) else { return }
+        #if DEBUG
+        if type == .microphone { noteMicrophone(buffer) }
+        #endif
         switch type {
         case .audio: speakers?.append(buffer, at: Date())
         case .microphone: microphone?.append(buffer, at: Date())
@@ -230,6 +233,26 @@ public final class AudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @u
         }
         onFailure?(String(localized: "Audio capture stopped: \(error.localizedDescription)"))
     }
+
+    #if DEBUG
+    private var microphoneBuffers = 0
+    private var microphonePeak: Float = 0
+
+    /// How many microphone buffers have arrived, and the loudest sample, for checking a real run.
+    public var debugMicrophone: (buffers: Int, peak: Float) {
+        lock.withLock { (microphoneBuffers, microphonePeak) }
+    }
+
+    private func noteMicrophone(_ buffer: AVAudioPCMBuffer) {
+        guard let samples = buffer.floatChannelData?[0] else { return }
+        var peak: Float = 0
+        for index in 0..<Int(buffer.frameLength) { peak = max(peak, abs(samples[index])) }
+        lock.withLock {
+            microphoneBuffers += 1
+            microphonePeak = max(microphonePeak, peak)
+        }
+    }
+    #endif
 
     private func speechFailed(_ error: any Error) {
         onFailure?(String(localized: "Transcription stopped working: \(error.localizedDescription)"))

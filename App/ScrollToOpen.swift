@@ -23,6 +23,9 @@ final class ScrollToOpen: @unchecked Sendable {
         if let monitor { NSEvent.removeMonitor(monitor) }
     }
 
+    /// Whether scrolls can be stopped before they reach the app underneath.
+    var isUsingTap: Bool { tap != nil }
+
     var isOverlayOpen: Bool {
         get { lock.withLock { overlayOpen } }
         set { lock.withLock { overlayOpen = newValue } }
@@ -64,10 +67,11 @@ final class ScrollToOpen: @unchecked Sendable {
 
         // Its own thread, because every scroll on the system waits for this. If the main
         // thread is busy, that mustn't make other apps stutter.
-        let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        nonisolated(unsafe) let source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        nonisolated(unsafe) let startingTap = tap
         let thread = Thread {
             CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
+            CGEvent.tapEnable(tap: startingTap, enable: true)
             CFRunLoopRun()
         }
         thread.name = "remind-scroll-tap"

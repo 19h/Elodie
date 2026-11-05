@@ -521,7 +521,7 @@ final class OverlayCoordinator {
         prepareToDelete(slice)
         let core = self.core
         try await Task.detached(priority: .userInitiated) {
-            try core.deleteRange(from: slice.start, to: slice.end)
+            _ = try core.deleteRange(from: slice.start, to: slice.end)
         }.value
         recordingsChanged()
         onRecordingsDeleted()

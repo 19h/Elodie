@@ -31,6 +31,7 @@ targets:
       - path: App
         excludes:
           - "LaunchAgents/**"
+      - path: Widgets/RecordingChannel.swift
       - path: App/LaunchAgents
         buildPhase:
           copyFiles:

@@ -1,4 +1,5 @@
 import AppKit
+import WidgetKit
 import AVFoundation
 import Audio
 import Capture
@@ -110,6 +111,7 @@ final class AppController: NSObject {
     private var recapWindow: NSWindow?
     private var transcriptWindow: NSWindow?
     private var transcriptsWindow: NSWindow?
+    private var publishedState: RecordingChannel.State?
     private var promptPanel: NSPanel?
     private var audio: AudioRecorder?
     private var meetingTimer: Timer?
@@ -739,18 +741,23 @@ final class AppController: NSObject {
     /// The Control Center button runs in a separate sandboxed process, and it signals
     /// through this notification, which can't carry any data.
     private func listenForControlCenter() {
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            Unmanaged.passUnretained(self).toOpaque(),
-            { _, _, _, _, _ in
-                DispatchQueue.main.async {
-                    AppController.shared?.togglePaused()
-                }
-            },
-            "app.remind.toggle-recording" as CFString,
-            nil,
-            .deliverImmediately
-        )
+        let center = CFNotificationCenterGetDarwinNotifyCenter()
+        let observer = Unmanaged.passUnretained(self).toOpaque()
+        CFNotificationCenterAddObserver(center, observer, { _, _, _, _, _ in
+            DispatchQueue.main.async { AppController.shared?.setPaused(true) }
+        }, RecordingChannel.pauseRequest as CFString, nil, .deliverImmediately)
+        CFNotificationCenterAddObserver(center, observer, { _, _, _, _, _ in
+            DispatchQueue.main.async { AppController.shared?.setPaused(false) }
+        }, RecordingChannel.resumeRequest as CFString, nil, .deliverImmediately)
+    }
+
+    /// Tells the Control Center button what's really happening, when that's changed.
+    func publishRecordingState() {
+        let state: RecordingChannel.State = isRecording ? .recording : .paused
+        guard state != publishedState else { return }
+        publishedState = state
+        RecordingChannel.publish(state)
+        ControlCenter.shared.reloadControls(ofKind: RecordingChannel.controlKind)
     }
 
     func togglePaused() {
@@ -775,7 +782,7 @@ final class AppController: NSObject {
         Task { [weak self] in
             do {
                 try await Task.detached(priority: .userInitiated) {
-                    try core.deleteRange(from: now.addingTimeInterval(-5 * 60), to: now)
+                    _ = try core.deleteRange(from: now.addingTimeInterval(-5 * 60), to: now)
                 }.value
                 self?.overlay?.recordingsChanged()
             } catch {
@@ -1534,6 +1541,14 @@ extension AppController {
         if let stats = recording?.pipelineStats {
             state["pipeline"] = "received \(stats.received), busy \(stats.busy), unchanged \(stats.unchanged), black \(stats.black), excluded \(stats.excluded), stored \(stats.stored)"
         }
+        if let microphone = audio?.debugMicrophone {
+            state["microphoneAudio"] = "\(microphone.buffers) buffers, peak \(microphone.peak)"
+        }
+        state["accessibility"] = "\(AXIsProcessTrusted())"
+        state["screenRecording"] = "\(CGPreflightScreenCaptureAccess())"
+        state["microphone"] = "\(AVCaptureDevice.authorizationStatus(for: .audio).rawValue)"
+        state["eventTap"] = "\(scrollMonitor?.isUsingTap ?? false)"
+        state["channel"] = "\(RecordingChannel.state)"
         state["ocrWarming"] = "\(ocr?.isWarmingUp ?? false)"
         state["ocrDone"] = "\(ocr?.framesProcessed ?? -1)"
         return state.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
@@ -1588,7 +1603,7 @@ extension AppController: SettingsActions {
         let core = try requireCore()
         audio?.forget(through: Date())
         try await Task.detached(priority: .userInitiated) {
-            try core.deleteRange(from: .distantPast, to: .distantFuture)
+            _ = try core.deleteRange(from: .distantPast, to: .distantFuture)
         }.value
         overlay?.recordingsChanged()
         closeWindowsShowingRecordings()
@@ -1598,7 +1613,7 @@ extension AppController: SettingsActions {
         let core = try requireCore()
         audio?.forget(through: interval.end)
         try await Task.detached(priority: .userInitiated) {
-            try core.deleteRange(from: interval.start, to: interval.end)
+            _ = try core.deleteRange(from: interval.start, to: interval.end)
         }.value
         overlay?.recordingsChanged()
         closeWindowsShowingRecordings()
@@ -1608,7 +1623,7 @@ extension AppController: SettingsActions {
         let core = try requireCore()
         try await Task.detached(priority: .userInitiated) {
             for stretch in try core.appStretches(bundleID: bundleID) {
-                try core.deleteRange(from: stretch.start, to: stretch.end)
+                _ = try core.deleteRange(from: stretch.start, to: stretch.end)
             }
         }.value
         overlay?.recordingsChanged()
@@ -1618,7 +1633,7 @@ extension AppController: SettingsActions {
     func applyRetention(_ period: RetentionPeriod) async throws {
         guard let core, let cutoff = period.cutoff(now: Date()) else { return }
         try await Task.detached(priority: .utility) {
-            try core.deleteRange(from: .distantPast, to: cutoff)
+            _ = try core.deleteRange(from: .distantPast, to: cutoff)
         }.value
         overlay?.recordingsChanged()
         closeWindowsShowingRecordings()

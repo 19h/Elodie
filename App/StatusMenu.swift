@@ -21,6 +21,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     /// each time it opens.
     func refresh() {
         guard let controller else { return }
+        controller.publishRecordingState()
         // This says what's really happening, which is the only reason to look at it. An icon
         // that claims to be recording when it isn't would cost someone days of history.
         let state: GlyphState

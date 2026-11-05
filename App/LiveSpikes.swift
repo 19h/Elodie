@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import AVFoundation
 import Capture
 import CoreAPI
 import CoreLive
@@ -8,6 +9,7 @@ import Darwin
 import Foundation
 import Ingest
 import OverlayShell
+import ServiceManagement
 import TestKit
 
 /// Live capture checks. Spike 2 and the energy measurement need the Screen Recording
@@ -35,7 +37,7 @@ enum LiveSpikes {
 
         let name = value(after: "--spike") ?? "capture"
         // These only capture the harness's own windows, which needs no permission.
-        let needsPermission = !["capture", "endtoend"].contains(name)
+        let needsPermission = !["capture", "endtoend", "login-item"].contains(name)
         guard !needsPermission || CGPreflightScreenCaptureAccess() else {
             report.line("Screen Recording isn't granted.")
             let granted = CGRequestScreenCaptureAccess()
@@ -52,6 +54,15 @@ enum LiveSpikes {
                 case "energy": try await Self.energy(seconds: Int(value(after: "--seconds") ?? "") ?? 60)
                 case "browsers": try await Self.browserTitles()
                 case "endtoend": try await Self.endToEnd()
+                case "login-item":
+                    let agent = SMAppService.agent(plistName: "app.remind.Remind.agent.plist")
+                    switch value(after: "--action") {
+                    case "on": try agent.register()
+                    case "off": try await agent.unregister()
+                    default: break
+                    }
+                    report.line("login item status: \(agent.status.rawValue) (0 not registered, 1 enabled, 2 needs approval, 3 not found)")
+                    report.line("accessibility \(AXIsProcessTrusted()), screen recording \(CGPreflightScreenCaptureAccess()), microphone \(AVCaptureDevice.authorizationStatus(for: .audio).rawValue) (0 not asked, 2 denied, 3 allowed)")
                 case "sharing": try await Self.sharingCheck()
                 case "sharing-capture":
                     let seen = try await SharingCheck.look(
@@ -64,7 +75,23 @@ enum LiveSpikes {
                         ),
                         windowID: CGWindowID(value(after: "--window") ?? "") ?? 0
                     )
-                    report.line("display screenshot \(seen.inScreenshot), display stream \(seen.inStream), listed \(seen.isListed), this window alone \(seen.inWindowCapture.map(String.init) ?? "no picture")")
+                    // The system's own tool too, which doesn't go through this code's capture.
+                    let picture = FileManager.default.temporaryDirectory.appending(path: "remind-sharing-\(UUID().uuidString).png")
+                    defer { try? FileManager.default.removeItem(at: picture) }
+                    let tool = Process()
+                    tool.executableURL = URL(filePath: "/usr/sbin/screencapture")
+                    tool.arguments = ["-x", "-D", value(after: "--display-index") ?? "1", picture.path]
+                    try tool.run()
+                    tool.waitUntilExit()
+                    let fromTool = NSImage(contentsOf: picture)?.cgImage(forProposedRect: nil, context: nil, hints: nil).map {
+                        SharingCheck.count(in: $0, rect: CGRect(
+                            x: Double(value(after: "--x") ?? "") ?? 0,
+                            y: Double(value(after: "--y") ?? "") ?? 0,
+                            width: Double(value(after: "--w") ?? "") ?? 0,
+                            height: Double(value(after: "--h") ?? "") ?? 0
+                        ))
+                    }
+                    report.line("display screenshot \(seen.inScreenshot), display stream \(seen.inStream), listed \(seen.isListed), this window alone \(seen.inWindowCapture.map(String.init) ?? "no picture"), screencapture tool \(fromTool.map(String.init) ?? "no picture")")
                 default: report.line("Unknown spike \(name)")
                 }
                 report.line("FINISHED")
@@ -115,6 +142,7 @@ enum LiveSpikes {
             configuration.arguments = [
                 "--spike", "sharing-capture", "--out", answer.path,
                 "--display", "\(number)", "--window", "\(panel.windowNumber)",
+                "--display-index", "\((NSScreen.screens.firstIndex(of: screen) ?? 0) + 1)",
                 "--x", "\(rect.minX)", "--y", "\(rect.minY)", "--w", "\(rect.width)", "--h", "\(rect.height)",
             ]
             _ = try await NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration)
@@ -641,7 +669,7 @@ final class CounterView: NSView {
     }
 
     /// Reads the value from a captured frame's luma plane.
-    static func read(_ buffer: CVPixelBuffer, x: Int, y: Int, scale: CGFloat) -> Int? {
+    nonisolated static func read(_ buffer: CVPixelBuffer, x: Int, y: Int, scale: CGFloat) -> Int? {
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
         guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return nil }
