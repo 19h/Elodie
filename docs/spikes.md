@@ -300,6 +300,9 @@ frame. Only that p95 has been written down since, so the other rows are from bef
 
 Colour tags reaching the surface, lossless surfaces, and haptics aren't measured yet.
 
+Leaving stretches with nothing recorded out of the strip means reading every segment's span at open. That
+took 216 to 513 ms on 500,000 segments, and 56 ms once the segment end went in the index.
+
 ### First run
 
 A clean first OCR spent **31 s** compiling Vision's models, on this M4 Max, and later launches are quick.

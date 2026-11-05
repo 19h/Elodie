@@ -545,6 +545,8 @@ A search first finds candidate runs in the index, then checks each against its i
 
 Each display keeps a panel ready, so opening only has to show it. The picture goes in before the window comes up, so the first thing to reach the screen is the frame, in the right place. The controls and strip rise a moment later, and they're hidden again on closing, so nothing from last time can flash up.
 
+Opening also reads when that display has anything recorded, to find the stretches with nothing in them. The strip and scrolling run on an axis where each gap of 30 seconds or more is squeezed to a 36-point break, so the axis is rebuilt when the zoom changes. Only the index is read, never the rows, which hold window titles and web addresses.
+
 With Accessibility on, an event tap takes the ⌘⇧ swipe away from the app underneath, on its own thread so a busy main thread can't make other apps stutter. Without Accessibility, a plain monitor opens the timeline instead, but the app underneath also sees the scroll.
 
 ### Scrubbing
@@ -615,6 +617,8 @@ The first-change row is the fully cold case, with nothing nearby in the cache, a
 | Sustained at one frame per 2 seconds | About 10% of one core | At most 30% |
 
 A clean first run spent 31 s compiling Vision's models, and a slower Mac will take longer. Later launches are quick.
+
+**Opening.** Finding the stretches with nothing recorded takes 56 ms on 500,000 segments, down from 216 to 513 ms before the segment end went in the index.
 
 **Contrast.** The time pill's text over a frame, as captured, against a gate of 4.5:1:
 
@@ -719,7 +723,7 @@ open -n $APP --args --spike capture --out /path/to/report.txt
 open -n $APP --args --sandbox /path/to/folder
 ```
 
-- **Scenarios:** `timeline`, `timeline-zoom`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `overflow-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
+- **Scenarios:** `timeline`, `timeline-zoom`, `timeline-break`, `timeline-break-hover`, `timeline-break-crossed`, `timeline-break-range`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `overflow-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
 - **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it, including with the system's `screencapture` tool. It counts only marker-coloured pixels where the panel sits. It examines frames in memory, except that the tool's picture goes in a temporary file that's deleted straight away. `login-item` needs no permission and captures nothing. It reports the login item's status and which permissions the app has, and `--action on` or `--action off` registers or unregisters the login item for real, which starts the real app rather than a sandbox. `sharing-hold` also needs no permission. It holds up a marker panel on every display, ordinary and then with the overlay's setting, for 8 seconds each, so that something outside the app can try capturing them.
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.

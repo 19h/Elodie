@@ -64,6 +64,12 @@ window comes up, so the first thing to reach the screen is the frame, with no bl
 controls and strip rise a moment later, and they're hidden again on closing, so nothing from last
 time can flash up.
 
+Opening also reads when that display has anything recorded, its screen and anything said, to find the
+stretches with nothing in them. The strip and scrolling run on an axis where each gap of 30 seconds or
+more is squeezed to a 36-point break. A break keeps its width at every zoom, so the axis is rebuilt when
+the zoom changes. A segment's start and end are both in an index, so this read never touches the rows,
+which hold window titles and web addresses.
+
 With Accessibility on, an event tap takes the ⌘⇧ swipe away from the app underneath, on its own
 thread so a busy main thread can't make other apps stutter. It sees scroll events only, and it passes
 along everything except that gesture. Without Accessibility, a plain monitor opens the timeline, but
