@@ -267,6 +267,32 @@ pub struct FrameInfo {
     pub url: Option<String>,
 }
 
+/// Time spent in one app.
+#[derive(Debug, uniffi::Record)]
+pub struct AppTimeInfo {
+    pub bundle_id: Option<String>,
+    pub milliseconds: i64,
+}
+
+/// A long stretch of focus.
+#[derive(Debug, uniffi::Record)]
+pub struct ActivityBlockInfo {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub bundle_id: Option<String>,
+    pub window: Option<String>,
+    pub url: Option<String>,
+}
+
+/// A summary of what was recorded in a period.
+#[derive(Debug, uniffi::Record)]
+pub struct RecapInfo {
+    pub total_active_ms: i64,
+    pub apps: Vec<AppTimeInfo>,
+    pub activity: Vec<i64>,
+    pub blocks: Vec<ActivityBlockInfo>,
+}
+
 /// A span of time to ask about.
 #[derive(Debug, Clone, Copy, uniffi::Record)]
 pub struct Period {
@@ -441,6 +467,36 @@ impl Core {
             window: context.window,
             url: context.url,
         }))
+    }
+
+    /// Summarises what was recorded in a period.
+    pub fn recap(&self, from_ms: i64, to_ms: i64, bucket_ms: i64) -> Result<RecapInfo, CoreError> {
+        let recap = self.engine.recap(from_ms, to_ms, bucket_ms)?;
+        Ok(RecapInfo {
+            total_active_ms: recap.total_active_ms,
+            activity: recap.activity,
+            apps: recap
+                .apps
+                .into_iter()
+                .map(|app| AppTimeInfo { bundle_id: app.bundle_id, milliseconds: app.milliseconds })
+                .collect(),
+            blocks: recap
+                .blocks
+                .into_iter()
+                .map(|block| ActivityBlockInfo {
+                    start_ms: block.start_ms,
+                    end_ms: block.end_ms,
+                    bundle_id: block.bundle_id,
+                    window: block.window,
+                    url: block.url,
+                })
+                .collect(),
+        })
+    }
+
+    /// The text a frame shows, front window first.
+    pub fn frame_text(&self, frame_id: i64) -> Result<Vec<String>, CoreError> {
+        Ok(self.engine.frame_text(frame_id)?)
     }
 
     /// Every app that has been recorded, most recent first.

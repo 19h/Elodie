@@ -19,6 +19,8 @@ let package = Package(
         .library(name: "FeatureSearch", targets: ["FeatureSearch"]),
         .library(name: "FeatureOnboarding", targets: ["FeatureOnboarding"]),
         .library(name: "FeatureSettings", targets: ["FeatureSettings"]),
+        .library(name: "FeatureAsk", targets: ["FeatureAsk"]),
+        .library(name: "FeatureRecap", targets: ["FeatureRecap"]),
     ],
     targets: [
         // Built by scripts/build-core.sh.
@@ -40,6 +42,8 @@ let package = Package(
         .target(name: "FeatureSearch", dependencies: ["CoreAPI", "DesignSystem"]),
         .target(name: "FeatureOnboarding", dependencies: ["DesignSystem"]),
         .target(name: "FeatureSettings", dependencies: ["DesignSystem"]),
+        .target(name: "FeatureAsk", dependencies: ["CoreAPI", "DesignSystem"]),
+        .target(name: "FeatureRecap", dependencies: ["CoreAPI", "DesignSystem", "FeatureAsk"]),
         .target(name: "FeatureTimeline", dependencies: ["CoreAPI", "DesignSystem", "FrameEngine", "OverlayShell", "StripRenderer"]),
         .target(name: "TestKit", dependencies: ["CoreAPI", "Ingest"]),
         // Measurements that don't need any permissions.
@@ -49,6 +53,7 @@ let package = Package(
         ),
         .testTarget(name: "CoreLiveTests", dependencies: ["CoreLive", "CoreAPI", "CoreFake"]),
         .testTarget(name: "CaptureTests", dependencies: ["Capture"]),
+        .testTarget(name: "AskTests", dependencies: ["FeatureAsk", "CoreAPI", "CoreFake"]),
         .testTarget(name: "InterfaceTests", dependencies: ["DesignSystem", "StripRenderer", "OverlayShell", "FeatureSearch", "FeatureOnboarding", "FeatureSettings", "CoreAPI", "CoreFake"]),
         .testTarget(name: "FrameEngineTests", dependencies: ["FrameEngine", "CoreAPI", "CoreLive", "CoreFake", "TestKit"]),
         .testTarget(name: "IngestTests", dependencies: ["Ingest", "Capture", "FrameEngine", "TestKit", "CoreAPI", "CoreLive", "CoreFake"]),

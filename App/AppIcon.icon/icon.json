@@ -1,0 +1,35 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "display-p3:0.180,0.690,0.610,1.000",
+      "display-p3:0.020,0.360,0.320,1.000"
+    ],
+    "orientation" : {
+      "start" : { "x" : 0.5, "y" : 0 },
+      "stop" : { "x" : 0.5, "y" : 1 }
+    }
+  },
+  "groups" : [
+    {
+      "layers" : [ { "image-name" : "playhead.svg", "name" : "playhead" } ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "translucency" : { "enabled" : false, "value" : 0.5 }
+    },
+    {
+      "layers" : [ { "image-name" : "frame-front.svg", "name" : "front", "glass" : true } ],
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.5 },
+      "translucency" : { "enabled" : true, "value" : 0.2 }
+    },
+    {
+      "layers" : [ { "image-name" : "frame-middle.svg", "name" : "middle", "glass" : true } ],
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.4 },
+      "translucency" : { "enabled" : true, "value" : 0.5 }
+    },
+    {
+      "layers" : [ { "image-name" : "frame-back.svg", "name" : "back", "glass" : true } ],
+      "shadow" : { "kind" : "layer-color", "opacity" : 0.3 },
+      "translucency" : { "enabled" : true, "value" : 0.6 }
+    }
+  ],
+  "supported-platforms" : { "squares" : "shared" }
+}

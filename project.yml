@@ -33,6 +33,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.remind.Remind.dev
         INFOPLIST_FILE: App/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/Remind.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     dependencies:
       - package: RemindKit
         product: CoreAPI
@@ -62,6 +63,10 @@ targets:
         product: FeatureOnboarding
       - package: RemindKit
         product: FeatureSettings
+      - package: RemindKit
+        product: FeatureAsk
+      - package: RemindKit
+        product: FeatureRecap
       - package: KeyboardShortcuts
     preBuildScripts:
       - name: Build Rust core

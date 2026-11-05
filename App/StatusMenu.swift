@@ -28,6 +28,8 @@ final class StatusMenu: NSObject {
         }
 
         menu.addItem(entry("Search Remind…", symbol: "magnifyingglass", action: #selector(search)))
+        menu.addItem(entry("Ask Remind…", symbol: "questionmark.bubble", action: #selector(ask)))
+        menu.addItem(entry("Daily Recap", symbol: "calendar", action: #selector(recap)))
         menu.addItem(entry("Star moment", symbol: "star", action: #selector(star)))
         menu.addItem(.separator())
 
@@ -89,6 +91,8 @@ final class StatusMenu: NSObject {
     }
 
     @objc private func search() { controller?.showSearch() }
+    @objc private func ask() { controller?.openAsk() }
+    @objc private func recap() { controller?.openRecap() }
     @objc private func star() { controller?.starMoment() }
     @objc private func resume() { controller?.setPaused(false) }
     @objc private func pause15() { controller?.setPaused(true, for: 15 * 60) }

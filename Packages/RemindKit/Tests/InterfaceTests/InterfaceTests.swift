@@ -387,6 +387,10 @@ private final class ScriptedCore: RemindCore, @unchecked Sendable {
     func activePeriods(_ periods: [DateInterval]) throws -> [Bool] { [] }
     func frameContext(of frameID: Int64) throws -> FrameContext? { nil }
     func recordedApps() throws -> [String] { ["com.example.a"] }
+    func recap(from: Date, to: Date, bucket: TimeInterval) throws -> Recap {
+        Recap(totalActive: 0, apps: [], activity: [], blocks: [])
+    }
+    func frameText(of frameID: Int64) throws -> [String] { [] }
     func setStarred(_ starred: Bool, frameID: Int64) throws {}
     func deleteRange(from: Date, to: Date) throws -> UInt64 { 0 }
     func nextOCRBatch(max: Int, now: Date, includeDeferred: Bool) throws -> [OCRJob] { [] }

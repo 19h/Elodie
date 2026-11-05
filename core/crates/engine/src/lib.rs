@@ -36,7 +36,7 @@ pub use recovery::RecoveryReport;
 pub use search::SearchSession;
 pub use remind_store::FrameContext;
 pub use remind_text::{OcrLine, Rect, RunPolicy};
-pub use remind_timeline::{Run as TimelineRun, Timeline};
+pub use remind_timeline::{ActivityBlock, AppTime, Recap, Run as TimelineRun, Timeline};
 
 use appender::AppendRequest;
 

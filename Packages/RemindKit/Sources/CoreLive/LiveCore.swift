@@ -108,6 +108,34 @@ public final class LiveCore: RemindCore {
         try core.recordedApps()
     }
 
+    public func recap(from: Date, to: Date, bucket: TimeInterval) throws -> CoreAPI.Recap {
+        let recap = try core.recap(
+            fromMs: from.milliseconds,
+            toMs: to.milliseconds,
+            bucketMs: Int64(bucket * 1000)
+        )
+        return CoreAPI.Recap(
+            totalActive: Double(recap.totalActiveMs) / 1000,
+            apps: recap.apps.map {
+                CoreAPI.AppTime(bundleID: $0.bundleId, duration: Double($0.milliseconds) / 1000)
+            },
+            activity: recap.activity.map { Double($0) / 1000 },
+            blocks: recap.blocks.map {
+                CoreAPI.ActivityBlock(
+                    start: Date(milliseconds: $0.startMs),
+                    end: Date(milliseconds: $0.endMs),
+                    bundleID: $0.bundleId,
+                    window: $0.window,
+                    url: $0.url
+                )
+            }
+        )
+    }
+
+    public func frameText(of frameID: Int64) throws -> [String] {
+        try core.frameText(frameId: frameID)
+    }
+
     public func setStarred(_ starred: Bool, frameID: Int64) throws {
         try core.setStarred(frameId: frameID, starred: starred)
     }

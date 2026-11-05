@@ -121,6 +121,39 @@ impl Engine {
         Ok(remind_timeline::load(&reader, display_uuid, from_ms, to_ms, min_duration_ms)?)
     }
 
+    /// Summarises what was recorded in a period.
+    pub fn recap(&self, from_ms: i64, to_ms: i64, bucket_ms: i64) -> Result<remind_timeline::Recap> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        Ok(remind_timeline::recap(&reader, from_ms, to_ms, bucket_ms)?)
+    }
+
+    /// The text a frame shows, front window first, for answering questions about it.
+    pub fn frame_text(&self, frame_id: i64) -> Result<Vec<String>> {
+        let (lines_z, frame_z): (Vec<u8>, Vec<u8>) = {
+            let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+            let row = reader
+                .prepare_cached(
+                    "SELECT r.lines_z, t.lines_z FROM frame_text t
+                     JOIN text_run r ON r.id = t.run_id WHERE t.frame_id = ?1",
+                )?
+                .query_row(params![frame_id], |r| Ok((r.get(0)?, r.get(1)?)))
+                .optional()?;
+            let Some(row) = row else { return Ok(Vec::new()) };
+            row
+        };
+        let corrupt = |error: std::io::Error| EngineError::Corrupt(error.to_string());
+        let lines = remind_text::codec::decode_lines(&lines_z).map_err(corrupt)?;
+        let shown = remind_text::codec::decode_frame_lines(&frame_z).map_err(corrupt)?;
+        let in_order = |front: bool| {
+            shown
+                .iter()
+                .filter_map(|(number, _)| lines.get(*number as usize))
+                .filter(move |line| line.is_front == front)
+                .map(|line| line.text.clone())
+        };
+        Ok(in_order(true).chain(in_order(false)).collect())
+    }
+
     /// Every app that has been recorded, most recent first, for filtering searches.
     pub fn recorded_apps(&self) -> Result<Vec<String>> {
         let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;

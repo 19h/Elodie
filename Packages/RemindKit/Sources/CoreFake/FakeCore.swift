@@ -109,6 +109,14 @@ public final class FakeCore: RemindCore, @unchecked Sendable {
         }
     }
 
+    public func recap(from: Date, to: Date, bucket: TimeInterval) throws -> Recap {
+        Recap(totalActive: 0, apps: [], activity: [], blocks: [])
+    }
+
+    public func frameText(of frameID: Int64) throws -> [String] {
+        lock.withLock { recognized[frameID]?.map(\.text) ?? [] }
+    }
+
     public func setStarred(_ starred: Bool, frameID: Int64) throws {}
 
     @discardableResult

@@ -3,7 +3,9 @@ import Capture
 import CoreAPI
 import CoreLive
 import CoreVideo
+import FeatureAsk
 import FeatureOnboarding
+import FeatureRecap
 import FeatureSettings
 import Ingest
 import KeyboardShortcuts
@@ -56,6 +58,8 @@ final class AppController: NSObject {
     private var menu: StatusMenu?
     private var onboardingWindow: NSWindow?
     private var settingsWindow: NSWindow?
+    private var askWindow: NSWindow?
+    private var recapWindow: NSWindow?
     private var scrollMonitor: ScrollToOpen?
     private var resumeTimer: Timer?
     private var diskTimer: Timer?
@@ -86,6 +90,8 @@ final class AppController: NSObject {
 
     private func registerShortcuts() {
         KeyboardShortcuts.onKeyDown(for: .search) { [weak self] in self?.showSearch() }
+        KeyboardShortcuts.onKeyDown(for: .ask) { [weak self] in self?.openAsk() }
+        KeyboardShortcuts.onKeyDown(for: .dailyRecap) { [weak self] in self?.openRecap() }
         KeyboardShortcuts.onKeyDown(for: .starMoment) { [weak self] in self?.starMoment() }
         scrollMonitor = ScrollToOpen { [weak self] in self?.overlay?.open() }
     }
@@ -282,6 +288,44 @@ final class AppController: NSObject {
 
     func starMoment() {
         recording?.keepNextFrame()
+    }
+
+    func openAsk() {
+        guard let core else { return }
+        if askWindow == nil {
+            let model = AskModel(engine: AskEngine(core: core))
+            let view = AskView(model: model) { [weak self] hit in
+                self?.overlay?.open(at: hit.capturedAt)
+            }
+            askWindow = makeWindow(title: "Ask Remind", content: view, size: NSSize(width: 560, height: 680))
+        }
+        show(askWindow)
+    }
+
+    func openRecap() {
+        guard let core else { return }
+        if recapWindow == nil {
+            let view = RecapView(core: core) { [weak self] time in
+                self?.overlay?.open(at: time)
+            }
+            recapWindow = makeWindow(title: "Daily Recap", content: view, size: NSSize(width: 620, height: 720))
+        }
+        show(recapWindow)
+    }
+
+    private func makeWindow<Content: View>(title: String.LocalizationValue, content: Content, size: NSSize) -> NSWindow {
+        let window = NSWindow(contentViewController: NSHostingController(rootView: content))
+        window.title = String(localized: title)
+        window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        window.setContentSize(size)
+        window.isReleasedWhenClosed = false
+        window.center()
+        return window
+    }
+
+    private func show(_ window: NSWindow?) {
+        NSApp.activate()
+        window?.makeKeyAndOrderFront(nil)
     }
 
     func openSettings() {

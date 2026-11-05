@@ -170,6 +170,52 @@ public struct TimelineData: Sendable, Equatable {
     }
 }
 
+/// Time spent in one app.
+public struct AppTime: Sendable, Equatable, Identifiable {
+    public var bundleID: String?
+    public var duration: TimeInterval
+    public var id: String { bundleID ?? "" }
+
+    public init(bundleID: String?, duration: TimeInterval) {
+        self.bundleID = bundleID
+        self.duration = duration
+    }
+}
+
+/// A long stretch of focus.
+public struct ActivityBlock: Sendable, Equatable, Identifiable {
+    public var start: Date
+    public var end: Date
+    public var bundleID: String?
+    public var window: String?
+    public var url: String?
+    public var id: Date { start }
+
+    public init(start: Date, end: Date, bundleID: String?, window: String?, url: String?) {
+        self.start = start
+        self.end = end
+        self.bundleID = bundleID
+        self.window = window
+        self.url = url
+    }
+}
+
+/// A summary of what was recorded in a period.
+public struct Recap: Sendable, Equatable {
+    public var totalActive: TimeInterval
+    public var apps: [AppTime]
+    /// Active seconds in each bucket of the period.
+    public var activity: [TimeInterval]
+    public var blocks: [ActivityBlock]
+
+    public init(totalActive: TimeInterval, apps: [AppTime], activity: [TimeInterval], blocks: [ActivityBlock]) {
+        self.totalActive = totalActive
+        self.apps = apps
+        self.activity = activity
+        self.blocks = blocks
+    }
+}
+
 /// A frame waiting for OCR.
 public struct OCRJob: Sendable, Equatable {
     public var frameID: Int64
@@ -304,6 +350,10 @@ public protocol RemindCore: Sendable {
     func frameContext(of frameID: Int64) throws -> FrameContext?
     /// Every app that has been recorded, most recent first.
     func recordedApps() throws -> [String]
+    /// Summarises what was recorded in a period.
+    func recap(from: Date, to: Date, bucket: TimeInterval) throws -> Recap
+    /// The text a frame shows, front window first.
+    func frameText(of frameID: Int64) throws -> [String]
     func setStarred(_ starred: Bool, frameID: Int64) throws
     /// Permanently deletes frames in a period, and their text. Returns how many were
     /// removed, which can include a few after the period that depended on them. This
