@@ -9,4 +9,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
-thiserror.workspace = true
+rusqlite.workspace = true
+
+[dev-dependencies]
+remind-store.workspace = true
+tempfile.workspace = true

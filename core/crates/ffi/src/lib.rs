@@ -244,6 +244,36 @@ pub struct Gop {
     pub target: u32,
 }
 
+/// A stretch of time in one app, indexing into `TimelineData::apps`.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct TimelineRun {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub app: u32,
+}
+
+/// Runs for part of the timeline.
+#[derive(Debug, uniffi::Record)]
+pub struct TimelineData {
+    pub apps: Vec<Option<String>>,
+    pub runs: Vec<TimelineRun>,
+}
+
+/// What was on screen for a frame.
+#[derive(Debug, uniffi::Record)]
+pub struct FrameInfo {
+    pub bundle_id: Option<String>,
+    pub window: Option<String>,
+    pub url: Option<String>,
+}
+
+/// A span of time to ask about.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct Period {
+    pub from_ms: i64,
+    pub to_ms: i64,
+}
+
 /// Counters for monitoring.
 #[derive(Debug, uniffi::Record)]
 pub struct CoreStats {
@@ -252,6 +282,25 @@ pub struct CoreStats {
     pub dropped_frames: u64,
     pub append_failures: u64,
     pub disk_full: bool,
+}
+
+fn gop_from(gop: remind_engine::Gop) -> Gop {
+    Gop {
+        width: gop.width,
+        height: gop.height,
+        parameter_sets: gop.parameter_sets,
+        target: gop.target as u32,
+        samples: gop
+            .samples
+            .into_iter()
+            .map(|s| GopSample {
+                frame_id: s.frame_id,
+                t_ms: s.t_ms,
+                is_sync: s.is_sync,
+                data: s.data,
+            })
+            .collect(),
+    }
 }
 
 /// An open vault.
@@ -350,23 +399,70 @@ impl Core {
 
     /// Reads the group of pictures containing a frame.
     pub fn read_gop(&self, frame_id: i64) -> Result<Gop, CoreError> {
-        let gop = self.engine.read_gop(frame_id)?;
-        Ok(Gop {
-            width: gop.width,
-            height: gop.height,
-            parameter_sets: gop.parameter_sets,
-            target: gop.target as u32,
-            samples: gop
-                .samples
+        Ok(gop_from(self.engine.read_gop(frame_id)?))
+    }
+
+    /// Reads only the keyframe of a frame's group.
+    pub fn read_keyframe(&self, frame_id: i64) -> Result<Gop, CoreError> {
+        Ok(gop_from(self.engine.read_keyframe(frame_id)?))
+    }
+
+    /// The next frame on the same display, going forward or back.
+    pub fn neighbour(&self, frame_id: i64, forward: bool) -> Result<Option<FrameRef>, CoreError> {
+        let frame = self.engine.neighbour(frame_id, forward)?;
+        Ok(frame.map(|f| FrameRef { id: f.id, t_ms: f.t_ms }))
+    }
+
+    /// Runs for part of the timeline. Anything shorter than `min_duration_ms` is
+    /// merged, so pass the time one pixel covers at the current zoom.
+    pub fn timeline(
+        &self,
+        display_uuid: Vec<u8>,
+        from_ms: i64,
+        to_ms: i64,
+        min_duration_ms: i64,
+    ) -> Result<TimelineData, CoreError> {
+        let timeline =
+            self.engine.timeline(&display_id(&display_uuid)?, from_ms, to_ms, min_duration_ms)?;
+        Ok(TimelineData {
+            apps: timeline.apps,
+            runs: timeline
+                .runs
                 .into_iter()
-                .map(|s| GopSample {
-                    frame_id: s.frame_id,
-                    t_ms: s.t_ms,
-                    is_sync: s.is_sync,
-                    data: s.data,
-                })
+                .map(|r| TimelineRun { start_ms: r.start_ms, end_ms: r.end_ms, app: r.app })
                 .collect(),
         })
+    }
+
+    /// What was on screen for a frame.
+    pub fn frame_context(&self, frame_id: i64) -> Result<Option<FrameInfo>, CoreError> {
+        Ok(self.engine.frame_context(frame_id)?.map(|context| FrameInfo {
+            bundle_id: context.bundle_id,
+            window: context.window,
+            url: context.url,
+        }))
+    }
+
+    /// Every app that has been recorded, most recent first.
+    pub fn recorded_apps(&self) -> Result<Vec<String>, CoreError> {
+        Ok(self.engine.recorded_apps()?)
+    }
+
+    /// Permanently deletes frames from `from_ms` through `to_ms`, and their text.
+    /// Returns how many frames were removed. This can take a while.
+    pub fn delete_range(&self, from_ms: i64, to_ms: i64) -> Result<u64, CoreError> {
+        Ok(self.engine.delete_range(from_ms, to_ms)?)
+    }
+
+    /// Stars or unstars a frame.
+    pub fn set_starred(&self, frame_id: i64, starred: bool) -> Result<(), CoreError> {
+        Ok(self.engine.set_starred(frame_id, starred)?)
+    }
+
+    /// Which of the given periods have any recording.
+    pub fn active_periods(&self, periods: Vec<Period>) -> Result<Vec<bool>, CoreError> {
+        let spans: Vec<(i64, i64)> = periods.iter().map(|p| (p.from_ms, p.to_ms)).collect();
+        Ok(self.engine.active_periods(&spans)?)
     }
 
     /// Fetches frames waiting for OCR, recording the attempt.

@@ -144,6 +144,32 @@ public struct CoreStats: Sendable, Equatable {
     }
 }
 
+/// A stretch of time in one app.
+public struct TimelineRun: Sendable, Equatable {
+    public var start: Date
+    public var end: Date
+    /// An index into `TimelineData.apps`.
+    public var app: Int
+
+    public init(start: Date, end: Date, app: Int) {
+        self.start = start
+        self.end = end
+        self.app = app
+    }
+}
+
+/// Runs for part of the timeline.
+public struct TimelineData: Sendable, Equatable {
+    /// Each app's bundle ID.
+    public var apps: [String?]
+    public var runs: [TimelineRun]
+
+    public init(apps: [String?], runs: [TimelineRun]) {
+        self.apps = apps
+        self.runs = runs
+    }
+}
+
 /// A frame waiting for OCR.
 public struct OCRJob: Sendable, Equatable {
     public var frameID: Int64
@@ -264,6 +290,26 @@ public protocol RemindCore: Sendable {
     func sealAll() throws
     func lookup(display: UUID, at time: Date) throws -> FrameRef?
     func readGroup(containing frameID: Int64) throws -> GroupOfPictures
+    /// Reads only the keyframe of a frame's group, for scrubbing too fast to decode
+    /// everything. The result has one sample, whose frame may be earlier than asked.
+    func readKeyframe(of frameID: Int64) throws -> GroupOfPictures
+    /// The next frame on the same display, going forward or back.
+    func neighbour(of frameID: Int64, forward: Bool) throws -> FrameRef?
+    /// Runs for a period, with anything shorter than `minimumDuration` merged. Pass
+    /// the time one pixel covers at the current zoom.
+    func timeline(display: UUID, from: Date, to: Date, minimumDuration: TimeInterval) throws -> TimelineData
+    /// Which of the given periods have any recording.
+    func activePeriods(_ periods: [DateInterval]) throws -> [Bool]
+    /// What was on screen for a frame.
+    func frameContext(of frameID: Int64) throws -> FrameContext?
+    /// Every app that has been recorded, most recent first.
+    func recordedApps() throws -> [String]
+    func setStarred(_ starred: Bool, frameID: Int64) throws
+    /// Permanently deletes frames in a period, and their text. Returns how many were
+    /// removed, which can include a few after the period that depended on them. This
+    /// blocks, so don't call it on the main thread.
+    @discardableResult
+    func deleteRange(from: Date, to: Date) throws -> UInt64
     func nextOCRBatch(max: Int, now: Date, includeDeferred: Bool) throws -> [OCRJob]
     func submitOCR(_ results: [OCRResult]) throws
     func failOCR(frameID: Int64) throws

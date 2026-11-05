@@ -16,9 +16,11 @@ rayon.workspace = true
 remind-search.workspace = true
 remind-store.workspace = true
 remind-text.workspace = true
+remind-timeline.workspace = true
 remind-vault.workspace = true
 rusqlite.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+remind-text.workspace = true
 tempfile.workspace = true

@@ -12,6 +12,13 @@ let package = Package(
         .library(name: "Capture", targets: ["Capture"]),
         .library(name: "Ingest", targets: ["Ingest"]),
         .library(name: "FrameEngine", targets: ["FrameEngine"]),
+        .library(name: "TestKit", targets: ["TestKit"]),
+        .library(name: "StripRenderer", targets: ["StripRenderer"]),
+        .library(name: "OverlayShell", targets: ["OverlayShell"]),
+        .library(name: "FeatureTimeline", targets: ["FeatureTimeline"]),
+        .library(name: "FeatureSearch", targets: ["FeatureSearch"]),
+        .library(name: "FeatureOnboarding", targets: ["FeatureOnboarding"]),
+        .library(name: "FeatureSettings", targets: ["FeatureSettings"]),
     ],
     targets: [
         // Built by scripts/build-core.sh.
@@ -28,7 +35,13 @@ let package = Package(
         .target(name: "Capture"),
         .target(name: "Ingest", dependencies: ["CoreAPI", "Capture", "FrameEngine"]),
         .target(name: "FrameEngine", dependencies: ["CoreAPI"]),
-        .target(name: "TestKit", dependencies: ["CoreAPI"]),
+        .target(name: "StripRenderer"),
+        .target(name: "OverlayShell", dependencies: ["StripRenderer"]),
+        .target(name: "FeatureSearch", dependencies: ["CoreAPI", "DesignSystem"]),
+        .target(name: "FeatureOnboarding", dependencies: ["DesignSystem"]),
+        .target(name: "FeatureSettings", dependencies: ["DesignSystem"]),
+        .target(name: "FeatureTimeline", dependencies: ["CoreAPI", "DesignSystem", "FrameEngine", "OverlayShell", "StripRenderer"]),
+        .target(name: "TestKit", dependencies: ["CoreAPI", "Ingest"]),
         // Measurements that don't need any permissions.
         .executableTarget(
             name: "remind-spike",
@@ -36,6 +49,8 @@ let package = Package(
         ),
         .testTarget(name: "CoreLiveTests", dependencies: ["CoreLive", "CoreAPI", "CoreFake"]),
         .testTarget(name: "CaptureTests", dependencies: ["Capture"]),
+        .testTarget(name: "InterfaceTests", dependencies: ["DesignSystem", "StripRenderer", "OverlayShell", "FeatureSearch", "FeatureOnboarding", "FeatureSettings", "CoreAPI", "CoreFake"]),
+        .testTarget(name: "FrameEngineTests", dependencies: ["FrameEngine", "CoreAPI", "CoreLive", "CoreFake", "TestKit"]),
         .testTarget(name: "IngestTests", dependencies: ["Ingest", "Capture", "FrameEngine", "TestKit", "CoreAPI", "CoreLive", "CoreFake"]),
     ]
 )

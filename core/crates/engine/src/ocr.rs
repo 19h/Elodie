@@ -68,6 +68,10 @@ impl RunTracker {
     pub(crate) fn new(policy: RunPolicy) -> Self {
         Self { policy, open: HashMap::new() }
     }
+
+    pub(crate) fn policy(&self) -> RunPolicy {
+        self.policy
+    }
 }
 
 /// Defers frames that were quickly replaced, when OCR is behind.

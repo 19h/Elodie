@@ -11,6 +11,7 @@
 //! anything lost from it is replayed from the log on the next launch.
 
 mod appender;
+mod delete;
 mod ocr;
 mod read;
 mod recovery;
@@ -35,6 +36,7 @@ pub use recovery::RecoveryReport;
 pub use search::SearchSession;
 pub use remind_store::FrameContext;
 pub use remind_text::{OcrLine, Rect, RunPolicy};
+pub use remind_timeline::{Run as TimelineRun, Timeline};
 
 use appender::AppendRequest;
 

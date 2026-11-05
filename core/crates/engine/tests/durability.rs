@@ -383,3 +383,236 @@ fn a_chunk_under_another_key_is_never_deleted() {
     assert!(moved.exists());
     engine.close().unwrap();
 }
+
+mod deleting {
+    use super::*;
+    use remind_engine::{OcrBatchOptions, OcrLine, OcrResult, Rect};
+    use remind_search::{Facets, Order, Query};
+
+    const T0: i64 = 1_000_000;
+
+    fn t(n: u64) -> i64 {
+        T0 + n as i64 * 2000
+    }
+
+    /// Records frames, with a keyframe every `gop`, each showing `word<n>`.
+    fn recorded(root: &Path, count: u64, gop: u64) -> Engine {
+        let engine = open(root);
+        for n in 0..count {
+            engine.append(sample(n, n % gop == 0)).unwrap();
+        }
+        wait_for(&engine, count);
+        let jobs = engine
+            .next_ocr_batch(OcrBatchOptions { max: 10_000, now_ms: T0, include_deferred: false })
+            .unwrap();
+        engine
+            .submit_ocr(
+                jobs.iter()
+                    .map(|job| OcrResult {
+                        frame_id: job.frame_id,
+                        lines: vec![
+                            OcrLine { text: "shared line".to_owned(), rect: Rect::default() },
+                            OcrLine { text: format!("word{}", (job.t_ms - T0) / 2000), rect: Rect::default() },
+                        ],
+                    })
+                    .collect(),
+            )
+            .unwrap();
+        engine
+    }
+
+    fn hits(engine: &Engine, query: &str) -> usize {
+        let session = engine
+            .search(Query::parse(query).unwrap(), Facets::default(), Order::Newest)
+            .unwrap();
+        session.next_page().unwrap().hits.len()
+    }
+
+    #[test]
+    fn deleting_everything_removes_files_rows_and_text() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 10, 5);
+        assert_eq!(hits(&engine, "word3 "), 1);
+
+        assert_eq!(engine.delete_range(i64::MIN, i64::MAX).unwrap(), 10);
+        assert_eq!(frame_count(&engine), 0);
+        assert_eq!(scalar(&engine, "SELECT count(*) FROM text_run"), 0);
+        assert_eq!(scalar(&engine, "SELECT count(*) FROM segment"), 0);
+        assert_eq!(scalar(&engine, "SELECT count(*) FROM chunk"), 0);
+        assert!(chunk_files(dir.path()).is_empty());
+        assert_eq!(hits(&engine, "word3 "), 0);
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn frames_outside_the_range_stay_and_still_decode() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 20, 5);
+
+        // Frames 7 and 8 go, and 9 too, because it depends on them. 10 is a keyframe.
+        assert_eq!(engine.delete_range(t(7), t(8)).unwrap(), 3);
+
+        let earlier = engine.lookup(&DISPLAY, t(6)).unwrap().unwrap();
+        let group = engine.read_gop(earlier.id).unwrap();
+        assert_eq!(group.samples.iter().map(|s| s.mono_ns).collect::<Vec<_>>(), [5, 6]);
+        assert_eq!(group.samples[1].data, vec![6; 100]);
+
+        // Looking at the deleted time now lands on the last frame before it.
+        assert_eq!(engine.lookup(&DISPLAY, t(8)).unwrap().unwrap().t_ms, t(6));
+
+        let later = engine.lookup(&DISPLAY, t(12)).unwrap().unwrap();
+        let group = engine.read_gop(later.id).unwrap();
+        assert_eq!(group.samples.iter().map(|s| s.mono_ns).collect::<Vec<_>>(), [10, 11, 12, 13, 14]);
+        assert!(group.samples[0].is_sync);
+        engine.close().unwrap();
+    }
+
+    /// The point of deleting: the bytes have to be gone from the file, even though
+    /// they're encrypted, and the text has to be gone from the database.
+    #[test]
+    fn deleted_text_cannot_be_found_or_read_back() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 15, 5);
+        assert_eq!(hits(&engine, "word7 "), 1);
+
+        engine.delete_range(t(7), t(7)).unwrap();
+        assert_eq!(hits(&engine, "word7 "), 0);
+        // Frames around it are unaffected.
+        assert_eq!(hits(&engine, "word6 "), 1);
+        assert_eq!(hits(&engine, "word11 "), 1);
+
+        // Word 7 was in a run that still has other frames, and it's gone from the
+        // run's stored lines too, as well as from the index.
+        let conn = engine.open_reader().unwrap();
+        let mut statement = conn.prepare("SELECT lines_z FROM text_run").unwrap();
+        let blobs: Vec<Vec<u8>> =
+            statement.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        for blob in blobs {
+            let lines = remind_text::codec::decode_lines(&blob).unwrap();
+            assert!(lines.iter().all(|line| line.text != "word7"), "deleted text is still stored");
+        }
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn an_old_chunk_is_physically_removed_when_rewritten() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 10, 5);
+        engine.seal_all().unwrap();
+        let before = chunk_files(dir.path());
+        assert_eq!(before.len(), 1);
+
+        engine.delete_range(t(2), t(2)).unwrap();
+        let after = chunk_files(dir.path());
+        assert_eq!(after.len(), 1);
+        assert_ne!(before[0], after[0]);
+        assert!(!before[0].exists());
+        // Nothing's waiting to be finished.
+        assert_eq!(scalar(&engine, "SELECT count(*) FROM purge"), 0);
+        assert!(!dir.path().join("rewrite").read_dir().is_ok_and(|mut d| d.next().is_some()));
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn recording_carries_on_after_a_deletion() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 10, 5);
+        engine.delete_range(t(2), t(3)).unwrap();
+        assert_eq!(engine.append(sample(20, false)).unwrap(), AppendOutcome::NeedsKeyframe);
+        assert_eq!(engine.append(sample(21, true)).unwrap(), AppendOutcome::Accepted);
+        engine.close().unwrap();
+        let (engine, report) = Engine::open(dir.path(), master(), config()).unwrap();
+        assert_eq!(report.chunks_unreadable, 0);
+        assert!(engine.lookup(&DISPLAY, t(21)).unwrap().is_some());
+        engine.close().unwrap();
+    }
+
+    #[test]
+    fn a_deletion_survives_a_relaunch_and_nothing_comes_back() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 10, 5);
+        engine.delete_range(t(2), t(3)).unwrap();
+        let remaining = frame_count(&engine);
+        engine.close().unwrap();
+
+        let (engine, _) = Engine::open(dir.path(), master(), config()).unwrap();
+        assert_eq!(frame_count(&engine), remaining);
+        assert_eq!(hits(&engine, "word2 "), 0);
+        assert_eq!(hits(&engine, "word1 "), 1);
+        engine.close().unwrap();
+    }
+
+    /// The crash case: the transaction committed, but the old file is still there.
+    /// Recovery must remove it instead of replaying deleted frames.
+    #[test]
+    fn a_crash_after_commit_does_not_bring_deleted_frames_back() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 10, 5);
+        engine.seal_all().unwrap();
+        let old = chunk_files(dir.path()).remove(0);
+        let saved = std::fs::read(&old).unwrap();
+        engine.delete_range(t(2), t(3)).unwrap();
+        let remaining = frame_count(&engine);
+        engine.close().unwrap();
+
+        // Put back the state a crash would leave: old file present, and marked for removal.
+        std::fs::write(&old, &saved).unwrap();
+        {
+            let conn = remind_store::open_writer(
+                &dir.path().join("vault.db"),
+                &remind_store::DbKey(master().database_key()),
+            )
+            .unwrap();
+            let relative = old.strip_prefix(dir.path()).unwrap().to_str().unwrap();
+            conn.execute("INSERT INTO purge(path) VALUES (?1)", [relative]).unwrap();
+        }
+
+        let (engine, _) = Engine::open(dir.path(), master(), config()).unwrap();
+        assert!(!old.exists(), "the deleted chunk should have been removed");
+        assert_eq!(frame_count(&engine), remaining);
+        assert_eq!(hits(&engine, "word2 "), 0);
+        engine.close().unwrap();
+    }
+
+    /// The other crash case: a rewrite finished writing, but never committed.
+    #[test]
+    fn a_crash_before_commit_discards_the_rewrite() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 10, 5);
+        let before = frame_count(&engine);
+        engine.close().unwrap();
+
+        let rewrite = dir.path().join("rewrite");
+        std::fs::create_dir_all(&rewrite).unwrap();
+        let stray = rewrite.join("00112233445566778899aabbccddeeff.chunk");
+        std::fs::write(&stray, b"leftover from a crash").unwrap();
+
+        let (engine, _) = Engine::open(dir.path(), master(), config()).unwrap();
+        assert!(!stray.exists());
+        assert_eq!(frame_count(&engine), before);
+        engine.close().unwrap();
+    }
+
+    /// The last crash case: it committed, but the new file was never moved into place.
+    #[test]
+    fn a_crash_between_commit_and_move_finishes_the_move() {
+        let dir = TempDir::new().unwrap();
+        let engine = recorded(dir.path(), 10, 5);
+        engine.delete_range(t(2), t(3)).unwrap();
+        let remaining = frame_count(&engine);
+        engine.close().unwrap();
+
+        let chunk = chunk_files(dir.path()).remove(0);
+        let name = chunk.file_name().unwrap().to_owned();
+        let rewrite = dir.path().join("rewrite");
+        std::fs::create_dir_all(&rewrite).unwrap();
+        std::fs::rename(&chunk, rewrite.join(&name)).unwrap();
+
+        let (engine, _) = Engine::open(dir.path(), master(), config()).unwrap();
+        assert!(chunk.exists());
+        assert_eq!(frame_count(&engine), remaining);
+        let last = engine.lookup(&DISPLAY, i64::MAX).unwrap().unwrap();
+        assert!(engine.read_gop(last.id).is_ok());
+        engine.close().unwrap();
+    }
+}

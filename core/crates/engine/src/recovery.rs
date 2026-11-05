@@ -187,6 +187,11 @@ pub(crate) fn recover(
     let started = Instant::now();
     let mut report = RecoveryReport::default();
 
+    // Finish any deletion a crash interrupted. This has to come first, or a chunk
+    // waiting to be removed would look like one to replay, and deleted frames would
+    // come back.
+    crate::delete::recover(root, conn)?;
+
     let sealed = sealed_chunks(conn)?;
     let to_check: Vec<PathBuf> = all_chunk_files(root)?
         .into_iter()

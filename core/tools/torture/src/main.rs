@@ -69,6 +69,7 @@ fn child_config() -> EngineConfig {
         sync_interval: Duration::from_millis(40),
         batch_interval: Duration::from_millis(10),
         sample_queue: 8,
+        ..EngineConfig::default()
     }
 }
 

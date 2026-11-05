@@ -158,7 +158,9 @@ private var anyChange: PipelineSettings {
             let frame = screen.nextFrame()
             indices.append(frame.index)
             try await feed(pipeline, capture(frame.pixelBuffer, at: Double(tick) * 2))
-            try await Task.sleep(for: .milliseconds(10))
+            while core.stats().loggedFrames <= UInt64(tick) {
+                try await Task.sleep(for: .milliseconds(2))
+            }
         }
         #expect(pipeline.stats.stored == 12)
         try core.sealAll()

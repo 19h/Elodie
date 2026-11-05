@@ -66,8 +66,65 @@ public final class LiveCore: RemindCore {
     }
 
     public func readGroup(containing frameID: Int64) throws -> GroupOfPictures {
-        let gop = try core.readGop(frameId: frameID)
-        return GroupOfPictures(
+        Self.convert(try core.readGop(frameId: frameID))
+    }
+
+    public func readKeyframe(of frameID: Int64) throws -> GroupOfPictures {
+        Self.convert(try core.readKeyframe(frameId: frameID))
+    }
+
+    public func neighbour(of frameID: Int64, forward: Bool) throws -> CoreAPI.FrameRef? {
+        try core.neighbour(frameId: frameID, forward: forward).map {
+            CoreAPI.FrameRef(id: $0.id, capturedAt: Date(milliseconds: $0.tMs))
+        }
+    }
+
+    public func timeline(display: UUID, from: Date, to: Date, minimumDuration: TimeInterval) throws -> CoreAPI.TimelineData {
+        let data = try core.timeline(
+            displayUuid: display.data,
+            fromMs: from.milliseconds,
+            toMs: to.milliseconds,
+            minDurationMs: Int64(minimumDuration * 1000)
+        )
+        return CoreAPI.TimelineData(
+            apps: data.apps,
+            runs: data.runs.map {
+                CoreAPI.TimelineRun(
+                    start: Date(milliseconds: $0.startMs),
+                    end: Date(milliseconds: $0.endMs),
+                    app: Int($0.app)
+                )
+            }
+        )
+    }
+
+    public func frameContext(of frameID: Int64) throws -> CoreAPI.FrameContext? {
+        try core.frameContext(frameId: frameID).map {
+            CoreAPI.FrameContext(bundleID: $0.bundleId, window: $0.window, url: $0.url)
+        }
+    }
+
+    public func recordedApps() throws -> [String] {
+        try core.recordedApps()
+    }
+
+    public func setStarred(_ starred: Bool, frameID: Int64) throws {
+        try core.setStarred(frameId: frameID, starred: starred)
+    }
+
+    @discardableResult
+    public func deleteRange(from: Date, to: Date) throws -> UInt64 {
+        try core.deleteRange(fromMs: from.milliseconds, toMs: to.milliseconds)
+    }
+
+    public func activePeriods(_ periods: [DateInterval]) throws -> [Bool] {
+        try core.activePeriods(periods: periods.map {
+            Period(fromMs: $0.start.milliseconds, toMs: $0.end.milliseconds)
+        })
+    }
+
+    private static func convert(_ gop: Gop) -> GroupOfPictures {
+        GroupOfPictures(
             width: Int(gop.width),
             height: Int(gop.height),
             parameterSets: gop.parameterSets,

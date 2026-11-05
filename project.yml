@@ -17,6 +17,9 @@ settings:
 packages:
   RemindKit:
     path: Packages/RemindKit
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: 2.0.0
 targets:
   Remind:
     type: application
@@ -37,6 +40,29 @@ targets:
         product: CoreLive
       - package: RemindKit
         product: DesignSystem
+      - package: RemindKit
+        product: Capture
+      - package: RemindKit
+        product: Ingest
+      - package: RemindKit
+        product: TestKit
+      - package: RemindKit
+        product: CoreFake
+      - package: RemindKit
+        product: FrameEngine
+      - package: RemindKit
+        product: OverlayShell
+      - package: RemindKit
+        product: StripRenderer
+      - package: RemindKit
+        product: FeatureTimeline
+      - package: RemindKit
+        product: FeatureSearch
+      - package: RemindKit
+        product: FeatureOnboarding
+      - package: RemindKit
+        product: FeatureSettings
+      - package: KeyboardShortcuts
     preBuildScripts:
       - name: Build Rust core
         basedOnDependencyAnalysis: false

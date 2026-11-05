@@ -322,7 +322,8 @@ fn terms_by_frequency(conn: &Connection, vocabulary: &[String]) -> (Vec<String>,
                 |r| r.get(0),
             )
             .unwrap_or(0);
-        if matches * 3 > total.min(60_000) && common.len() < 30 {
+        // Counting stops at the limit, so the bar for "common" can't be above it.
+        if matches >= (total / 3).min(20_000) && common.len() < 30 {
             common.push(word.to_owned());
         } else if (1..=200).contains(&matches) && rare.len() < 30 {
             rare.push(word.to_owned());
@@ -354,6 +355,8 @@ fn query(directory: &Path) {
 
     let (common, rare) = terms_by_frequency(&conn, &vocabulary);
     println!("  {} common terms, {} rare terms", common.len(), rare.len());
+    // These are the slow queries, so the measurement means nothing without them.
+    assert!(!common.is_empty(), "no common terms were found, so the worst case wasn't measured");
     let pairs: Vec<String> = common
         .iter()
         .zip(rare.iter().cycle())

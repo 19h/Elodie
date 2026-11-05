@@ -781,6 +781,7 @@ dependencies = [
  "remind-search",
  "remind-store",
  "remind-text",
+ "remind-timeline",
  "remind-vault",
  "rusqlite",
  "tempfile",
@@ -836,7 +837,9 @@ dependencies = [
 name = "remind-timeline"
 version = "0.1.0"
 dependencies = [
- "thiserror",
+ "remind-store",
+ "rusqlite",
+ "tempfile",
 ]
 
 [[package]]

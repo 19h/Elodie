@@ -58,7 +58,10 @@ import Testing
                 data: encoded.data
             ))
             #expect(outcome == .accepted)
-            try await Task.sleep(for: .milliseconds(15))
+            // Wait for it to be written, so a busy disk can't fill the queue.
+            while core.stats().loggedFrames <= UInt64(index) {
+                try await Task.sleep(for: .milliseconds(2))
+            }
         }
         try core.sealAll()
         // Give the writer's batch time to commit.

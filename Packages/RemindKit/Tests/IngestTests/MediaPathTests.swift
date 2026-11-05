@@ -233,7 +233,9 @@ private func flatFrame(
                 data: frame.data
             ))
             #expect(outcome == .accepted)
-            try await Task.sleep(for: .milliseconds(15))
+            while core.stats().loggedFrames <= UInt64(index) {
+                try await Task.sleep(for: .milliseconds(2))
+            }
         }
         try core.sealAll()
         try await Task.sleep(for: .milliseconds(1200))

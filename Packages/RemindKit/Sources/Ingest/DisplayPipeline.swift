@@ -57,6 +57,8 @@ public final class DisplayPipeline: @unchecked Sendable {
     private var needsKeyframe = true
     private var starNext = false
     private var counters = PipelineStats()
+    private let latestLock = NSLock()
+    private var latest: CVPixelBuffer?
 
     public init(
         core: any RemindCore,
@@ -74,6 +76,11 @@ public final class DisplayPipeline: @unchecked Sendable {
 
     public var stats: PipelineStats {
         queue.sync { counters }
+    }
+
+    /// The last frame kept, shown first when the timeline opens so it feels instant.
+    public var latestFrame: CVPixelBuffer? {
+        latestLock.withLock { latest }
     }
 
     /// Keeps the next frame even if it hasn't changed.
@@ -126,6 +133,7 @@ public final class DisplayPipeline: @unchecked Sendable {
         case .keep(let context):
             starNext = false
             differ.commitCandidate()
+            latestLock.withLock { latest = frame.pixelBuffer }
             encode(frame, context: context)
         }
     }

@@ -71,6 +71,121 @@ impl Engine {
             .optional()?)
     }
 
+    /// What was on screen for a frame.
+    pub fn frame_context(&self, frame_id: i64) -> Result<Option<remind_store::FrameContext>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        Ok(reader
+            .prepare_cached(
+                "SELECT s.bundle_id, s.window, s.url, s.profile FROM frame f
+                 JOIN segment s ON s.id = f.segment_id WHERE f.id = ?1",
+            )?
+            .query_row(params![frame_id], |r| {
+                Ok(remind_store::FrameContext {
+                    bundle_id: r.get(0)?,
+                    window: r.get(1)?,
+                    url: r.get(2)?,
+                    profile: r.get(3)?,
+                    front_rect: None,
+                })
+            })
+            .optional()?)
+    }
+
+    /// The next frame after this one on the same display, moving forward or back.
+    pub fn neighbour(&self, frame_id: i64, forward: bool) -> Result<Option<FrameRef>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let sql = if forward {
+            "SELECT n.id, n.t_ms FROM frame f JOIN frame n ON n.display_id = f.display_id
+             WHERE f.id = ?1 AND (n.t_ms, n.id) > (f.t_ms, f.id)
+             ORDER BY n.t_ms, n.id LIMIT 1"
+        } else {
+            "SELECT n.id, n.t_ms FROM frame f JOIN frame n ON n.display_id = f.display_id
+             WHERE f.id = ?1 AND (n.t_ms, n.id) < (f.t_ms, f.id)
+             ORDER BY n.t_ms DESC, n.id DESC LIMIT 1"
+        };
+        Ok(reader
+            .prepare_cached(sql)?
+            .query_row(params![frame_id], |r| Ok(FrameRef { id: r.get(0)?, t_ms: r.get(1)? }))
+            .optional()?)
+    }
+
+    /// Runs for part of the timeline, simplified for drawing.
+    pub fn timeline(
+        &self,
+        display_uuid: &[u8; 16],
+        from_ms: i64,
+        to_ms: i64,
+        min_duration_ms: i64,
+    ) -> Result<remind_timeline::Timeline> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        Ok(remind_timeline::load(&reader, display_uuid, from_ms, to_ms, min_duration_ms)?)
+    }
+
+    /// Every app that has been recorded, most recent first, for filtering searches.
+    pub fn recorded_apps(&self) -> Result<Vec<String>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        let mut statement = reader.prepare_cached(
+            "SELECT bundle_id FROM segment WHERE bundle_id IS NOT NULL
+             GROUP BY bundle_id ORDER BY max(t_end) DESC",
+        )?;
+        let apps = statement.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(apps)
+    }
+
+    /// Stars or unstars a frame.
+    pub fn set_starred(&self, frame_id: i64, starred: bool) -> Result<()> {
+        let (reply, response) = crossbeam_channel::bounded(1);
+        self.writes
+            .as_ref()
+            .ok_or(EngineError::Stopped)?
+            .send(crate::writer::WriterMessage::SetStarred(frame_id, starred, reply))
+            .map_err(|_| EngineError::Stopped)?;
+        response.recv().map_err(|_| EngineError::Stopped)?
+    }
+
+    /// Which of the given periods have any recording.
+    pub fn active_periods(&self, periods: &[(i64, i64)]) -> Result<Vec<bool>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        Ok(remind_timeline::active_periods(&reader, periods)?)
+    }
+
+    /// Reads only the keyframe of a frame's group, for scrubbing too fast to decode
+    /// everything.
+    pub fn read_keyframe(&self, frame_id: i64) -> Result<Gop> {
+        let (path, rows, target_frame) = {
+            let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+            let (path, chunk_id, seq): (String, i64, i64) = reader
+                .prepare_cached(
+                    "SELECT c.path, f.chunk_id, f.seq FROM frame f
+                     JOIN chunk c ON c.id = f.chunk_id WHERE f.id = ?1",
+                )?
+                .query_row(params![frame_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .optional()?
+                .ok_or(EngineError::NoSuchFrame)?;
+            let row: (i64, i64, i64, i64, u32, bool) = reader
+                .prepare_cached(
+                    "SELECT id, t_ms, seq, offset, len, is_sync FROM frame
+                     WHERE chunk_id = ?1 AND seq <= ?2 AND is_sync = 1 ORDER BY seq DESC LIMIT 1",
+                )?
+                .query_row(params![chunk_id, seq], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+                })
+                .optional()?
+                .ok_or_else(|| EngineError::Corrupt(format!("frame {frame_id} has no keyframe")))?;
+            (path, vec![row], frame_id)
+        };
+        let _ = target_frame;
+        let (reader, samples) = read_range(&self.root, &self.master, &path, &rows)?;
+        let header = reader.header();
+        Ok(Gop {
+            width: header.width,
+            height: header.height,
+            parameter_sets: header.parameter_sets.clone(),
+            samples,
+            target: 0,
+        })
+    }
+
     /// Reads the group of pictures containing a frame.
     pub fn read_gop(&self, frame_id: i64) -> Result<Gop> {
         let (path, rows, target) = {

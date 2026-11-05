@@ -102,6 +102,9 @@ const MIGRATIONS: &[&str] = &[
          content='', contentless_delete=1,
          tokenize='remind', prefix='2 3'
      );",
+    // Version 3: deletion.
+    "CREATE TABLE purge (path TEXT PRIMARY KEY);
+     DROP TABLE tombstone;",
 ];
 
 /// Brings the database up to the current schema.

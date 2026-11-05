@@ -21,6 +21,8 @@ pub(crate) enum WriterMessage {
     /// Stores OCR results in order, replying once they're committed.
     OcrResults(Vec<PreparedResult>, Sender<Result<(), EngineError>>),
     OcrFailed(i64, Sender<Result<(), EngineError>>),
+    SetStarred(i64, bool, Sender<Result<(), EngineError>>),
+    DeleteRange(crate::delete::DeleteRequest, Sender<Result<u64, EngineError>>),
 }
 
 impl WriterMessage {
@@ -96,6 +98,7 @@ fn run(
 enum Reply {
     Batch(Sender<Result<Vec<OcrJob>, EngineError>>, Vec<OcrJob>),
     Done(Sender<Result<(), EngineError>>),
+    Deleted(Sender<Result<u64, EngineError>>, u64, Vec<std::path::PathBuf>, Vec<(std::path::PathBuf, std::path::PathBuf)>),
 }
 
 fn commit(
@@ -129,6 +132,24 @@ fn commit(
                 ocr::mark_failed(&tx, *frame_id)?;
                 replies.push(Reply::Done(reply.clone()));
             }
+            WriterMessage::SetStarred(frame_id, starred, reply) => {
+                tx.execute(
+                    "UPDATE frame SET is_starred = ?2 WHERE id = ?1",
+                    params![frame_id, starred],
+                )?;
+                replies.push(Reply::Done(reply.clone()));
+            }
+            WriterMessage::DeleteRange(request, reply) => {
+                let outcome = crate::delete::apply(&tx, request)?;
+                // The runs in memory may just have been deleted or rewritten.
+                *tracker = RunTracker::new(tracker.policy());
+                replies.push(Reply::Deleted(
+                    reply.clone(),
+                    outcome.frames_removed,
+                    outcome.files_to_remove,
+                    outcome.files_to_move,
+                ));
+            }
         }
     }
     tx.commit()?;
@@ -140,6 +161,10 @@ fn commit(
             }
             Reply::Done(sender) => {
                 let _ = sender.send(Ok(()));
+            }
+            Reply::Deleted(sender, frames, remove, moves) => {
+                crate::delete::finish(conn, &moves, &remove);
+                let _ = sender.send(Ok(frames));
             }
         }
     }

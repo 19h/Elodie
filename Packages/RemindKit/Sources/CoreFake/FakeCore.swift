@@ -62,6 +62,64 @@ public final class FakeCore: RemindCore, @unchecked Sendable {
         }
     }
 
+    public func readKeyframe(of frameID: Int64) throws -> GroupOfPictures {
+        var group = try readGroup(containing: frameID)
+        group.samples = Array(group.samples.prefix(1))
+        group.target = 0
+        return group
+    }
+
+    public func neighbour(of frameID: Int64, forward: Bool) throws -> FrameRef? {
+        lock.withLock {
+            let index = Int(frameID) + (forward ? 1 : -1)
+            guard samples.indices.contains(index) else { return nil }
+            return FrameRef(id: Int64(index), capturedAt: samples[index].capturedAt)
+        }
+    }
+
+    public func timeline(display: UUID, from: Date, to: Date, minimumDuration: TimeInterval) throws -> TimelineData {
+        lock.withLock {
+            var apps: [String?] = []
+            var runs: [TimelineRun] = []
+            for sample in samples where sample.displayID == display && sample.capturedAt >= from && sample.capturedAt <= to {
+                let app = apps.firstIndex(of: sample.context.bundleID) ?? {
+                    apps.append(sample.context.bundleID)
+                    return apps.count - 1
+                }()
+                if let last = runs.last, last.app == app {
+                    runs[runs.count - 1].end = sample.capturedAt
+                } else {
+                    runs.append(TimelineRun(start: sample.capturedAt, end: sample.capturedAt, app: app))
+                }
+            }
+            return TimelineData(apps: apps, runs: runs)
+        }
+    }
+
+    public func frameContext(of frameID: Int64) throws -> FrameContext? {
+        lock.withLock {
+            samples.indices.contains(Int(frameID)) ? samples[Int(frameID)].context : nil
+        }
+    }
+
+    public func recordedApps() throws -> [String] {
+        lock.withLock {
+            var seen = Set<String>()
+            return samples.reversed().compactMap(\.context.bundleID).filter { seen.insert($0).inserted }
+        }
+    }
+
+    public func setStarred(_ starred: Bool, frameID: Int64) throws {}
+
+    @discardableResult
+    public func deleteRange(from: Date, to: Date) throws -> UInt64 { 0 }
+
+    public func activePeriods(_ periods: [DateInterval]) throws -> [Bool] {
+        lock.withLock {
+            periods.map { period in samples.contains { period.contains($0.capturedAt) } }
+        }
+    }
+
     public func nextOCRBatch(max: Int, now: Date, includeDeferred: Bool) throws -> [OCRJob] {
         lock.withLock {
             let waiting = samples.indices.filter { !finishedOCR.contains(Int64($0)) }.prefix(max)

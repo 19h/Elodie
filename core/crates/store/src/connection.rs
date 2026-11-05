@@ -39,7 +39,8 @@ fn configure(conn: &Connection) -> rusqlite::Result<()> {
          PRAGMA synchronous = NORMAL;
          PRAGMA checkpoint_fullfsync = ON;
          PRAGMA foreign_keys = ON;
-         PRAGMA busy_timeout = 5000;",
+         PRAGMA busy_timeout = 5000;
+         PRAGMA journal_size_limit = 67108864;",
     )?;
     fts5::register_tokenizer(conn)
 }

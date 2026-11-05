@@ -2,6 +2,7 @@ import CoreGraphics
 import CoreMedia
 import CoreVideo
 import Foundation
+import ImageIO
 @preconcurrency import ScreenCaptureKit
 
 /// A frame from a display.
@@ -70,7 +71,8 @@ public enum DisplayStreamError: Error {
 /// so whoever receives one must let it go quickly.
 public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable {
     public static let captureInterval: TimeInterval = 2
-    private static let queueDepth = 3
+    /// Three in flight, plus one kept to show the instant the timeline opens.
+    private static let queueDepth = 4
     /// The height of the menu bar, in points.
     private static let menuBarPoints: CGFloat = 26
 
@@ -133,6 +135,26 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         return mach_absolute_time()
     }
 
+    /// Starts capture of one window only. Used by tests that should see nothing else.
+    public func start(including windowNumber: Int, interval: TimeInterval) async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let display = content.displays.first(where: { $0.displayID == displayID }),
+              let window = content.windows.first(where: { Int($0.windowID) == windowNumber })
+        else {
+            throw DisplayStreamError.displayNotFound(displayID)
+        }
+        let filter = SCContentFilter(display: display, including: [window])
+        let configuration = Self.configuration(for: displayID)
+        configuration.minimumFrameInterval = CMTime(seconds: interval, preferredTimescale: 600)
+        let pointWidth = max(CGDisplayPixelsWide(displayID), 1)
+        menuBarRows = Int((Self.menuBarPoints * CGFloat(configuration.width) / CGFloat(pointWidth)).rounded(.up))
+
+        let stream = SCStream(filter: filter, configuration: configuration, delegate: self)
+        try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        try await stream.startCapture()
+        self.stream = stream
+    }
+
     /// Changes which windows are left out, and returns when the new filter took
     /// effect, in mach time.
     @discardableResult
@@ -184,6 +206,14 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
 /// Finds displays and builds content filters.
 public enum ScreenContent {
+    /// Takes one screenshot of a display and discards it. For comparing capture costs.
+    public static func screenshot(displayID: CGDirectDisplayID) async throws -> CGSize {
+        let filter = try await filter(displayID: displayID, excluding: [])
+        let configuration = DisplayStream.configuration(for: displayID)
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        return CGSize(width: image.width, height: image.height)
+    }
+
     /// A stable ID for a display. `CGDirectDisplayID` can change between boots.
     public static func stableID(of displayID: CGDirectDisplayID) -> UUID? {
         guard let uuid = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() else {
@@ -196,6 +226,27 @@ public enum ScreenContent {
             bytes.byte8, bytes.byte9, bytes.byte10, bytes.byte11,
             bytes.byte12, bytes.byte13, bytes.byte14, bytes.byte15
         ))
+    }
+
+    /// Saves a screenshot of one window. Glass and shadows render as they really do,
+    /// which a view snapshot doesn't manage.
+    public static func saveScreenshot(ofWindow windowID: CGWindowID, to url: URL) async throws {
+        let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
+        guard let window = content.windows.first(where: { $0.windowID == windowID }) else {
+            throw DisplayStreamError.displayNotFound(windowID)
+        }
+        let filter = SCContentFilter(desktopIndependentWindow: window)
+        let configuration = SCStreamConfiguration()
+        let scale = CGFloat(filter.pointPixelScale)
+        configuration.width = Int(window.frame.width * scale)
+        configuration.height = Int(window.frame.height * scale)
+        configuration.showsCursor = false
+        let image = try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: configuration)
+        guard let destination = CGImageDestinationCreateWithURL(url as CFURL, "public.png" as CFString, 1, nil) else {
+            throw DisplayStreamError.displayNotFound(windowID)
+        }
+        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationFinalize(destination)
     }
 
     /// A filter showing a display with the given windows left out.

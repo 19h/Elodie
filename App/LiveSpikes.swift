@@ -1,0 +1,527 @@
+import AppKit
+import Capture
+import CoreVideo
+import Darwin
+import Foundation
+import Ingest
+import TestKit
+
+/// Spikes 1 and 2, which need the Screen Recording permission.
+///
+/// Frames are examined in memory and thrown away, so nothing gets stored. The
+/// windows these draw are the only thing they look for.
+///
+/// Launch through `open`, so macOS treats Remind as the app asking for permission:
+///
+///     open -n Remind.app --args --spike capture --out /path/to/report.txt
+enum LiveSpikes {
+    private static let report = Report()
+
+    @MainActor
+    static func run(arguments: [String]) -> Never {
+        func value(after flag: String) -> String? {
+            arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
+        }
+        let output = value(after: "--out") ?? NSTemporaryDirectory() + "remind-spike.txt"
+        report.open(path: output)
+
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+
+        guard CGPreflightScreenCaptureAccess() else {
+            report.line("Screen Recording isn't granted.")
+            let granted = CGRequestScreenCaptureAccess()
+            report.line("Requested it, and the answer was: \(granted). Grant it in System Settings, then run this again.")
+            report.close()
+            exit(3)
+        }
+
+        let name = value(after: "--spike") ?? "capture"
+        Task { @MainActor in
+            do {
+                switch name {
+                case "capture": try await Self.captureChecks(iterations: Int(value(after: "--iterations") ?? "") ?? 1000)
+                case "privacy": try await Self.privacyRace(iterations: Int(value(after: "--iterations") ?? "") ?? 1000)
+                case "energy": try await Self.energy(seconds: Int(value(after: "--seconds") ?? "") ?? 60)
+                case "browsers": try await Self.browserTitles()
+                default: report.line("Unknown spike \(name)")
+                }
+                report.line("FINISHED")
+            } catch {
+                report.line("FAILED: \(error)")
+            }
+            report.close()
+            exit(0)
+        }
+        app.run()
+        exit(0)
+    }
+
+    // MARK: Marker windows
+
+    /// A window the harness draws, so tests never need anything else on screen.
+    @MainActor
+    private static func makeWindow(title: String, frame: NSRect, color: NSColor) -> NSWindow {
+        let window = NSWindow(contentRect: frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.title = title
+        window.backgroundColor = color
+        window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.collectionBehavior = [.canJoinAllSpaces, .transient, .ignoresCycle]
+        return window
+    }
+
+    /// A rectangle in the top right of the main display, in AppKit's bottom-left coordinates.
+    @MainActor
+    private static func corner(_ offset: CGFloat = 0) -> NSRect {
+        let screen = NSScreen.screens.first!.frame
+        return NSRect(x: screen.maxX - 420 - offset, y: screen.maxY - 320 - offset, width: 360, height: 220)
+    }
+
+    /// Whether a frame contains pixels near this colour, inside `rect` (top-left points).
+    private static func count(
+        chroma target: (cb: UInt8, cr: UInt8),
+        in frame: CapturedFrame,
+        rect: CGRect,
+        display: CGRect
+    ) -> Int {
+        let buffer = frame.pixelBuffer
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 1) else { return 0 }
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 1)
+        let width = CVPixelBufferGetWidthOfPlane(buffer, 1)
+        let height = CVPixelBufferGetHeightOfPlane(buffer, 1)
+        let scaleX = CGFloat(width) / display.width
+        let scaleY = CGFloat(height) / display.height
+        let bytes = base.assumingMemoryBound(to: UInt8.self)
+
+        let minX = max(0, Int((rect.minX - display.minX) * scaleX))
+        let maxX = min(width, Int((rect.maxX - display.minX) * scaleX))
+        let minY = max(0, Int((rect.minY - display.minY) * scaleY))
+        let maxY = min(height, Int((rect.maxY - display.minY) * scaleY))
+        guard minX < maxX, minY < maxY else { return 0 }
+
+        var found = 0
+        for y in Swift.stride(from: minY, to: maxY, by: 2) {
+            let row = bytes + y * stride
+            for x in Swift.stride(from: minX, to: maxX, by: 2) {
+                let cb = row[x * 2], cr = row[x * 2 + 1]
+                if abs(Int(cb) - Int(target.cb)) < 24, abs(Int(cr) - Int(target.cr)) < 24 {
+                    found += 1
+                }
+            }
+        }
+        return found
+    }
+
+    // MARK: Spike 1: change detection
+
+    /// Does the stream show every change, and stay quiet when nothing changes?
+    @MainActor
+    private static func captureChecks(iterations: Int) async throws {
+        report.line("Spike 1: change detection, \(iterations) scripted changes")
+        let displayID = CGMainDisplayID()
+        guard let size = DisplayStream.pixelSize(of: displayID) else { return }
+        report.line("  display \(displayID): \(size.width)×\(size.height)")
+
+        final class Tally: @unchecked Sendable {
+            let lock = NSLock()
+            var frames = 0
+            var seen = Set<Int>()
+            var dirty = 0
+            var format: OSType = 0
+            var size = (0, 0)
+        }
+        let tally = Tally()
+        let queue = DispatchQueue(label: "spike.capture", qos: .userInitiated)
+        let view = CounterView(frame: NSRect(x: 0, y: 0, width: 640, height: 64))
+        let window = NSWindow(contentRect: NSRect(x: 40, y: 200, width: 640, height: 64), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.level = .floating
+        window.contentView = view
+        window.orderFrontRegardless()
+
+        // Where the counter ends up on screen, in pixels, read back from each frame.
+        let origin = window.frame.origin
+        let screen = NSScreen.screens.first!.frame
+        let scale = CGFloat(size.width) / screen.width
+        let barcodeX = Int(origin.x * scale)
+        let barcodeY = Int((screen.height - origin.y - 64) * scale)
+
+        let stream = DisplayStream(
+            displayID: displayID,
+            queue: queue,
+            onFrame: { frame in
+                let value = CounterView.read(frame.pixelBuffer, x: barcodeX, y: barcodeY, scale: scale)
+                tally.lock.withLock {
+                    tally.frames += 1
+                    tally.dirty += frame.dirtyRects.count
+                    tally.format = CVPixelBufferGetPixelFormatType(frame.pixelBuffer)
+                    tally.size = (CVPixelBufferGetWidth(frame.pixelBuffer), CVPixelBufferGetHeight(frame.pixelBuffer))
+                    if let value { tally.seen.insert(value) }
+                }
+            },
+            onStop: { reason in report.line("  the stream stopped: \(reason)") }
+        )
+        // Only this window, so nothing else on screen is looked at.
+        try await stream.start(including: window.windowNumber, interval: 0.02)
+
+        for value in 1...iterations {
+            view.value = value
+            view.display()
+            try await Task.sleep(for: .milliseconds(120))
+            if value % 250 == 0 {
+                report.line("  \(value) changes made")
+            }
+        }
+        try await Task.sleep(for: .milliseconds(300))
+
+        let (seen, frames, format, frameSize, dirty) = tally.lock.withLock {
+            (tally.seen, tally.frames, tally.format, tally.size, tally.dirty)
+        }
+        let missed = (1...iterations).filter { !seen.contains($0) }
+        report.line("  frames delivered \(frames), pixel format \(fourCC(format)), size \(frameSize.0)×\(frameSize.1), dirty rects \(dirty)")
+        report.line("  changes seen \(iterations - missed.count) of \(iterations), missed \(missed.count)\(missed.isEmpty ? "" : " \(missed.prefix(10))")")
+
+        // Now nothing changes, and an idle screen should deliver nothing.
+        let before = tally.lock.withLock { tally.frames }
+        try await Task.sleep(for: .seconds(5))
+        let after = tally.lock.withLock { tally.frames }
+        report.line("  frames delivered in 5 idle seconds: \(after - before)")
+        await stream.stop()
+        window.orderOut(nil)
+    }
+
+    // MARK: Spike 2: the privacy race
+
+    /// Opens private windows at random moments, and checks that none reaches a frame
+    /// the gate allows through.
+    @MainActor
+    private static func privacyRace(iterations: Int) async throws {
+        report.line("Spike 2: exclusion race, \(iterations) private windows")
+        let displayID = CGMainDisplayID()
+        let display = CGDisplayBounds(displayID)
+        let ownPID = ProcessInfo.processInfo.processIdentifier
+
+        // Treat this app as a Chromium browser, so its windows go through the real
+        // title rules.
+        func makeMonitor() -> ExclusionMonitor {
+            ExclusionMonitor(
+                policy: ExclusionPolicy(excludedBundleIDs: []),
+                hideOwnWindows: false,
+                identify: { pid in
+                    pid == ownPID ? AppIdentity(bundleID: "test.browser", family: .chromium)
+                        : AppIdentity(bundleID: nil, family: nil)
+                }
+            )
+        }
+
+        // Saturated markers, as chroma: magenta and green in 4:2:0 full range.
+        let magenta: (cb: UInt8, cr: UInt8) = (212, 234)
+        let green: (cb: UInt8, cr: UInt8) = (42, 22)
+
+        let results = RaceResults()
+        let queue = DispatchQueue(label: "spike.privacy", qos: .userInitiated)
+
+        func runRace(name: String, enforce: Bool, opens: Int, privateTitle: String) async throws -> RaceResults.Snapshot {
+            let monitor = makeMonitor()
+            results.reset()
+            let area = corner()
+            let topLeftArea = CGRect(x: area.minX, y: display.height - area.maxY, width: area.width, height: area.height)
+            let stream = DisplayStream(
+                displayID: displayID,
+                queue: queue,
+                onFrame: { frame in
+                    let check = monitor.check(frameDisplayTime: frame.displayTime)
+                    guard !enforce || check.verdict == .allow else {
+                        results.drop()
+                        return
+                    }
+                    results.allowed(
+                        magenta: count(chroma: magenta, in: frame, rect: topLeftArea, display: display),
+                        green: count(chroma: green, in: frame, rect: topLeftArea, display: display)
+                    )
+                },
+                onStop: { reason in report.line("  the stream stopped: \(reason)") }
+            )
+            try await monitor.start(stream, interval: 0.033)
+
+            var checks = [Duration]()
+            let clock = ContinuousClock()
+            for index in 0..<opens {
+                let started = clock.now
+                let onScreen = makeWindow(title: "Marker \(index) - \(privateTitle)", frame: area, color: NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1))
+                onScreen.orderFrontRegardless()
+                checks.append(clock.now - started)
+                try await Task.sleep(for: .milliseconds(Int.random(in: 20...180)))
+                onScreen.orderOut(nil)
+                try await Task.sleep(for: .milliseconds(Int.random(in: 20...120)))
+
+                // Now and then an ordinary window, which must come through.
+                if index % 10 == 0 {
+                    let ordinary = makeWindow(title: "Ordinary \(index) - Brave", frame: area, color: NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1))
+                    ordinary.orderFrontRegardless()
+                    try await Task.sleep(for: .milliseconds(200))
+                    ordinary.orderOut(nil)
+                }
+                if index % 200 == 199 {
+                    report.line("  \(name): \(index + 1) windows opened")
+                }
+            }
+            await stream.stop()
+            return results.snapshot()
+        }
+
+        // The detector has to be able to see a leak, or zero leaks means nothing.
+        let control = try await runRace(name: "control", enforce: false, opens: 30, privateTitle: "Brave (Private)")
+        report.line("  control, with the gate off: \(control.framesWithMagenta) frames with the marker, of \(control.allowedFrames)")
+        if control.framesWithMagenta == 0 {
+            report.line("  CONTROL FAILED: the detector never saw the marker, so the results below prove nothing")
+        }
+
+        for (language, title) in [("English", "Brave (Private)"), ("German", "Brave (Privat)")] {
+            let result = try await runRace(name: language, enforce: true, opens: iterations / 2, privateTitle: title)
+            let total = result.allowedFrames + result.droppedFrames
+            report.line("  \(language): marker reached the encoder in \(result.framesWithMagenta) of \(result.allowedFrames) allowed frames")
+            report.line("    ordinary window seen in \(result.framesWithGreen) frames, dropped \(result.droppedFrames) of \(total) (\(String(format: "%.1f", 100 * Double(result.droppedFrames) / Double(max(total, 1))))%)")
+        }
+    }
+
+    // MARK: Spike 1: energy
+
+    /// Compares capture approaches by what this process and the capture daemon use.
+    @MainActor
+    private static func energy(seconds: Int) async throws {
+        report.line("Spike 1: energy, \(seconds) seconds per mode, at a 2 second interval")
+        report.line("  Figures cover Remind and replayd only. WindowServer's share needs powermetrics.")
+        let displayID = CGMainDisplayID()
+        let queue = DispatchQueue(label: "spike.energy", qos: .utility)
+        let view = CounterView(frame: NSRect(x: 0, y: 0, width: 640, height: 64))
+        let window = NSWindow(contentRect: NSRect(x: 40, y: 200, width: 640, height: 64), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.level = .floating
+        window.contentView = view
+        window.orderFrontRegardless()
+
+        func changing() -> Task<Void, Never> {
+            Task { @MainActor in
+                var value = 0
+                while !Task.isCancelled {
+                    value += 1
+                    view.value = value
+                    view.display()
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+
+        // Baseline: nothing capturing.
+        let idleTask = changing()
+        let baseline = try await measure(seconds: seconds)
+        idleTask.cancel()
+        report.line("  no capture         \(baseline.description)")
+
+        final class Counter: @unchecked Sendable { var frames = 0 }
+
+        let streamCount = Counter()
+        let stream = DisplayStream(
+            displayID: displayID,
+            queue: queue,
+            onFrame: { _ in streamCount.frames += 1 },
+            onStop: { _ in }
+        )
+        try await stream.start(excluding: [], interval: 2)
+        let streamTask = changing()
+        let streaming = try await measure(seconds: seconds)
+        streamTask.cancel()
+        await stream.stop()
+        report.line("  SCStream           \(streaming.description), frames \(streamCount.frames)")
+
+        let shotCount = Counter()
+        let shotTask = changing()
+        let shots = Task.detached {
+            while !Task.isCancelled {
+                if (try? await ScreenContent.screenshot(displayID: displayID)) != nil {
+                    shotCount.frames += 1
+                }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+        let shooting = try await measure(seconds: seconds)
+        shots.cancel()
+        shotTask.cancel()
+        report.line("  SCScreenshotManager \(shooting.description), frames \(shotCount.frames)")
+        window.orderOut(nil)
+    }
+
+    private struct Usage {
+        var energyMillijoules: Double
+        var cpuMilliseconds: Double
+        var seconds: Double
+
+        var description: String {
+            String(format: "%6.1f mW, %5.1f ms CPU per second", energyMillijoules / seconds, cpuMilliseconds / seconds)
+        }
+    }
+
+    private static func snapshot(pid: pid_t) -> (energy: UInt64, cpu: UInt64)? {
+        var info = rusage_info_v6()
+        let status = withUnsafeMutablePointer(to: &info) { pointer in
+            pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) {
+                proc_pid_rusage(pid, RUSAGE_INFO_V6, $0)
+            }
+        }
+        guard status == 0 else { return nil }
+        return (info.ri_billed_energy, info.ri_user_time + info.ri_system_time)
+    }
+
+    private static func pid(named name: String) -> pid_t? {
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(filePath: "/usr/bin/pgrep")
+        process.arguments = ["-x", name]
+        process.standardOutput = pipe
+        guard (try? process.run()) != nil else { return nil }
+        process.waitUntilExit()
+        let output = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(decoding: output, as: UTF8.self).split(separator: "\n").first.flatMap { pid_t($0) }
+    }
+
+    private static func measure(seconds: Int) async throws -> Usage {
+        var timebase = mach_timebase_info_data_t()
+        mach_timebase_info(&timebase)
+        let own = ProcessInfo.processInfo.processIdentifier
+        let daemon = pid(named: "replayd")
+        let pids = [own] + (daemon.map { [$0] } ?? [])
+        let before = pids.compactMap(snapshot(pid:))
+        try await Task.sleep(for: .seconds(seconds))
+        let after = pids.compactMap(snapshot(pid:))
+        var energy: UInt64 = 0
+        var cpu: UInt64 = 0
+        for (start, end) in zip(before, after) {
+            energy += end.energy &- start.energy
+            cpu += end.cpu &- start.cpu
+        }
+        return Usage(
+            // Billed energy is in nanojoules, and CPU time in mach ticks.
+            energyMillijoules: Double(energy) / 1e6,
+            cpuMilliseconds: Double(cpu) * Double(timebase.numer) / Double(timebase.denom) / 1e6,
+            seconds: Double(seconds)
+        )
+    }
+
+    // MARK: Real browsers
+
+    /// Lists browser window titles and how the rules classify them. Open private
+    /// windows first. This reads titles only.
+    @MainActor
+    private static func browserTitles() async throws {
+        report.line("Real browser windows now on screen:")
+        let inventory = WindowInventory()
+        for window in inventory.onScreenWindows() where window.layer == 0 {
+            let identity = inventory.identify(window.ownerPID)
+            guard let family = identity.family else { continue }
+            let isPrivate = PrivateWindowRules.isPrivate(title: window.title, family: family)
+            // Page titles can be private, so only the part the browser adds is reported.
+            let title = window.title ?? "(no title)"
+            let tail = title.split(separator: " - ").last.map(String.init) ?? title
+            report.line("  \(identity.bundleID ?? "?") \(family): private = \(isPrivate), ends with \"\(tail.suffix(30))\"")
+        }
+    }
+
+    private static func fourCC(_ value: OSType) -> String {
+        let bytes = [24, 16, 8, 0].map { UInt8((value >> $0) & 0xFF) }
+        return String(decoding: bytes, as: UTF8.self)
+    }
+}
+
+/// Shows a number as a barcode, so the frame that captured it can be read back.
+final class CounterView: NSView {
+    var value = 0
+    private static let bits = 16
+    private static let cell: CGFloat = 40
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.black.setFill()
+        bounds.fill()
+        NSColor.white.setFill()
+        for bit in 0..<Self.bits where (value >> bit) & 1 == 1 {
+            NSRect(x: CGFloat(bit) * Self.cell, y: 0, width: Self.cell, height: bounds.height).fill()
+        }
+    }
+
+    /// Reads the value from a captured frame's luma plane.
+    static func read(_ buffer: CVPixelBuffer, x: Int, y: Int, scale: CGFloat) -> Int? {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        guard let base = CVPixelBufferGetBaseAddressOfPlane(buffer, 0) else { return nil }
+        let stride = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+        let luma = base.assumingMemoryBound(to: UInt8.self)
+        let height = CVPixelBufferGetHeight(buffer)
+        let width = CVPixelBufferGetWidth(buffer)
+        let row = y + Int(32 * scale)
+        guard row < height else { return nil }
+        var value = 0
+        for bit in 0..<bits {
+            let column = x + Int((CGFloat(bit) + 0.5) * cell * scale)
+            guard column < width else { return nil }
+            let sample = luma[row * stride + column]
+            if sample > 170 {
+                value |= 1 << bit
+            } else if sample > 85 {
+                return nil
+            }
+        }
+        return value
+    }
+}
+
+/// Writes results as they happen, so a crash still leaves them.
+final class Report: @unchecked Sendable {
+    private let lock = NSLock()
+    private var handle: FileHandle?
+
+    func open(path: String) {
+        FileManager.default.createFile(atPath: path, contents: nil)
+        handle = FileHandle(forWritingAtPath: path)
+    }
+
+    func line(_ text: String) {
+        lock.withLock {
+            try? handle?.write(contentsOf: Data((text + "\n").utf8))
+        }
+    }
+
+    func close() {
+        lock.withLock {
+            try? handle?.close()
+            handle = nil
+        }
+    }
+}
+
+final class RaceResults: @unchecked Sendable {
+    struct Snapshot {
+        var allowedFrames = 0
+        var droppedFrames = 0
+        var framesWithMagenta = 0
+        var framesWithGreen = 0
+    }
+
+    private let lock = NSLock()
+    private var state = Snapshot()
+
+    func reset() { lock.withLock { state = Snapshot() } }
+    func drop() { lock.withLock { state.droppedFrames += 1 } }
+
+    /// Counts a frame as containing a marker past a small number of pixels, so stray
+    /// similar colours elsewhere don't register.
+    func allowed(magenta: Int, green: Int) {
+        lock.withLock {
+            state.allowedFrames += 1
+            if magenta > 200 { state.framesWithMagenta += 1 }
+            if green > 200 { state.framesWithGreen += 1 }
+        }
+    }
+
+    func snapshot() -> Snapshot { lock.withLock { state } }
+}
