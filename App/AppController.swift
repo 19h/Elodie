@@ -18,7 +18,8 @@ import SwiftUI
 
 extension KeyboardShortcuts.Name {
     static let search = Self("search", default: .init(.space, modifiers: [.command, .shift]))
-    static let ask = Self("ask", default: .init(.minus, modifiers: [.command, .shift]))
+    // Space is in the same place, and reads the same, on every keyboard layout.
+    static let ask = Self("ask", default: .init(.space, modifiers: [.option, .shift]))
     static let dailyRecap = Self("dailyRecap")
     // ⇧⌘S is Save As in most apps, so stars have no global shortcut until one is
     // chosen. It works inside the overlay.

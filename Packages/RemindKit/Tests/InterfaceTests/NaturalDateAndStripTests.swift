@@ -359,3 +359,22 @@ import Testing
         #expect(aspectFit(.zero, in: wide) == wide)
     }
 }
+
+@Suite struct DescribingARange {
+    private let day = Date(timeIntervalSince1970: 1_800_000_000)
+
+    /// A short stretch on another day shows seconds at both ends, or it reads as a mistake.
+    @Test func aShortStretchOnAnotherDayHasSecondsAtBothEnds() {
+        let text = SliceDescription.range(DateInterval(start: day, duration: 74))
+        let times = text.components(separatedBy: " – ")
+        #expect(times.count == 2, "got: \(text)")
+        #expect(times.allSatisfy { $0.filter { $0 == ":" }.count == 2 }, "got: \(text)")
+    }
+
+    @Test func aLongStretchLeavesThemOut() {
+        let text = SliceDescription.range(DateInterval(start: day, duration: 3600))
+        let times = text.components(separatedBy: " – ")
+        #expect(times.count == 2, "got: \(text)")
+        #expect(times.allSatisfy { $0.filter { $0 == ":" }.count == 1 }, "got: \(text)")
+    }
+}

@@ -112,7 +112,7 @@ public struct TimelineChrome: View {
                 if let hover = model.hover, model.slice == nil {
                     StripHoverCard(hover: hover)
                         .position(
-                            x: min(max(hover.x, 170), geometry.size.width - 170),
+                            x: min(max(hover.x, 240), geometry.size.width - 240),
                             // Above the time pill, which is what's being read while moving along.
                             y: geometry.size.height - TimelineMetrics.controlsBottom - 74
                         )
@@ -317,7 +317,8 @@ private struct StripHoverCard: View {
         .foregroundStyle(.white)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .frame(maxWidth: 320, alignment: .leading)
+        // Wide enough for a date, a range with seconds, and a length, all on one line.
+        .frame(maxWidth: 460, alignment: .leading)
         .background(Color(white: 0.12).opacity(0.97), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.white.opacity(0.1)))
         .shadow(color: .black.opacity(0.4), radius: 10, y: 4)

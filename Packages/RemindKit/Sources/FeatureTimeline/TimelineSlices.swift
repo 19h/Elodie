@@ -186,13 +186,16 @@ public enum SliceDescription {
         let sameDay = calendar.isDate(interval.start, inSameDayAs: interval.end)
         let isToday = calendar.isDateInToday(interval.start)
         // A short stretch can start and end in the same minute, so it needs the seconds.
-        let time = interval.duration < 600
+        let isShort = interval.duration < 600
+        let time = isShort
             ? Date.FormatStyle.dateTime.hour().minute().second()
             : Date.FormatStyle.dateTime.hour().minute()
         if sameDay && isToday {
             return "\(interval.start.formatted(time)) – \(interval.end.formatted(time))"
         }
-        let day = Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
+        let day = isShort
+            ? Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute().second()
+            : Date.FormatStyle.dateTime.month(.abbreviated).day().hour().minute()
         if sameDay {
             return "\(interval.start.formatted(day)) – \(interval.end.formatted(time))"
         }
