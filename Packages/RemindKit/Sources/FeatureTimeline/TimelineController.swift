@@ -1,5 +1,6 @@
 import AppKit
 import CoreAPI
+import CoreImage
 import CoreVideo
 import FrameEngine
 import OverlayShell
@@ -9,7 +10,7 @@ import SwiftUI
 
 /// Runs the timeline on one display: the frame, the strip, the controls, and input.
 @MainActor
-public final class TimelineController: NSObject {
+public final class TimelineController: NSObject, NSDraggingSource {
     private let core: any RemindCore
     private let display: UUID
     private let scrub: ScrubEngine
@@ -34,7 +35,24 @@ public final class TimelineController: NSObject {
     private var needsStripDraw = true
     private var displayLink: CADisplayLink?
     private var shownFrameID: Int64?
+    private var shownBuffer: CVPixelBuffer?
     private var earliest: Date?
+    /// The lines on the frame being shown, once something has asked for them.
+    private var lines: [RecognizedLine]?
+    private var selected: [RecognizedLine] = []
+    private var dragStart: CGPoint?
+    private var dragKind = DragKind.none
+
+    private enum DragKind {
+        case none
+        /// Started on text, so it selects.
+        case selecting
+        /// Started off text, so it may pick up the whole frame.
+        case pending
+    }
+
+    /// Where copied text goes. Tests use their own.
+    public var pasteboard = NSPasteboard.general
 
     public var onAction: ((OverlayAction) -> Void)?
     public var isSearchFocused: () -> Bool = { false } {
@@ -72,6 +90,7 @@ public final class TimelineController: NSObject {
         inputView.frame = frame
         inputView.autoresizingMask = [.width, .height]
         inputView.onAction = { [weak self] action in self?.handle(action) }
+        inputView.onMouse = { [weak self] mouse in self?.handle(mouse) }
         root.addSubview(inputView)
 
         scrub.onUpdate = { [weak self] update in
@@ -104,8 +123,15 @@ public final class TimelineController: NSObject {
     /// there's one to hand, so opening feels instant.
     public func present(at time: Date, immediate: CVPixelBuffer? = nil) {
         interpreter.reset()
+        model.isEmpty = false
         if let immediate {
             frameView.show(immediate)
+        }
+        riseChrome()
+        // Long enough for a first frame, so this doesn't flash on every open.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
+            guard let self, self.displayLink != nil else { return }
+            if self.shownFrameID == nil { self.model.isEmpty = true }
         }
         playhead = clamped(time)
         model.playheadMoved(to: playhead)
@@ -118,6 +144,28 @@ public final class TimelineController: NSObject {
         displayLink?.invalidate()
         displayLink = nil
         interpreter.reset()
+        frameView.clear()
+        shownFrameID = nil
+        shownBuffer = nil
+        lines = nil
+        selected = []
+        model.isJumpToDateOpen = false
+        // Decoded frames can run to a gigabyte, and this may not open again for hours.
+        scrub.purge()
+    }
+
+    /// The frame stops first. Only then do the controls rise, which is the app's one flourish.
+    private func riseChrome() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            model.isChromeVisible = true
+            return
+        }
+        model.isChromeVisible = false
+        DispatchQueue.main.async { [weak self] in
+            withAnimation(.easeOut(duration: 0.16)) {
+                self?.model.isChromeVisible = true
+            }
+        }
     }
 
     /// Frees decoded frames, as when memory is short.
@@ -163,9 +211,151 @@ public final class TimelineController: NSObject {
             step(forward: forward)
         case .stepRun(let forward):
             stepRun(forward: forward)
+        case .copy:
+            copySelection()
         default:
             onAction?(action)
         }
+    }
+
+    // MARK: Text and dragging
+
+    private func normalized(_ point: NSPoint) -> CGPoint {
+        CGPoint(
+            x: point.x / max(inputView.bounds.width, 1),
+            y: 1 - point.y / max(inputView.bounds.height, 1)
+        )
+    }
+
+    private func currentLines() -> [RecognizedLine] {
+        if let lines { return lines }
+        guard let shownFrameID else { return [] }
+        let loaded = (try? core.frameLines(of: shownFrameID)) ?? []
+        lines = loaded
+        return loaded
+    }
+
+    private func handle(_ mouse: OverlayMouse) {
+        switch mouse {
+        case .moved(let point):
+            let onText = TextSelection.line(at: normalized(point), in: lines ?? []) != nil
+            (onText ? NSCursor.iBeam : NSCursor.arrow).set()
+        case .down(let point):
+            let start = normalized(point)
+            dragStart = start
+            setSelection([])
+            model.isJumpToDateOpen = false
+            dragKind = TextSelection.line(at: start, in: currentLines()) != nil ? .selecting : .pending
+        case .dragged(let point, let event):
+            guard let dragStart else { return }
+            let current = normalized(point)
+            switch dragKind {
+            case .selecting:
+                setSelection(TextSelection.lines(currentLines(), between: dragStart, and: current))
+            case .pending:
+                let size = inputView.bounds.size
+                if hypot((current.x - dragStart.x) * size.width, (current.y - dragStart.y) * size.height) > 6 {
+                    dragKind = .none
+                    beginFrameDrag(event)
+                }
+            case .none:
+                break
+            }
+        case .up:
+            dragStart = nil
+            dragKind = .none
+        }
+    }
+
+    private func setSelection(_ lines: [RecognizedLine]) {
+        selected = lines
+        frameView.showSelection(lines.map(\.rect))
+    }
+
+    /// Copies what's selected, or everything on the frame when nothing is.
+    public func copySelection() {
+        let text = TextSelection.text(of: selected.isEmpty ? currentLines() : selected)
+        guard !text.isEmpty else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+    }
+
+    /// The frame on screen as an image.
+    public func currentImage() -> NSImage? {
+        guard let shownBuffer else { return nil }
+        let image = CIImage(cvPixelBuffer: shownBuffer)
+        guard let cgImage = Self.imageContext.createCGImage(image, from: image.extent) else { return nil }
+        return NSImage(cgImage: cgImage, size: .zero)
+    }
+
+    private static let imageContext = CIContext()
+
+    /// Lets the frame be dragged to Finder or another app, as a copy.
+    private func beginFrameDrag(_ event: NSEvent) {
+        guard let image = currentImage(),
+              let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+        else { return }
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "remind-drag-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let url = directory.appending(path: "Remind \(Self.fileDate(playhead)).png")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            try png.write(to: url)
+        } catch {
+            return
+        }
+        dragDirectory = directory
+
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        let width: CGFloat = 320
+        let aspect = image.size.height / max(image.size.width, 1)
+        let origin = inputView.convert(event.locationInWindow, from: nil)
+        item.setDraggingFrame(
+            NSRect(x: origin.x - width / 2, y: origin.y - width * aspect / 2, width: width, height: width * aspect),
+            contents: image
+        )
+        inputView.beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    private var dragDirectory: URL?
+
+    private static func fileDate(_ date: Date) -> String {
+        date.formatted(.iso8601.year().month().day().dateTimeSeparator(.space).time(includingFractionalSeconds: false))
+            .replacingOccurrences(of: ":", with: "-")
+    }
+
+    public func draggingSession(
+        _ session: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
+        .copy
+    }
+
+    /// The copy is unencrypted, so it doesn't stay behind. Receivers can take a moment to
+    /// read the file after the drop.
+    public func draggingSession(
+        _ session: NSDraggingSession,
+        endedAt screenPoint: NSPoint,
+        operation: NSDragOperation
+    ) {
+        guard let directory = dragDirectory else { return }
+        dragDirectory = nil
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 60) {
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
+
+    /// Grows the frame out of a search result as it's selected.
+    public func flyIn(from rect: CGRect) {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
+        // SwiftUI's rects have their origin at the top left, and this view's at the bottom.
+        frameView.flyIn(from: NSRect(
+            x: rect.minX,
+            y: rootView.bounds.height - rect.maxY,
+            width: rect.width,
+            height: rect.height
+        ))
     }
 
     private func step(forward: Bool) {
@@ -198,8 +388,13 @@ public final class TimelineController: NSObject {
 
     private func show(_ update: ScrubUpdate) {
         frameView.show(update.frame.buffer)
+        shownBuffer = update.frame.buffer
+        model.isEmpty = false
         guard update.frame.frameID != shownFrameID else { return }
         shownFrameID = update.frame.frameID
+        lines = nil
+        if !selected.isEmpty { setSelection([]) }
+        if update.isExact { loadLinesSoon(for: update.frame.frameID) }
         onFrameShown?(update.frame.frameID, update.frame.buffer)
         let core = self.core
         let frameID = update.frame.frameID
@@ -209,7 +404,27 @@ public final class TimelineController: NSObject {
         }
     }
 
+    /// Reads the frame's text once the playhead has rested on it, so the cursor can show
+    /// where text is. Skipped while scrubbing, when it would never be used.
+    private func loadLinesSoon(for frameID: Int64) {
+        let core = self.core
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard let self, self.shownFrameID == frameID, self.lines == nil else { return }
+            let loaded = await Task.detached(priority: .userInitiated) {
+                (try? core.frameLines(of: frameID)) ?? []
+            }.value
+            if self.shownFrameID == frameID { self.lines = loaded }
+        }
+    }
+
     // MARK: The strip
+
+    /// Called the next time the strip reaches the screen, for measuring how fast opening is.
+    public func onNextStripPresent(_ handler: @escaping @Sendable (CFTimeInterval) -> Void) {
+        stripView?.onNextPresent = handler
+        needsStripDraw = true
+    }
 
     private func startDisplayLink() {
         guard displayLink == nil else { return }

@@ -65,8 +65,10 @@ enum Scenarios {
             present(window)
             try await Task.sleep(for: .milliseconds(900))
             try await screenshot(window, to: output)
-        case "timeline", "search-compact", "search-expanded", "jump-to-date":
+        case "timeline", "search-compact", "search-expanded", "jump-to-date", "coach-marks":
             try await captureOverlay(name, to: output)
+        case "overlay-input":
+            try await InputSelfTest.run(to: output)
         case "status-menu":
             try await captureStatusMenu(to: output)
         default:
@@ -181,7 +183,7 @@ enum Scenarios {
             }
         )
 
-        let window = NSWindow(
+        let window = ScenarioWindow(
             contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless],
             backing: .buffered,
@@ -199,23 +201,26 @@ enum Scenarios {
             onOpen: {},
             onDismiss: {},
             actions: OverflowActions(),
-            onSelectHit: { _ in },
+            onSelectHit: { _, _ in },
             onOpenHit: { _ in },
             fieldCreated: { textField = $0 },
             searchEditing: { _ in },
-            searchCancelled: {}
+            searchCancelled: {},
+            coachMarks: CoachMarkProgress(defaults: scenarioDefaults(coachMarksAt: name == "coach-marks" ? 0 : 3))
         ))
         window.contentView = controller.rootView
         window.center()
         present(window)
         controller.present(at: recording.time(of: count - 12))
+        // Opening by scrolling leaves the frame clear, which is what `timeline` shows.
+        controller.model.isSearchVisible = name != "timeline"
 
         if name == "search-expanded" || name == "search-compact" {
             // OCR, so there's something to find.
             let worker = OCRWorker(core: core)
             worker.start()
             let began = Date()
-            var trace = "thermal \(ProcessInfo.processInfo.thermalState.rawValue), lowPower \(ProcessInfo.processInfo.isLowPowerModeEnabled)\n"
+            var trace = ""
             var lastProcessed = -1
             var wasWarming = true
             while worker.framesProcessed < count, Date().timeIntervalSince(began) < 900 {
@@ -252,6 +257,14 @@ enum Scenarios {
     }
 }
 
+/// Defaults that don't touch the real app's, with the hints already at a given step.
+@MainActor
+private func scenarioDefaults(coachMarksAt step: Int) -> UserDefaults {
+    let defaults = UserDefaults(suiteName: "remind-scenario")!
+    defaults.set(step, forKey: "coachMarkStep")
+    return defaults
+}
+
 /// Draws its controls in their active colours without activating the app, so taking a
 /// screenshot doesn't take focus away from whatever someone's doing.
 private final class ScenarioWindow: NSWindow {
@@ -273,6 +286,7 @@ private final class PreviewActions: SettingsActions {
     func setLaunchAtLogin(_ enabled: Bool) {}
     func setChecksForUpdates(_ enabled: Bool) {}
     func setShowInDock(_ show: Bool) {}
+    func setNamesMeetingsFromCalendar(_ enabled: Bool) {}
     var launchAtLogin: Bool { true }
     var runningApps: [AppChoice] {
         NSWorkspace.shared.runningApplications

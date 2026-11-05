@@ -7,7 +7,7 @@ import SwiftUI
 public struct SearchPanel: View {
     @Bindable private var model: SearchModel
     private let thumbnail: (SearchHit) -> AnyView
-    private let onSelect: (SearchHit) -> Void
+    private let onSelect: (SearchHit, CGRect) -> Void
     private let onOpen: (SearchHit) -> Void
     private let field: AnyView
 
@@ -21,7 +21,7 @@ public struct SearchPanel: View {
         model: SearchModel,
         field: AnyView,
         thumbnail: @escaping (SearchHit) -> AnyView,
-        onSelect: @escaping (SearchHit) -> Void,
+        onSelect: @escaping (_ hit: SearchHit, _ cardFrame: CGRect) -> Void,
         onOpen: @escaping (SearchHit) -> Void
     ) {
         self.model = model
@@ -163,7 +163,7 @@ public struct SearchPanel: View {
                         ResultCard(
                             hit: hit,
                             thumbnail: thumbnail(hit),
-                            onSelect: { onSelect(hit) },
+                            onSelect: { onSelect(hit, $0) },
                             onOpen: { onOpen(hit) }
                         )
                         .onAppear {
@@ -190,13 +190,14 @@ public struct SearchPanel: View {
 struct ResultCard: View {
     let hit: SearchHit
     let thumbnail: AnyView
-    let onSelect: () -> Void
+    let onSelect: (CGRect) -> Void
     let onOpen: () -> Void
     @State private var isHovering = false
+    @State private var frameOnScreen = CGRect.zero
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button(action: onSelect) {
+            Button { onSelect(frameOnScreen) } label: {
                 ZStack(alignment: .bottom) {
                     thumbnail
                         .frame(height: 170)
@@ -219,6 +220,7 @@ struct ResultCard: View {
                         .padding(.bottom, 10)
                     }
                 }
+                .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frameOnScreen = $0 }
             }
             .buttonStyle(.plain)
 

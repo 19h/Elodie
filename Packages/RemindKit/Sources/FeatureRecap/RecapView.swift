@@ -14,6 +14,7 @@ public struct RecapView: View {
 
     @State private var day: Date
     @State private var recap: Recap?
+    @State private var meetings: [RecordedMeeting] = []
 
     public init(core: any RemindCore, day: Date = Date(), calendar: Calendar = .current, onOpenMoment: @escaping (Date) -> Void) {
         self.core = core
@@ -65,8 +66,30 @@ public struct RecapView: View {
         .padding(80)
     }
 
+    @ViewBuilder
+    private var meetingsSection: some View {
+        if !meetings.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Meetings").font(.headline)
+                ForEach(meetings) { meeting in
+                    Button { onOpenMoment(meeting.start) } label: {
+                        HStack {
+                            Text(meeting.title ?? String(localized: "Meeting"))
+                            Spacer()
+                            Text(meeting.start.formatted(date: .omitted, time: .shortened))
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     private func content(_ recap: Recap) -> some View {
         VStack(alignment: .leading, spacing: 26) {
+            meetingsSection
             VStack(alignment: .leading, spacing: 6) {
                 Text(Self.duration(recap.totalActive))
                     .font(.system(size: 28, weight: .semibold))
@@ -152,6 +175,9 @@ public struct RecapView: View {
         recap = await Task.detached(priority: .userInitiated) {
             try? core.recap(from: start, to: end, bucket: 3600)
         }.value ?? Recap(totalActive: 0, apps: [], activity: [], blocks: [])
+        meetings = await Task.detached(priority: .userInitiated) {
+            (try? core.meetings(from: start, to: end)) ?? []
+        }.value
     }
 
     static func appName(_ bundleID: String?) -> String? {

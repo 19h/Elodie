@@ -220,12 +220,12 @@ private final class SwitchRowView: NSView {
 
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
         icon.contentTintColor = .labelColor
-        icon.frame = NSRect(x: 14, y: 5, width: 18, height: 18)
+        icon.frame = NSRect(x: 12, y: 5, width: 18, height: 18)
         addSubview(icon)
 
         let label = NSTextField(labelWithString: title)
         label.font = .menuFont(ofSize: 0)
-        label.frame = NSRect(x: 38, y: 5, width: 170, height: 18)
+        label.frame = NSRect(x: 35, y: 5, width: 170, height: 18)
         addSubview(label)
 
         let control = AccentSwitch(title: title, isOn: isOn, onChange: onChange)
@@ -288,21 +288,5 @@ private final class AccentSwitch: NSControl {
         )
         CATransaction.commit()
         setAccessibilityValue(isOn)
-    }
-}
-
-/// Opens the timeline when ⌘⇧ is held while scrolling, from any app.
-@MainActor
-final class ScrollToOpen {
-    private var monitor: Any?
-    private let open: () -> Void
-
-    init(open: @escaping () -> Void) {
-        self.open = open
-        monitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags.contains(.command), flags.contains(.shift), abs(event.scrollingDeltaY) > 0.5 else { return }
-            MainActor.assumeIsolated { self?.open() }
-        }
     }
 }

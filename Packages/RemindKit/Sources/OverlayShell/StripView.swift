@@ -24,6 +24,8 @@ public final class StripView: NSView, CALayerDelegate {
     private let renderer: StripRenderer
     private var icons: [StripIcon] = []
     private var iconLayers: [CALayer] = []
+    /// Called the next time the strip reaches the screen, for measuring how fast opening is.
+    public var onNextPresent: (@Sendable (CFTimeInterval) -> Void)?
 
     private static let iconSize: CGFloat = 24
 
@@ -77,6 +79,10 @@ public final class StripView: NSView, CALayerDelegate {
         adjusted.scale = Double(scale)
         renderer.draw(in: encoder, viewport: adjusted)
         encoder.endEncoding()
+        if let onNextPresent {
+            drawable.addPresentedHandler { onNextPresent($0.presentedTime) }
+            self.onNextPresent = nil
+        }
         commands.present(drawable)
         commands.commit()
         layoutIcons(viewport: viewport)

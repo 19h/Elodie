@@ -12,31 +12,111 @@ import OverlayShell
 import SwiftUI
 
 /// Opens and closes the overlay, and connects the search panel to the timeline.
+///
+/// Each display keeps a panel ready, so opening only has to show it. Nothing is created
+/// at the moment you press the shortcut.
 @MainActor
 final class OverlayCoordinator {
+    /// A display's panel and everything in it.
+    private final class Prepared {
+        let display: CGDirectDisplayID
+        let uuid: UUID
+        let panel: OverlayPanel
+        let timeline: TimelineController
+        weak var field: NSTextField?
+
+        init(display: CGDirectDisplayID, uuid: UUID, panel: OverlayPanel, timeline: TimelineController) {
+            self.display = display
+            self.uuid = uuid
+            self.panel = panel
+            self.timeline = timeline
+        }
+    }
+
     private let core: any RemindCore
-    private var panel: OverlayPanel?
-    private var timeline: TimelineController?
+    private var prepared: [CGDirectDisplayID: Prepared] = [:]
+    private var active: Prepared?
     private let search: SearchModel
-    private weak var searchField: NSTextField?
     private var isSearchEditing = false
     private var highlights = HighlightModel()
     private var observers: [Any] = []
-    private var currentBuffer: CVPixelBuffer?
-    private var currentDisplay: UUID?
+
+    private var panel: OverlayPanel? { active?.panel }
+    private var timeline: TimelineController? { active?.timeline }
+    private var searchField: NSTextField? { active?.field }
+    private var currentDisplay: UUID? { active?.uuid }
 
     /// Leaves an app out of recording from now on.
     var excludeApp: (String) -> Void = { _ in }
 
-    /// The most recent captured frame, shown first so opening feels instant.
-    var latestFrame: () -> CVPixelBuffer? = { nil }
+    /// The most recent captured frame on a display, shown first so opening feels instant.
+    var latestFrame: (CGDirectDisplayID) -> CVPixelBuffer? = { _ in nil }
 
-    private(set) var isOpen = false
+    /// Tells whoever is routing scroll events.
+    var onOpenChange: (Bool) -> Void = { _ in }
+
+    private(set) var isOpen = false {
+        didSet { onOpenChange(isOpen) }
+    }
+    private var openedForSearch = false
 
     init(core: any RemindCore) {
         self.core = core
         search = SearchModel(core: core)
         observeDismissals()
+        // After launch has finished, since this makes a window per display.
+        DispatchQueue.main.async { [weak self] in self?.prepareDisplays() }
+    }
+
+    /// Readies a panel for each display. Displays come and go, so this runs again whenever
+    /// they change.
+    private func prepareDisplays() {
+        var ready: [CGDirectDisplayID: Prepared] = [:]
+        for screen in NSScreen.screens {
+            guard let display = Self.displayID(of: screen), let uuid = ScreenContent.stableID(of: display) else { continue }
+            ready[display] = makeOverlay(display: display, uuid: uuid, screen: screen)
+        }
+        prepared = ready
+    }
+
+    private func makeOverlay(display: CGDirectDisplayID, uuid: UUID, screen: NSScreen) -> Prepared {
+        let panel = OverlayPanel(screen: screen)
+        let controller = TimelineController(
+            core: core,
+            display: uuid,
+            frame: NSRect(origin: .zero, size: screen.frame.size)
+        )
+        let overlay = Prepared(display: display, uuid: uuid, panel: panel, timeline: controller)
+        controller.onAction = { [weak self] action in self?.handle(action) }
+        controller.isSearchFocused = { [weak self] in self?.isSearchEditing ?? false }
+        controller.onFrameShown = { [weak self] frameID, _ in
+            self?.highlights.frameChanged(to: frameID)
+        }
+        controller.install(chrome: OverlayContent(
+            core: core,
+            timeline: controller,
+            search: search,
+            highlights: highlights,
+            onOpen: { [weak self] in self?.openCurrent() },
+            onDismiss: { [weak self] in self?.dismiss() },
+            actions: OverflowActions(
+                star: { [weak self] in self?.starCurrent() },
+                copyText: { [weak self] in self?.timeline?.copySelection() },
+                copyImage: { [weak self] in self?.copyImage() },
+                saveImage: { [weak self] in self?.saveImage() },
+                copyLink: { [weak self] in self?.copyLink() },
+                exportClip: { [weak self] in self?.exportClip() },
+                forget: { [weak self] in self?.forgetRecent() },
+                exclude: { [weak self] in self?.excludeCurrentApp() }
+            ),
+            onSelectHit: { [weak self] hit, cardFrame in self?.select(hit, from: cardFrame) },
+            onOpenHit: { [weak self] hit in self?.openExternally(hit) },
+            fieldCreated: { [weak overlay] field in overlay?.field = field },
+            searchEditing: { [weak self] editing in self?.isSearchEditing = editing },
+            searchCancelled: { [weak self] in self?.cancelSearch() }
+        ))
+        panel.contentView = controller.rootView
+        return overlay
     }
 
     func toggle(focusSearch: Bool) {
@@ -52,55 +132,40 @@ final class OverlayCoordinator {
             if focusSearch { focusSearchField() }
             return
         }
-        let displayID = activeDisplayID()
-        guard let screen = screen(for: displayID), let uuid = ScreenContent.stableID(of: displayID) else { return }
-
-        let panel = OverlayPanel(screen: screen)
-        let controller = TimelineController(
-            core: core,
-            display: uuid,
-            frame: NSRect(origin: .zero, size: screen.frame.size)
-        )
-        controller.onAction = { [weak self] action in self?.handle(action) }
-        controller.isSearchFocused = { [weak self] in self?.isSearchEditing ?? false }
-        controller.onFrameShown = { [weak self] frameID, buffer in
-            self?.highlights.frameChanged(to: frameID)
-            self?.currentBuffer = buffer
-        }
-        currentDisplay = uuid
-
-        controller.install(chrome: OverlayContent(
-            core: core,
-            timeline: controller,
-            search: search,
-            highlights: highlights,
-            onOpen: { [weak self] in self?.openCurrent() },
-            onDismiss: { [weak self] in self?.dismiss() },
-            actions: OverflowActions(
-                star: { [weak self] in self?.starCurrent() },
-                copyImage: { [weak self] in self?.copyImage() },
-                saveImage: { [weak self] in self?.saveImage() },
-                copyLink: { [weak self] in self?.copyLink() },
-                exportClip: { [weak self] in self?.exportClip() },
-                forget: { [weak self] in self?.forgetRecent() },
-                exclude: { [weak self] in self?.excludeCurrentApp() }
-            ),
-            onSelectHit: { [weak self] hit in self?.select(hit) },
-            onOpenHit: { [weak self] hit in self?.openExternally(hit) },
-            fieldCreated: { [weak self] field in self?.searchField = field },
-            searchEditing: { [weak self] editing in self?.isSearchEditing = editing },
-            searchCancelled: { [weak self] in self?.cancelSearch() }
-        ))
-        panel.contentView = controller.rootView
-        self.panel = panel
-        timeline = controller
+        let display = activeDisplayID()
+        guard let overlay = prepared[display] ?? makeMissingOverlay(for: display) else { return }
+        active = overlay
         isOpen = true
+        openedForSearch = focusSearch
+        overlay.timeline.model.isSearchVisible = focusSearch
 
-        panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(controller.keyView)
-        controller.present(at: time, immediate: latestFrame())
+        overlay.panel.makeKeyAndOrderFront(nil)
+        overlay.panel.makeFirstResponder(overlay.timeline.keyView)
+        overlay.timeline.present(at: time, immediate: latestFrame(display))
         search.loadApps()
         if focusSearch { focusSearchField() }
+    }
+
+    /// A scroll taken over from whatever app was underneath. The swipe that opens the
+    /// timeline is the same one that moves through it, so it all feels like one motion.
+    func handleScroll(_ event: NSEvent) {
+        if !isOpen {
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            guard flags.contains(.command), flags.contains(.shift),
+                  event.momentumPhase.isEmpty,
+                  event.scrollingDeltaY > 0
+            else { return }
+            open()
+        }
+        timeline?.keyView.scrollWheel(with: event)
+    }
+
+    /// A display that appeared without the usual notice.
+    private func makeMissingOverlay(for display: CGDirectDisplayID) -> Prepared? {
+        guard let screen = screen(for: display), let uuid = ScreenContent.stableID(of: display) else { return nil }
+        let overlay = makeOverlay(display: display, uuid: uuid, screen: screen)
+        prepared[display] = overlay
+        return overlay
     }
 
     func dismiss() {
@@ -109,9 +174,7 @@ final class OverlayCoordinator {
         // Hiding comes first and is synchronous, so Esc feels immediate.
         panel?.orderOut(nil)
         timeline?.stop()
-        timeline = nil
-        panel = nil
-        currentBuffer = nil
+        active = nil
         isSearchEditing = false
         search.clear()
         highlights.clear()
@@ -131,7 +194,10 @@ final class OverlayCoordinator {
             MainActor.assumeIsolated { self?.dismiss() }
         })
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.dismiss() }
+            MainActor.assumeIsolated {
+                self?.dismiss()
+                self?.prepareDisplays()
+            }
         })
     }
 
@@ -140,8 +206,10 @@ final class OverlayCoordinator {
         case .dismiss:
             escape()
         case .focusSearch:
+            timeline?.model.isSearchVisible = true
             focusSearchField()
         case .typed(let text):
+            timeline?.model.isSearchVisible = true
             focusSearchField()
             search.text += text
         case .open:
@@ -161,6 +229,10 @@ final class OverlayCoordinator {
             cancelSearch()
         } else if search.layout == .expanded {
             search.layout = .compact
+        } else if let model = timeline?.model, model.isSearchVisible, !openedForSearch {
+            // It wasn't showing when this opened, so the frame goes back to being clear.
+            model.isSearchVisible = false
+            if let key = timeline?.keyView { panel?.makeFirstResponder(key) }
         } else {
             dismiss()
         }
@@ -184,10 +256,11 @@ final class OverlayCoordinator {
         }
     }
 
-    private func select(_ hit: SearchHit) {
+    private func select(_ hit: SearchHit, from cardFrame: CGRect) {
         highlights.show(hit.rects, frameID: hit.frameID)
         search.layout = .compact
         timeline?.move(to: hit.capturedAt)
+        timeline?.flyIn(from: cardFrame)
         if let key = timeline?.keyView { panel?.makeFirstResponder(key) }
     }
 
@@ -229,10 +302,7 @@ final class OverlayCoordinator {
     }
 
     private func currentImage() -> NSImage? {
-        guard let currentBuffer else { return nil }
-        let image = CIImage(cvPixelBuffer: currentBuffer)
-        guard let cgImage = CIContext().createCGImage(image, from: image.extent) else { return nil }
-        return NSImage(cgImage: cgImage, size: .zero)
+        timeline?.currentImage()
     }
 
     private func copyImage() {
@@ -303,6 +373,10 @@ final class OverlayCoordinator {
             .replacingOccurrences(of: ":", with: "-")
     }
 
+    private static func displayID(of screen: NSScreen) -> CGDirectDisplayID? {
+        screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID
+    }
+
     private func activeDisplayID() -> CGDirectDisplayID {
         let location = CGEvent(source: nil)?.location ?? .zero
         var display = CGDirectDisplayID()
@@ -314,9 +388,7 @@ final class OverlayCoordinator {
     }
 
     private func screen(for displayID: CGDirectDisplayID) -> NSScreen? {
-        NSScreen.screens.first {
-            ($0.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? CGDirectDisplayID) == displayID
-        } ?? NSScreen.main
+        NSScreen.screens.first { Self.displayID(of: $0) == displayID } ?? NSScreen.main
     }
 }
 
@@ -357,11 +429,17 @@ struct OverlayContent: View {
     let onOpen: () -> Void
     let onDismiss: () -> Void
     var actions = OverflowActions()
-    let onSelectHit: (SearchHit) -> Void
+    let onSelectHit: (SearchHit, CGRect) -> Void
     let onOpenHit: (SearchHit) -> Void
     let fieldCreated: (NSTextField) -> Void
     let searchEditing: (Bool) -> Void
     let searchCancelled: () -> Void
+    var coachMarks = CoachMarkProgress()
+
+    private var isSearchShowing: Bool {
+        let model = timeline.model
+        return model.isSearchVisible && model.isChromeVisible && !model.isJumpToDateOpen
+    }
 
     var body: some View {
         GeometryReader { geometry in
@@ -386,6 +464,8 @@ struct OverlayContent: View {
                         OverflowMenu(actions: actions)
                     }
                 )
+                .offset(y: timeline.model.isChromeVisible ? 0 : 12)
+                .opacity(timeline.model.isChromeVisible ? 1 : 0)
 
                 if timeline.model.isJumpToDateOpen {
                     VStack {
@@ -419,9 +499,79 @@ struct OverlayContent: View {
                     if search.layout == .compact { Spacer() }
                 }
                 // The field stays alive underneath, so typing still reaches it.
-                .opacity(timeline.model.isJumpToDateOpen ? 0 : 1)
-                .allowsHitTesting(!timeline.model.isJumpToDateOpen)
+                .opacity(isSearchShowing ? 1 : 0)
+                .allowsHitTesting(isSearchShowing)
+
+                CoachMarkLayer(progress: coachMarks)
             }
+        }
+    }
+}
+
+/// How far someone has got through the first-run hints.
+@MainActor
+@Observable
+final class CoachMarkProgress {
+    private let defaults: UserDefaults
+    private(set) var step: Int
+
+    static let stepCount = 3
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        step = defaults.integer(forKey: "coachMarkStep")
+    }
+
+    func advance() {
+        step += 1
+        defaults.set(step, forKey: "coachMarkStep")
+    }
+}
+
+/// Three hints over your own recordings, the first few times the timeline opens. Each one
+/// waits for you, so they never get in the way of something you came here to do.
+struct CoachMarkLayer: View {
+    let progress: CoachMarkProgress
+
+    private struct Hint {
+        let text: LocalizedStringKey
+        let alignment: Alignment
+        let edge: Edge.Set
+        let distance: CGFloat
+    }
+
+    private let hints = [
+        Hint(text: "Scroll to move back through time.", alignment: .bottom, edge: .bottom, distance: 140),
+        Hint(text: "Start typing to search everything you've seen.", alignment: .top, edge: .top, distance: 200),
+        Hint(text: "Press Esc to go back to what you were doing.", alignment: .center, edge: .top, distance: 0),
+    ]
+
+    var body: some View {
+        if progress.step < CoachMarkProgress.stepCount {
+            let hint = hints[progress.step]
+            HStack(spacing: 14) {
+                Text(hint.text)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white)
+                Button(progress.step == CoachMarkProgress.stepCount - 1 ? "Got it" : "Next") {
+                    progress.advance()
+                }
+                .buttonStyle(PrimaryActionStyle(font: .system(size: 13, weight: .semibold), horizontalPadding: 12, verticalPadding: 4))
+            }
+            .padding(.vertical, 10)
+            .padding(.horizontal, 14)
+            .background {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Color(white: 0.12).opacity(0.96))
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Palette.verdigris.opacity(0.6))
+            }
+            .shadow(color: .black.opacity(0.4), radius: 16, y: 6)
+            .padding(hint.edge, hint.distance)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: hint.alignment)
+            .id(progress.step)
         }
     }
 }
@@ -450,6 +600,7 @@ struct MatchHighlight: View {
 /// What the overflow menu can do.
 struct OverflowActions {
     var star: () -> Void = {}
+    var copyText: () -> Void = {}
     var copyImage: () -> Void = {}
     var saveImage: () -> Void = {}
     var copyLink: () -> Void = {}
@@ -468,6 +619,7 @@ struct OverflowMenu: View {
         }
         .buttonStyle(ChromeIconStyle())
         .help("More")
+        .accessibilityLabel("More actions")
         // Deleting can't be undone, so this asks in place. A separate alert window
         // wouldn't work over a panel that never activates.
         .overlay(alignment: .bottomTrailing) {
@@ -511,6 +663,7 @@ struct OverflowMenu: View {
             menu.addItem(item)
         }
         add(String(localized: "Star this moment"), "star", actions.star)
+        add(String(localized: "Copy text on screen"), "text.viewfinder", actions.copyText)
         add(String(localized: "Copy image"), "doc.on.clipboard", actions.copyImage)
         add(String(localized: "Save image…"), "square.and.arrow.down", actions.saveImage)
         add(String(localized: "Copy link to this moment"), "link", actions.copyLink)

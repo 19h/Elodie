@@ -85,6 +85,8 @@ final class AppController: NSObject {
     private var lastTranscript: DateInterval?
     private var meetingGoneSince: Date?
     private let inventory = WindowInventory()
+    private let calendar = MeetingCalendar()
+    private var transcriptTitle: String?
     let updater = Updater()
     private(set) var isTranscribing = false
     /// Set once the app is running, so Shortcuts actions and the Control Center button can
@@ -137,7 +139,8 @@ final class AppController: NSObject {
         KeyboardShortcuts.onKeyDown(for: .dailyRecap) { [weak self] in self?.openRecap() }
         KeyboardShortcuts.onKeyDown(for: .starMoment) { [weak self] in self?.starMoment() }
         KeyboardShortcuts.onKeyDown(for: .toggleAudio) { [weak self] in self?.toggleTranscribing() }
-        scrollMonitor = ScrollToOpen { [weak self] in self?.overlay?.open() }
+        scrollMonitor = ScrollToOpen { [weak self] event in self?.overlay?.handleScroll(event) }
+        scrollMonitor?.start()
     }
 
     // MARK: Opening the vault
@@ -182,6 +185,7 @@ final class AppController: NSObject {
         self.core = core
         problem = nil
         let overlay = OverlayCoordinator(core: core)
+        overlay.onOpenChange = { [weak self] isOpen in self?.scrollMonitor?.isOverlayOpen = isOpen }
         self.overlay = overlay
 
         let worker = OCRWorker(core: core)
@@ -194,7 +198,11 @@ final class AppController: NSObject {
             DispatchQueue.main.async { self?.recordingChanged(state) }
         }
         self.recording = recording
-        overlay.latestFrame = { [weak recording] in recording?.latestFrame }
+        overlay.latestFrame = { [weak recording] display in
+            // A frame from another display would be the wrong picture, however recent.
+            guard case .recording(display)? = recording?.currentState else { return nil }
+            return recording?.latestFrame
+        }
         overlay.excludeApp = { [weak self] bundleID in
             self?.settings.excludedApps.insert(bundleID)
             self?.recording?.update(policy: self?.currentPolicy() ?? ExclusionPolicy(excludedBundleIDs: []))
@@ -243,6 +251,7 @@ final class AppController: NSObject {
         guard !isTranscribing, let audio else { return }
         isTranscribing = true
         audioStarted = Date()
+        transcriptTitle = title
         menu?.refresh()
         let sources = AudioSources(
             microphone: settings.audioSource != .speakerOnly,
@@ -263,7 +272,12 @@ final class AppController: NSObject {
         guard isTranscribing else { return }
         isTranscribing = false
         if let audioStarted {
-            lastTranscript = DateInterval(start: audioStarted, end: Date())
+            let interval = DateInterval(start: audioStarted, end: Date())
+            lastTranscript = interval
+            let title = transcriptTitle
+            Task.detached(priority: .utility) { [core] in
+                try? core?.recordMeeting(title: title, from: interval.start, to: interval.end)
+            }
         }
         menu?.refresh()
         Task { await audio?.stop() }
@@ -278,7 +292,7 @@ final class AppController: NSObject {
         let view = TranscriptView(
             core: core,
             interval: lastTranscript,
-            title: currentMeeting?.app
+            title: transcriptTitle ?? currentMeeting?.app
         ) { [weak self] time in
             self?.overlay?.open(at: time)
         }
@@ -298,10 +312,17 @@ final class AppController: NSObject {
         let windows = inventory.onScreenWindows().filter { $0.layer == 0 }.map { window in
             MeetingSignals.Window(bundleID: inventory.identify(window.ownerPID).bundleID, title: window.title)
         }
-        let detected = MeetingDetector.detect(MeetingSignals(
+        var detected = MeetingDetector.detect(MeetingSignals(
             windows: windows,
             isMicrophoneInUse: MeetingDetector.isMicrophoneInUse
         ))
+        // The calendar often knows what a call is about when its window doesn't. This keeps
+        // the name it first found, so a meeting doesn't count as new when an event ends.
+        if let meeting = detected, meeting.title == nil {
+            detected?.title = meeting.app == currentMeeting?.app
+                ? currentMeeting?.title
+                : (settings.namesMeetingsFromCalendar ? calendar.currentEventTitle() : nil)
+        }
 
         if let detected {
             meetingGoneSince = nil
@@ -583,6 +604,8 @@ final class AppController: NSObject {
 
     /// Everything that needs checking now and then.
     private func maintain(now: Date = Date()) {
+        // Taking over scrolling needs Accessibility, which may have been allowed since launch.
+        scrollMonitor?.start()
         checkDisk()
         updatePrivacyWarning()
         remindAboutRecoveryKey(now: now)
@@ -816,6 +839,17 @@ extension AppController: SettingsActions {
         Self.loginAgent.status == .enabled
     }
 
+    func setNamesMeetingsFromCalendar(_ enabled: Bool) {
+        guard enabled else {
+            settings.namesMeetingsFromCalendar = false
+            return
+        }
+        // Asking happens now, when it's clear why, and not in the middle of a meeting.
+        Task {
+            settings.namesMeetingsFromCalendar = await calendar.requestAccess()
+        }
+    }
+
     func setShowInDock(_ show: Bool) {
         settings.showInDock = show
         NSApp.setActivationPolicy(show ? .regular : .accessory)
@@ -853,7 +887,7 @@ struct ShortcutsTab: View {
             KeyboardShortcuts.Recorder("Star moment:", name: .starMoment)
             KeyboardShortcuts.Recorder("Audio capture:", name: .toggleAudio)
             LabeledContent("") {
-                Text("⌘⇧ and scroll also opens Remind from anywhere.")
+                Text("Hold ⌘⇧ and scroll up from anywhere to go back in time.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -95,7 +95,7 @@ public enum SettingsWindow {
         case .general: GeneralTab(model: model, actions: actions)
         case .screen: ScreenTab(model: model, actions: actions)
         case .audio: AudioTab(model: model)
-        case .meetings: MeetingsTab(model: model)
+        case .meetings: MeetingsTab(model: model, actions: actions)
         case .storage: StorageTab(model: model, actions: actions)
         case .shortcuts: shortcuts
         }
@@ -319,12 +319,24 @@ private struct AudioTab: View {
                 (Locale.current.localizedString(forIdentifier: $0.identifier) ?? "")
                     < (Locale.current.localizedString(forIdentifier: $1.identifier) ?? "")
             }
+            // A Mac's own locale often isn't one speech supports, such as English in
+            // Germany, and a picker with nothing selected looks broken.
+            if !languages.contains(where: { $0.identifier == model.transcriptionLanguage }) {
+                let current = Locale(identifier: model.transcriptionLanguage)
+                let match = await SpeechTranscriber.supportedLocale(equivalentTo: current)
+                    ?? languages.first { $0.language.languageCode == current.language.languageCode }
+                    ?? languages.first
+                if let match {
+                    model.transcriptionLanguage = match.identifier
+                }
+            }
         }
     }
 }
 
 private struct MeetingsTab: View {
     @Bindable var model: SettingsModel
+    let actions: any SettingsActions
 
     var body: some View {
         Form {
@@ -342,6 +354,20 @@ private struct MeetingsTab: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
+            LabeledContent("Names:") {
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Name meetings from your calendar", isOn: Binding(
+                        get: { model.namesMeetingsFromCalendar },
+                        set: { actions.setNamesMeetingsFromCalendar($0) }
+                    ))
+                    .toggleStyle(.checkbox)
+                    Text("Remind reads the event that's on now, and only keeps its title with the transcript.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .padding(.top, 8)
         }
         .formStyle(.columns)
         .padding(28)

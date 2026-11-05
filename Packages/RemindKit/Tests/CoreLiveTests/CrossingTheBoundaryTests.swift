@@ -28,6 +28,44 @@ import Testing
         )
     }
 
+    @Test func meetingsAreRememberedInOrder() throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = try LiveCore(vaultDirectory: dir, masterKey: key)
+        let start = Date(timeIntervalSince1970: 1_800_000_000)
+        try core.recordMeeting(title: "Later", from: start.addingTimeInterval(3600), to: start.addingTimeInterval(7200))
+        try core.recordMeeting(title: nil, from: start, to: start.addingTimeInterval(600))
+
+        let meetings = try core.meetings(from: start, to: start.addingTimeInterval(86_400))
+        #expect(meetings.map(\.title) == [nil, "Later"])
+        #expect(meetings.first?.start == start)
+        #expect(meetings.first?.end == start.addingTimeInterval(600))
+        #expect(try core.meetings(from: start.addingTimeInterval(86_400), to: start.addingTimeInterval(90_000)).isEmpty)
+    }
+
+    @Test func aFramesLinesComeBackWithWhereTheyAre() async throws {
+        let dir = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let core = try LiveCore(vaultDirectory: dir, masterKey: key)
+        let display = UUID()
+        #expect(try core.append(sample(0, keyframe: true, display: display)) == .accepted)
+        try core.sealAll()
+        var jobs: [OCRJob] = []
+        for _ in 0..<600 where jobs.isEmpty {
+            jobs = try core.nextOCRBatch(max: 1, now: Date(), includeDeferred: true)
+            if jobs.isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        }
+        let frameID = try #require(jobs.first?.frameID)
+        let rect = CGRect(x: 0.25, y: 0.5, width: 0.25, height: 0.0625)
+        try core.submitOCR([OCRResult(frameID: frameID, lines: [RecognizedLine(text: "hello there", rect: rect)])])
+
+        let lines = try core.frameLines(of: frameID)
+        #expect(lines.map(\.text) == ["hello there"])
+        let found = try #require(lines.first?.rect)
+        #expect(abs(found.minX - rect.minX) < 0.001 && abs(found.minY - rect.minY) < 0.001)
+        #expect(abs(found.width - rect.width) < 0.001 && abs(found.height - rect.height) < 0.001)
+    }
+
     @Test func rustIsReachable() throws {
         let dir = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: dir) }

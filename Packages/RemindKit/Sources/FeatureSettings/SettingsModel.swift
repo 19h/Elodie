@@ -80,6 +80,9 @@ public final class SettingsModel {
     public var retention: RetentionPeriod {
         didSet { defaults.set(retention.rawValue, forKey: "retention") }
     }
+    public var namesMeetingsFromCalendar: Bool {
+        didSet { defaults.set(namesMeetingsFromCalendar, forKey: "namesMeetingsFromCalendar") }
+    }
     /// Why private windows might not be spotted right now, for the Screen tab.
     public var privateBrowsingWarning: String?
     public var hasFinishedOnboarding: Bool {
@@ -93,6 +96,7 @@ public final class SettingsModel {
         }
         showInDock = bool("showInDock", false)
         remindWhenPaused = bool("remindWhenPaused", true)
+        namesMeetingsFromCalendar = bool("namesMeetingsFromCalendar", false)
         checkForUpdates = bool("checkForUpdates", true)
         excludedApps = Set(defaults.stringArray(forKey: "excludedApps") ?? [])
         // On in every language. Private windows shouldn't depend on system language.
@@ -141,6 +145,7 @@ public protocol SettingsActions: AnyObject {
     var launchAtLogin: Bool { get }
     func setChecksForUpdates(_ enabled: Bool)
     func setShowInDock(_ show: Bool)
+    func setNamesMeetingsFromCalendar(_ enabled: Bool)
     var runningApps: [AppChoice] { get }
 }
 

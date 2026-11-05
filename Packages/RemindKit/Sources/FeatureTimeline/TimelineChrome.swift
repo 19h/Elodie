@@ -68,6 +68,18 @@ public struct TimelineChrome: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .overlay {
+            if model.isEmpty {
+                VStack(spacing: 6) {
+                    Text("Nothing recorded on this display yet")
+                        .font(.system(size: 17, weight: .semibold))
+                    Text("Remind records the display your pointer is on.")
+                        .font(.system(size: 13))
+                        .opacity(0.7)
+                }
+                .foregroundStyle(.white)
+            }
+        }
     }
 
     private var timePill: some View {

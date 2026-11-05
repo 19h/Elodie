@@ -12,6 +12,7 @@ public enum OverlayAction: Equatable, Sendable {
     case typed(String)
     case open
     case star
+    case copy
     case dismiss
 }
 
@@ -49,6 +50,7 @@ public enum OverlayKeyMap {
             // These must never quit the recorder while the overlay's up.
             case "q", "w": return .dismiss
             case "s" where flags.contains(.shift): return .star
+            case "c" where !isSearchFocused: return .copy
             default: return nil
             }
         }
@@ -61,10 +63,42 @@ public enum OverlayKeyMap {
     }
 }
 
+/// What the mouse is doing over the frame, in this view's coordinates.
+public enum OverlayMouse {
+    case moved(NSPoint)
+    case down(NSPoint)
+    case dragged(NSPoint, NSEvent)
+    case up(NSPoint)
+}
+
 /// Receives input for the overlay, then passes it on as actions.
 public final class OverlayInputView: NSView {
     public var onAction: ((OverlayAction) -> Void)?
+    public var onMouse: ((OverlayMouse) -> Void)?
     public var isSearchFocused: () -> Bool = { false }
+    private var tracking: NSTrackingArea?
+
+    public override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        tracking = area
+    }
+
+    private func location(_ event: NSEvent) -> NSPoint {
+        convert(event.locationInWindow, from: nil)
+    }
+
+    public override func mouseMoved(with event: NSEvent) { onMouse?(.moved(location(event))) }
+    public override func mouseDown(with event: NSEvent) { onMouse?(.down(location(event))) }
+    public override func mouseDragged(with event: NSEvent) { onMouse?(.dragged(location(event), event)) }
+    public override func mouseUp(with event: NSEvent) { onMouse?(.up(location(event))) }
 
     public override var acceptsFirstResponder: Bool { true }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
