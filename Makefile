@@ -1,5 +1,5 @@
 # Remind build entry points.
-DERIVED := build/DerivedData
+DERIVED := build/Derived
 APP := $(DERIVED)/Build/Products/Debug/Remind.app
 
 # Where crash tests keep their vaults. Everything is removed afterward.

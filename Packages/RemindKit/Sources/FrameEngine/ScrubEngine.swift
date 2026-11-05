@@ -230,24 +230,18 @@ public final class ScrubEngine: @unchecked Sendable {
     /// request inside this group is handled next by continuing from here, so finished
     /// work isn't thrown away.
     private func decode(_ open: inout OpenGroup, through index: Int, target: Int64, request: Request) throws {
+        guard open.nextIndex <= index else { return }
         let started = Date()
-        var decodedCount = 0
-        defer { measure(frames: decodedCount, since: started) }
+        let samples = Array(open.group.samples[open.nextIndex...index])
+        let images = try open.decoder.decode(samples.map(\.data)) { hasNewerRequest }
+        measure(frames: images.count, since: started)
+        open.nextIndex += images.count
 
-        while open.nextIndex <= index {
-            let sample = open.group.samples[open.nextIndex]
-            let image = try open.decoder.decode(sample.data)
-            open.nextIndex += 1
-            decodedCount += 1
+        for (sample, image) in zip(samples, images) {
             let decoded = DecodedFrame(frameID: sample.frameID, capturedAt: sample.capturedAt, buffer: image)
             cache.insert(decoded, target: target, direction: direction)
-
             if sample.frameID == target {
                 show(decoded, isExact: true, request: request)
-                return
-            }
-            if hasNewerRequest {
-                return
             }
         }
     }
@@ -310,9 +304,8 @@ public final class ScrubEngine: @unchecked Sendable {
             return
         }
         let decoder = try HEVCDecoder(parameterSets: group.parameterSets, width: group.width, height: group.height)
-        for sample in group.samples {
-            if hasNewerRequest { return }
-            let image = try decoder.decode(sample.data)
+        let images = try decoder.decode(group.samples.map(\.data)) { hasNewerRequest }
+        for (sample, image) in zip(group.samples, images) {
             cache.insert(
                 DecodedFrame(frameID: sample.frameID, capturedAt: sample.capturedAt, buffer: image),
                 target: target,

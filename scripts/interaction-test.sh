@@ -5,7 +5,7 @@
 set -u
 cd "$(dirname "$0")/.."
 # Set REMIND_APP to use a build from somewhere else.
-APP="${REMIND_APP:-$PWD/build/DerivedData/Build/Products/Debug/Remind.app}"
+APP="${REMIND_APP:-$PWD/build/Derived/Build/Products/Debug/Remind.app}"
 OUT="$PWD/build/scenarios"
 mkdir -p "$OUT"
 
