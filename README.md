@@ -144,11 +144,15 @@ The overlay opens on the display under your pointer. It never activates Remind, 
 
 - **Scroll or swipe** to move through time. Scrolling moves the strip under a fixed playhead, and it follows your natural scrolling setting. Hold ⌥ to go 8 times faster.
 - **Pinch, or press ⌘+ and ⌘−,** to zoom the strip, from a whole day on screen down to seconds. The magnifier beside **Open** does the same with a slider.
-- **The strip** shows which app was in front at each moment, in colour and with app icons, plus marks for starred moments and for when something was being transcribed. Hover over a run to see its window and how long it lasted.
+- **The strip** shows which app was in front at each moment, in colour and with app icons, plus marks for starred moments and for when something was being transcribed. Hover over a run to see its window, when it ran, and how long it lasted, with seconds if it's under 10 minutes.
 - **The time pill** opens Jump to Date & Time. The calendar and hours dim wherever nothing was recorded, or you can type a phrase such as "yesterday 3pm" or "March 4". A phrase with no year or day means the most recent time it happened.
 - **Open** goes back to the app you were in, or reopens the page in the same browser.
 - **The arrow at the end of the strip** returns to now.
 - **The display picker** appears when more than one display has recordings. Recording follows your pointer, so each display has its own history, and you can look through any of them from where you are. A recording from a display of another shape sits in the middle, with bars at the sides or above.
+
+<p align="center">
+  <img src="docs/images/strip-hover.png" width="500" alt="The strip with one run outlined, and a card above it naming the window, Fixture article, with its start and end times to the second and its length of 1 minute, 14 seconds">
+</p>
 
 ![Jump to Date & Time, with a calendar of the month, a list of hours, and a field for typing a phrase](docs/images/jump-to-date.png)
 
@@ -328,7 +332,7 @@ Remind also adjusts by itself:
 | ⌥⇧Space | Open Ask. |
 | Open Remind again while it's running | Open search, or setup or the recovery key if they need you first. |
 
-You can change the two key combinations in Settings → Shortcuts. You can also assign shortcuts there for Daily Recap, Star moment, and Audio capture, which have none by default.
+You can change the two key combinations in Settings → Shortcuts. A default is saved the first time it's used, so a Mac that ran an earlier build keeps ⌘⇧- for Ask until you change it there. You can also assign shortcuts there for Daily Recap, Star moment, and Audio capture, which have none by default.
 
 **In the timeline**
 
