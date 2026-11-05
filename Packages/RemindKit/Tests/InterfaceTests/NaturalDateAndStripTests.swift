@@ -332,3 +332,30 @@ import Testing
         #expect(SliceDescription.duration(2 * 3600 + 5 * 60) == "2 hours, 5 minutes")
     }
 }
+
+@Suite struct FittingAPicture {
+    private let wide = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+
+    @Test func theSameShapeFillsTheSpace() {
+        #expect(aspectFit(CGSize(width: 3840, height: 2160), in: wide) == wide)
+    }
+
+    /// A MacBook's recording on a 16:9 display has bars at the sides, and marks on the picture
+    /// have to start where the picture starts.
+    @Test func aDifferentShapeSitsInTheMiddle() {
+        let picture = aspectFit(CGSize(width: 3456, height: 2234), in: wide)
+        #expect(picture.height == 1080)
+        #expect(abs(picture.width - 1670.7) < 0.1)
+        #expect(abs(picture.minX - 124.6) < 0.1)
+        #expect(picture.minY == 0)
+    }
+
+    @Test func aWidePictureOnATallDisplayHasBarsAboveAndBelow() {
+        let picture = aspectFit(CGSize(width: 2000, height: 1000), in: CGRect(x: 0, y: 0, width: 1000, height: 1000))
+        #expect(picture == CGRect(x: 0, y: 250, width: 1000, height: 500))
+    }
+
+    @Test func aPictureWithNoSizeLeavesTheSpaceAlone() {
+        #expect(aspectFit(.zero, in: wide) == wide)
+    }
+}

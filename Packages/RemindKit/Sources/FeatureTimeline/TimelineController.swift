@@ -158,6 +158,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
         model.zoomFraction = TimelineZoom.fraction(for: interpreter.pointsPerSecond)
         if let immediate {
             frameView.show(immediate)
+            notePicturePosition()
             onFirstFrame?()
         } else {
             firstFrameHandler = onFirstFrame
@@ -571,10 +572,23 @@ public final class TimelineController: NSObject, NSDraggingSource {
     // MARK: Text and dragging
 
     private func normalized(_ point: NSPoint) -> CGPoint {
-        CGPoint(
-            x: point.x / max(inputView.bounds.width, 1),
-            y: 1 - point.y / max(inputView.bounds.height, 1)
+        let picture = frameView.pictureRect
+        return CGPoint(
+            x: (point.x - picture.minX) / max(picture.width, 1),
+            y: 1 - (point.y - picture.minY) / max(picture.height, 1)
         )
+    }
+
+    /// Tells what's drawn over the frame where the picture is, in SwiftUI's coordinates.
+    private func notePicturePosition() {
+        let picture = frameView.pictureRect
+        let flipped = CGRect(
+            x: picture.minX,
+            y: rootView.bounds.height - picture.maxY,
+            width: picture.width,
+            height: picture.height
+        )
+        if model.pictureRect != flipped { model.pictureRect = flipped }
     }
 
     private func currentLines() -> [RecognizedLine] {
@@ -722,6 +736,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
 
     private func show(_ update: ScrubUpdate) {
         frameView.show(update.frame.buffer)
+        notePicturePosition()
         shownBuffer = update.frame.buffer
         model.isEmpty = false
         deliverFirstFrame()

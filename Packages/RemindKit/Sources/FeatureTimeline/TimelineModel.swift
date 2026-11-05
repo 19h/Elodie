@@ -54,6 +54,9 @@ public final class TimelineModel {
     /// The stretch picked out on the strip, and what it holds.
     public private(set) var slice: DateInterval?
     public private(set) var sliceSummary: SliceSummary?
+    /// Where the picture is on screen, with the origin at the top left. It only fills the
+    /// screen when it's from a display of the same shape.
+    public var pictureRect: CGRect?
     /// Asking whether to forget the last 5 minutes.
     public var isConfirmingForget = false
     /// The displays with recordings, when there's more than one to choose from.
@@ -98,6 +101,7 @@ public final class TimelineModel {
 
     /// Clears everything from the last time this was open.
     func reset() {
+        pictureRect = nil
         isConfirmingForget = false
         isJumpToDateOpen = false
         isChromeVisible = false

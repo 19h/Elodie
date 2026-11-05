@@ -1,4 +1,5 @@
-import Audio
+@testable import Audio
+import AVFoundation
 import CoreAPI
 import CoreLive
 import Foundation
@@ -70,6 +71,24 @@ import Testing
 
 /// Real speech recognition on real audio, with no microphone: `say` speaks known text
 /// to a file, and the transcriber has to get it back with real timing.
+@Suite struct PlacingLiveAudio {
+    private let rate = 16_000.0
+
+    @Test func audioThatSeemsToStartEarlyFollowsOnFromTheLast() {
+        // The last buffer ended at 1 second, and this one claims 0.9.
+        #expect(Transcriber.position(forArrivalAt: 0.9, next: 16_000, sampleRate: rate) == 16_000)
+    }
+
+    @Test func smallDelaysAreJustUnevenArrival() {
+        #expect(Transcriber.position(forArrivalAt: 1.3, next: 16_000, sampleRate: rate) == 16_000)
+    }
+
+    /// Nothing plays for a while, so nothing's delivered, and times have to pick up from now.
+    @Test func aRealGapMovesForward() {
+        #expect(Transcriber.position(forArrivalAt: 5, next: 16_000, sampleRate: rate) == 80_000)
+    }
+}
+
 @Suite struct RealSpeech {
     private final class Words: @unchecked Sendable {
         let lock = NSLock()
@@ -100,6 +119,51 @@ import Testing
         }
         try await transcriber.transcribe(file: file)
         return collected.lock.withLock { collected.all }
+    }
+
+    /// Live audio arrives in uneven bursts, timed only by when each one turned up. The analyzer
+    /// refuses a buffer that seems to start before the last ended, which stopped transcription
+    /// within seconds on real system audio.
+    @Test func unevenLiveBuffersStillTranscribe() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "remind-audio-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "speech.wav")
+        try speak("The quarterly budget review is scheduled for next Tuesday morning.", to: file)
+
+        let collected = Words()
+        let failures = Words()
+        let started = Date(timeIntervalSince1970: 1_800_000_000)
+        let locale = try await Transcriber.prepare(locale: Locale(identifier: "en_US"))
+        let transcriber = Transcriber(
+            locale: locale,
+            isMe: false,
+            startedAt: started,
+            onWords: { words in collected.lock.withLock { collected.all.append(contentsOf: words) } },
+            onFailure: { _ in failures.lock.withLock { failures.all.append(SpokenWord(text: "failed", time: started, duration: 0, confidence: 0, isMe: false)) } }
+        )
+        try await transcriber.start()
+
+        let audio = try AVAudioFile(forReading: file)
+        let chunk = AVAudioFrameCount(audio.processingFormat.sampleRate / 10)
+        var position = 0.0
+        var index = 0
+        while audio.framePosition < audio.length {
+            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: chunk))
+            try audio.read(into: buffer, frameCount: chunk)
+            // Every other buffer turns up early enough to overlap the one before it.
+            let jitter = index % 2 == 0 ? -0.06 : 0.04
+            transcriber.append(buffer, at: started.addingTimeInterval(max(0, position + jitter)))
+            position += Double(buffer.frameLength) / audio.processingFormat.sampleRate
+            index += 1
+        }
+        try await transcriber.finish()
+
+        #expect(failures.lock.withLock { failures.all.isEmpty })
+        let text = collected.lock.withLock { collected.all }.map { $0.text.lowercased() }.joined(separator: " ")
+        #expect(text.contains("budget"), "got: \(text)")
+        #expect(text.contains("tuesday"), "got: \(text)")
     }
 
     @Test func spokenWordsComeBackWithRealTimesAndConfidence() async throws {

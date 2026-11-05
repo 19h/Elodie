@@ -158,6 +158,9 @@ final class AppController: NSObject {
 
     func start() {
         Self.shared = self
+        #if DEBUG
+        if let sandbox = AppEnvironment.sandbox { startSandboxDriver(in: sandbox) }
+        #endif
         updater.checksAutomatically = settings.checkForUpdates
         listenForControlCenter()
         NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
@@ -182,16 +185,20 @@ final class AppController: NSObject {
         }
     }
 
-    /// Finishes anything in progress before quitting. Audio can take a moment, because
-    /// what's being said right now only becomes words when it's told to finish.
-    func finishForQuit() async {
+    /// Gets ready to quit, and returns what's left to finish. Audio can take a moment, because
+    /// what's being said right now only becomes words when it's told to finish. The work it
+    /// returns can't rely on the main actor: see `AppDelegate.applicationShouldTerminate`.
+    func prepareToQuit() -> @Sendable () async -> Void {
         if isTranscribing {
             stopTranscribing()
         }
-        await audio?.stop()
-        let core = self.core
-        await Task.detached(priority: .userInitiated) { try? core?.sealAll() }.value
         crashGuard.markCleanExit()
+        let audio = self.audio
+        let core = self.core
+        return {
+            await audio?.stop()
+            try? core?.sealAll()
+        }
     }
 
     private func registerShortcuts() {
@@ -920,6 +927,8 @@ final class AppController: NSObject {
             scheduleEndOfPause(duration: duration)
         } else {
             savePause(until: nil)
+            // Turning recording back on is the answer to having come back paused after crashes.
+            if problem == .keptCrashing { problem = nil }
             startRecording()
         }
         menu?.refresh()
@@ -1395,6 +1404,119 @@ final class AppController: NSObject {
         }
     }
 }
+
+#if DEBUG
+// MARK: Driving a sandboxed run
+
+/// Lets a run under `--sandbox` be driven from outside: a command written to `<sandbox>/command`
+/// runs here, and what it found lands in `<sandbox>/result`. Nothing takes the keyboard or the
+/// pointer, so this can run while someone's working. It doesn't exist in release builds.
+extension AppController {
+    func startSandboxDriver(in sandbox: URL) {
+        let command = sandbox.appending(path: "command")
+        let result = sandbox.appending(path: "result")
+        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
+                guard let text = try? String(contentsOf: command, encoding: .utf8) else { return }
+                try? FileManager.default.removeItem(at: command)
+                Task { @MainActor in
+                    let answer = await self?.runDriverCommand(text.trimmingCharacters(in: .whitespacesAndNewlines)) ?? "gone"
+                    try? (answer + "\n").write(to: result, atomically: true, encoding: .utf8)
+                }
+            }
+        }
+    }
+
+    private func runDriverCommand(_ text: String) async -> String {
+        let parts = text.split(separator: " ", maxSplits: 1).map(String.init)
+        let argument = parts.count > 1 ? parts[1] : ""
+        do {
+            switch parts.first ?? "" {
+            case "open":
+                overlay?.open(focusSearch: argument == "search")
+            case "search":
+                overlay?.debugSearch(argument)
+            case "choose":
+                overlay?.debugChooseResult()
+            case "esc":
+                overlay?.debugEscape()
+            case "dismiss":
+                overlay?.dismiss()
+            case "back":
+                overlay?.debugMove(to: Date().addingTimeInterval(-(Double(argument) ?? 0)))
+            case "star":
+                overlay?.debugStar()
+            case "click":
+                let x = Double(argument) ?? 0
+                overlay?.debugStrip(.down(x, clicks: 1))
+                overlay?.debugStrip(.up(x))
+            case "clickPlayhead":
+                overlay?.debugClickPlayhead()
+            case "deleteSelection":
+                try await overlay?.debugDeleteSelection()
+            case "exportSelection":
+                try await overlay?.debugExportSelection(to: URL(filePath: argument))
+            case "filterStarred":
+                overlay?.debugFilterStarred()
+            case "listen":
+                toggleTranscribing()
+            case "pause":
+                togglePaused()
+            case "recap":
+                openRecap()
+            case "ask":
+                openAsk()
+            case "transcripts":
+                openTranscripts()
+            case "settings":
+                openSettings()
+            case "shootPanel":
+                guard let window = overlay?.debugPanelWindow else { return "no panel" }
+                try await ScreenContent.saveScreenshot(ofWindow: window, to: URL(filePath: argument))
+            case "shootWindow":
+                try await ScreenContent.saveScreenshotOfLargestOwnWindow(to: URL(filePath: argument))
+            case "recoveryKey":
+                return (try? RecoveryKey.text(for: KeyStore.key(vaultExists: true))) ?? "none"
+            case "state":
+                break
+            case "hits":
+                return overlay?.debugHits ?? "none"
+            case "apps":
+                return try core?.recordedApps().joined(separator: "\n") ?? "none"
+            case "lookup":
+                guard let core, let time = Double(argument), let display = overlay?.debugDisplay,
+                      let found = try core.lookup(display: display, at: Date(timeIntervalSince1970: time))
+                else { return "nothing" }
+                let group = try core.readGroup(containing: found.id)
+                return "frame \(found.id) at \(found.capturedAt.timeIntervalSince1970), group \(group.samples.map { "\($0.frameID)\($0.isKeyframe ? "K" : "")" }.joined(separator: " "))"
+            case "quit":
+                NSApp.terminate(nil)
+            default:
+                return "unknown command \(text)"
+            }
+        } catch {
+            return "failed: \(error)"
+        }
+        var state = overlay?.debugState ?? ["open": "no overlay"]
+        state["paused"] = "\(isPaused)"
+        state["listening"] = "\(isTranscribing)"
+        state["problem"] = problem.map { "\($0)" } ?? "none"
+        state["recording"] = recording.map { "\($0.currentState)" } ?? "none"
+        if let core {
+            let stats = core.stats()
+            state["logged"] = "\(stats.loggedFrames)"
+            state["indexed"] = "\(stats.indexedFrames)"
+            state["dropped"] = "\(stats.droppedFrames)"
+        }
+        if let stats = recording?.pipelineStats {
+            state["pipeline"] = "received \(stats.received), busy \(stats.busy), unchanged \(stats.unchanged), black \(stats.black), excluded \(stats.excluded), stored \(stats.stored)"
+        }
+        state["ocrWarming"] = "\(ocr?.isWarmingUp ?? false)"
+        state["ocrDone"] = "\(ocr?.framesProcessed ?? -1)"
+        return state.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "\n")
+    }
+}
+#endif
 
 // MARK: Settings
 

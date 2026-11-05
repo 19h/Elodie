@@ -97,6 +97,15 @@ final class OverlayCoordinator {
 
     private func makeOverlay(display: CGDirectDisplayID, uuid: UUID, screen: NSScreen) -> Prepared {
         let panel = OverlayPanel(screen: screen)
+        #if DEBUG
+        // Normally nothing can capture this, including its own process. A throwaway test run
+        // has to be able to photograph itself, and whoever's at the Mac mustn't lose their
+        // pointer to it, or steer it by accident.
+        if AppEnvironment.sandbox != nil {
+            panel.sharingType = .readOnly
+            panel.ignoresMouseEvents = true
+        }
+        #endif
         let controller = TimelineController(
             core: core,
             display: uuid,
@@ -187,6 +196,12 @@ final class OverlayCoordinator {
         overlay.timeline.present(at: time, immediate: immediate) { [weak self, weak overlay] in
             guard let self, let overlay, self.active === overlay else { return }
             CATransaction.flush()
+            #if DEBUG
+            if AppEnvironment.sandbox != nil {
+                overlay.panel.orderFrontRegardless()
+                return
+            }
+            #endif
             overlay.panel.makeKeyAndOrderFront(nil)
             overlay.panel.makeFirstResponder(overlay.timeline.keyView)
             if focusSearch { self.focusSearchField() }
@@ -209,6 +224,64 @@ final class OverlayCoordinator {
     }
 
     #if DEBUG
+    var debugDismissReason = "none"
+    var debugDisplay: UUID? { timeline?.display }
+    var debugHits: String {
+        search.hits.prefix(6).map { "frame \($0.frameID) at \($0.capturedAt.timeIntervalSince1970): \($0.snippet)" }.joined(separator: "\n")
+    }
+
+    /// Runs the search field's job without the keyboard, for a sandboxed run driven from outside.
+    func debugSearch(_ text: String) {
+        timeline?.model.isSearchVisible = true
+        search.text = text
+    }
+
+    func debugChooseResult() { chooseResult() }
+    func debugClickPlayhead() {
+        guard let width = panel?.frame.width else { return }
+        let middle = Double(width) / 2
+        timeline?.simulateStrip(.down(middle, clicks: 1))
+        timeline?.simulateStrip(.up(middle))
+    }
+    func debugFilterStarred() {
+        timeline?.model.isSearchVisible = true
+        search.starredOnly = true
+    }
+    func debugExportSelection(to url: URL) async throws {
+        guard let slice = timeline?.model.slice, let display = timeline?.display else { return }
+        try await MP4Exporter.export(core: core, display: display, from: slice.start, to: slice.end, to: url)
+    }
+    func debugEscape() { escape() }
+    func debugMove(to time: Date) { timeline?.move(to: time) }
+    func debugStrip(_ event: StripInteractionView.Event) { timeline?.simulateStrip(event) }
+    func debugStar() { starCurrent() }
+    func debugDeleteSelection() async throws {
+        guard let slice = timeline?.model.slice else { return }
+        try await delete(slice)
+        timeline?.clearSlice()
+    }
+    var debugPanelWindow: CGWindowID? { (panel?.windowNumber).map { CGWindowID($0) } }
+    var debugState: [String: String] {
+        guard let timeline else { return ["open": "false", "dismissedBy": debugDismissReason] }
+        return [
+            "open": "true",
+            "playhead": "\(timeline.playhead.timeIntervalSince1970)",
+            "label": timeline.model.timeLabel,
+            "frame": timeline.currentFrameID.map(String.init) ?? "none",
+            "isEmpty": "\(timeline.model.isEmpty)",
+            "isStarred": "\(timeline.model.isStarred)",
+            "app": timeline.model.currentContext?.bundleID ?? "none",
+            "window": timeline.model.currentContext?.window ?? "none",
+            "toast": timeline.model.toast ?? "none",
+            "slice": timeline.model.slice.map { "\($0.start.timeIntervalSince1970)...\($0.end.timeIntervalSince1970)" } ?? "none",
+            "hits": "\(search.hits.count)",
+            "searching": "\(search.isSearching)",
+            "firstHit": search.hits.first.map { "\($0.frameID) \($0.snippet) rects=\($0.rects.count) display=\($0.display?.uuidString ?? "none")" } ?? "none",
+            "highlightRects": "\(highlights.rects.count)",
+            "displays": "\(timeline.model.recordedDisplays.count)",
+        ]
+    }
+
     /// Where the timeline is, for checks that drive it with real events.
     var debugPlayhead: Date? { timeline?.playhead }
     var debugIsPanelVisible: Bool { panel?.isVisible ?? false }
@@ -240,8 +313,17 @@ final class OverlayCoordinator {
     private func observeDismissals() {
         let workspace = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.screensDidSleepNotification, NSWorkspace.didActivateApplicationNotification] {
-            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.dismiss() }
+            observers.append(workspace.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
+                #if DEBUG
+                let app = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier ?? ""
+                let reason = "\(name.rawValue) \(app)"
+                #endif
+                MainActor.assumeIsolated {
+                    #if DEBUG
+                    if self?.isOpen == true { self?.debugDismissReason = reason }
+                    #endif
+                    self?.dismiss()
+                }
             })
         }
         let distributed = DistributedNotificationCenter.default()
@@ -250,6 +332,9 @@ final class OverlayCoordinator {
         })
         observers.append(NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
+                #if DEBUG
+                if self?.isOpen == true { self?.debugDismissReason = "screen parameters changed" }
+                #endif
                 self?.dismiss()
                 self?.prepareDisplays()
             }
@@ -661,15 +746,16 @@ struct OverlayContent: View {
     var body: some View {
         GeometryReader { geometry in
             ZStack {
+                let picture = timeline.model.pictureRect ?? CGRect(origin: .zero, size: geometry.size)
                 ForEach(Array(highlights.rects.enumerated()), id: \.offset) { index, rect in
                     MatchHighlight(number: index + 1)
                         .frame(
-                            width: max(rect.width * geometry.size.width, 12),
-                            height: max(rect.height * geometry.size.height, 12)
+                            width: max(rect.width * picture.width, 12),
+                            height: max(rect.height * picture.height, 12)
                         )
                         .position(
-                            x: rect.midX * geometry.size.width,
-                            y: rect.midY * geometry.size.height
+                            x: picture.minX + rect.midX * picture.width,
+                            y: picture.minY + rect.midY * picture.height
                         )
                 }
 
@@ -734,7 +820,10 @@ struct OverlayContent: View {
                 .opacity(isSearchShowing ? 1 : 0)
                 .allowsHitTesting(isSearchShowing)
 
-                CoachMarkLayer(progress: coachMarks)
+                // Results and a selection need the room, and the hints will wait.
+                if (search.layout == .compact || !isSearchShowing), timeline.model.slice == nil {
+                    CoachMarkLayer(progress: coachMarks)
+                }
             }
         }
     }

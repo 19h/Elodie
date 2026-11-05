@@ -27,6 +27,7 @@ public final class Transcriber: @unchecked Sendable {
     private var input: AsyncStream<AnalyzerInput>.Continuation?
     private var resultsTask: Task<Void, Never>?
     private var converter: AVAudioConverter?
+    private var nextSample: Int64 = 0
     public private(set) var format: AVAudioFormat?
 
     /// - Parameters:
@@ -83,10 +84,25 @@ public final class Transcriber: @unchecked Sendable {
     /// Adds audio, converting it to what the analyzer wants. It's stamped with where it
     /// falls in the stream, so times stay right even if a gap in audio is skipped.
     public func append(_ buffer: AVAudioPCMBuffer, at time: Date) {
-        guard let format, let converted = convert(buffer, to: format) else { return }
+        guard let format, let converted = convert(buffer, to: format), converted.frameLength > 0 else { return }
         let offset = max(0, time.timeIntervalSince(startedAt))
-        let start = CMTime(seconds: offset, preferredTimescale: CMTimeScale(format.sampleRate))
+        let position = Self.position(forArrivalAt: offset, next: nextSample, sampleRate: format.sampleRate)
+        nextSample = position + Int64(converted.frameLength)
+        let start = CMTime(value: position, timescale: CMTimeScale(format.sampleRate))
         input?.yield(AnalyzerInput(buffer: converted, bufferStartTime: start))
+    }
+
+    /// Audio turning up this much later than expected is a real gap. Anything less is just how
+    /// unevenly buffers arrive.
+    static let gapTolerance: TimeInterval = 0.5
+
+    /// Where audio goes in the stream, in samples. Buffers are only timed by when they turned
+    /// up, and that's uneven enough for one to seem to start before the last has ended, which
+    /// the analyzer refuses. So audio follows on from what came before, unless there's really
+    /// been a gap.
+    static func position(forArrivalAt offset: TimeInterval, next: Int64, sampleRate: Double) -> Int64 {
+        let arrival = Int64(offset * sampleRate)
+        return arrival > next + Int64(gapTolerance * sampleRate) ? arrival : next
     }
 
     /// Finishes whatever's in progress, and waits for its results.

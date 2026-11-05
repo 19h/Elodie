@@ -3,11 +3,33 @@ import CoreVideo
 import IOSurface
 import QuartzCore
 
+/// Where a picture sits when it's fitted into a space without changing its shape. A display's
+/// recording can be shown on a display of another shape, with bars at the sides or above.
+public func aspectFit(_ picture: CGSize, in bounds: CGRect) -> CGRect {
+    guard picture.width > 0, picture.height > 0 else { return bounds }
+    let scale = min(bounds.width / picture.width, bounds.height / picture.height)
+    let width = picture.width * scale
+    let height = picture.height * scale
+    return CGRect(
+        x: bounds.midX - width / 2,
+        y: bounds.midY - height / 2,
+        width: width,
+        height: height
+    )
+}
+
 /// Shows a recorded frame without copying it. The compositor reads the decoded surface
 /// directly, so a frame change costs only a property update.
 public final class FrameLayerView: NSView {
     private let frameLayer = CALayer()
     private let selectionLayer = CAShapeLayer()
+    private var pictureSize: CGSize?
+
+    /// Where the picture is within this view. Anything placed by a fraction of the frame has
+    /// to start from here, not from the view, or it lands in the wrong spot.
+    public var pictureRect: CGRect {
+        pictureSize.map { aspectFit($0, in: bounds) } ?? bounds
+    }
 
     public override init(frame: NSRect) {
         super.init(frame: frame)
@@ -27,13 +49,14 @@ public final class FrameLayerView: NSView {
     /// Draws selected text. Rects are fractions of the frame, with the origin at the top left.
     public func showSelection(_ rects: [CGRect]) {
         let path = CGMutablePath()
+        let picture = pictureRect
         for rect in rects {
             path.addRoundedRect(
                 in: CGRect(
-                    x: rect.minX * bounds.width - 1,
-                    y: (1 - rect.maxY) * bounds.height - 1,
-                    width: rect.width * bounds.width + 2,
-                    height: rect.height * bounds.height + 2
+                    x: picture.minX + rect.minX * picture.width - 1,
+                    y: picture.minY + (1 - rect.maxY) * picture.height - 1,
+                    width: rect.width * picture.width + 2,
+                    height: rect.height * picture.height + 2
                 ),
                 cornerWidth: 2,
                 cornerHeight: 2
@@ -52,6 +75,7 @@ public final class FrameLayerView: NSView {
         CATransaction.setDisableActions(true)
         frameLayer.contents = nil
         selectionLayer.path = nil
+        pictureSize = nil
         CATransaction.commit()
     }
 
@@ -99,6 +123,7 @@ public final class FrameLayerView: NSView {
     /// Shows a decoded frame. Call on the main thread.
     public func show(_ buffer: CVPixelBuffer) {
         guard let surface = CVPixelBufferGetIOSurface(buffer)?.takeUnretainedValue() else { return }
+        pictureSize = CGSize(width: CVPixelBufferGetWidth(buffer), height: CVPixelBufferGetHeight(buffer))
         // Frames are captured in display P3, and this tells the compositor so.
         IOSurfaceSetValue(surface, "IOSurfaceColorSpace" as CFString, CGColorSpace.displayP3 as CFString)
         CATransaction.begin()
