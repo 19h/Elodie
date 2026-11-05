@@ -128,7 +128,7 @@ Setup explains what Remind is and how it works, then asks for permissions:
 
 macOS only applies a new Screen Recording grant to new processes, so Remind offers to reopen itself and comes back at the same step. You can also leave setup and return later, because Remind keeps your place and the menu bar offers **Finish setting up Remind…**. macOS also asks you to confirm screen recording from time to time. If recording stops, the menu bar icon tells you.
 
-The last step shows the three things worth remembering, and **Start recording** begins. Remind lives in the menu bar from then on. The first few times you open the timeline, three short hints show you how to scroll, search, and get back.
+The last step shows the three things worth remembering, and **Start recording** begins. Remind lives in the menu bar from then on. The first few times you open the timeline, three short hints show you how to scroll, search, and get back. They wait while search results or a selection are showing.
 
 <p align="center">
   <img src="docs/images/onboarding-ready.png" width="560" alt="The last step of setup, headed You're ready: ⌘⇧ and scroll up goes back in time, ⇧⌘Space searches, and Esc comes straight back, above a Start recording button">
@@ -148,7 +148,7 @@ The overlay opens on the display under your pointer. It never activates Remind, 
 - **The time pill** opens Jump to Date & Time. The calendar and hours dim wherever nothing was recorded, or you can type a phrase such as "yesterday 3pm" or "March 4". A phrase with no year or day means the most recent time it happened.
 - **Open** goes back to the app you were in, or reopens the page in the same browser.
 - **The arrow at the end of the strip** returns to now.
-- **The display picker** appears when more than one display has recordings. Recording follows your pointer, so each display has its own history, and you can look through any of them from where you are.
+- **The display picker** appears when more than one display has recordings. Recording follows your pointer, so each display has its own history, and you can look through any of them from where you are. A recording from a display of another shape sits in the middle, with bars at the sides or above.
 
 ![Jump to Date & Time, with a calendar of the month, a list of hours, and a field for typing a phrase](docs/images/jump-to-date.png)
 
@@ -547,6 +547,7 @@ Scrubbing outruns decoding, so the engine always works on the latest request and
 | The disk refuses writes | Remind says recordings aren't being saved, which can happen long before a disk looks full. It clears once writes work again. |
 | A chunk is damaged | A card says how many pieces can't be read. Everything else stays usable. |
 | A delete can't finish | Remind says so, and recording carries on. |
+| Quitting | Remind turns what was just said into words and seals its files first, but it never waits more than 5 seconds. |
 
 ### Design
 
@@ -649,7 +650,7 @@ Development builds optimise the Rust core. Reading recordings means decrypting t
 
 ### Tests
 
-There are nearly 400 Rust and Swift tests:
+There are more than 400 Rust and Swift tests:
 
 - **Rust** has unit tests, property tests for the chunk format, tokenizer, and text codec, and integration tests for durability, search end to end, storage, and working with stretches of time.
 - **Swift** has a suite per area: Ask, Audio, Capture, CoreLive, FrameEngine, Ingest, and the interface. Interface tests run against `CoreFake`, while the Ingest, FrameEngine, and Audio suites also use the real core through `CoreLive`.
@@ -692,6 +693,13 @@ open -n $APP --args --sandbox /path/to/folder
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
 
+A `--sandbox` run can also be driven from outside, without taking your keyboard or pointer. Write a command to `<folder>/command`, and the answer lands in `<folder>/result`. Its overlay lets the pointer through and can be photographed, which a normal run's asks macOS not to allow. None of this exists in release builds. The commands are:
+
+- **The timeline:** `open`, `open search`, `dismiss`, `esc`, `back <seconds>`, `star`, `click <x>`, `clickPlayhead`, `deleteSelection`, `exportSelection <path>`
+- **Search:** `search <words>`, `choose`, `filterStarred`, `hits`
+- **Everything else:** `listen`, `pause`, `recap`, `ask`, `transcripts`, `settings`, `quit`
+- **Checking:** `state`, `apps`, `lookup <time>`, `recoveryKey`, `shootPanel <path>`, `shootWindow <path>`
+
 ### Working rules
 
 These protect people's data, and several are enforced by a test or a check:
@@ -730,7 +738,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 | "Recording stopped because the disk is nearly full." | Free up some space. Recording resumes by itself above 4 GB free. |
 | "Recordings aren't being saved to disk." | The disk is refusing writes. Check for space and disk errors, then choose **Try again**. It clears by itself once writes work again. |
 | "Recording stopped because video encoding kept failing." | Choose **Try again** in the menu. |
-| "Recording is paused because Remind kept crashing." | Choose **Try again** in the menu. The count clears after 10 minutes without trouble. |
+| "Recording is paused because Remind kept crashing." | Choose **Try again** in the menu, or turn Screen capture back on. The count clears after 10 minutes without trouble. |
 | "Nothing recorded on this display yet" | Remind only records the display your pointer is on. If another display has recordings, the display picker takes you there. |
 | New recordings can't be found by their text yet | The first text recognition under a new app identity compiles Vision's models. That took 31 s on an M4 Max, and a slower Mac will take longer. Frames wait safely in the log. |
 | Ask shows moments but no written answer | It says why. Usually Apple Intelligence is off, or its model is still downloading. |

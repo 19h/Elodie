@@ -195,6 +195,9 @@ server's list and refuses anything else, so harness captures stay limited to har
 | The first scroll of the gesture was dropped, and the rest went to the app underneath | See the swipe below |
 | Unoptimised Rust in development builds | Reading a group took 240 ms instead of 8 ms, so scrubbing would have felt broken |
 | Duplicate apps in the exclusion list; retention only applied at launch; Show in Dock needed a relaunch | Smaller, but real |
+| Quitting could hang forever | Terminating from an async function left nothing able to answer AppKit, so the 5-second limit never applied |
+| Live transcription stopped within seconds | Uneven buffers looked like they overlapped, which the analyzer refuses. Audio now follows on from what came before, unless it's more than 0.5 s late |
+| Highlights and text selection were off on a display of another shape | They were placed against the screen rather than the picture, which only fills the screen at the same shape |
 
 ### End to end (passed)
 
