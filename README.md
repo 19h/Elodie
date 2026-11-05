@@ -238,7 +238,7 @@ Three filters narrow a search:
 
 ### Ask
 
-Press ⌘⇧- (the key to the right of 0, which is `ß` on a German keyboard) and ask something like "Where did I see the budget numbers?"
+Press ⌥⇧Space and ask something like "Where did I see the budget numbers?"
 
 1. **Planning.** Your question becomes search terms, with no model involved. Filler words are dropped in English and German, quoted phrases stay whole, and "yesterday", "today", "last week", "last month", or a date limits when to look.
 2. **Finding.** It searches for all the words together, then each alone, and collects up to 16 moments. A question with nothing specific to look for, like "What did I do today?", takes moments spread evenly through what happened in that time instead, or today if it doesn't say when.
