@@ -17,7 +17,7 @@
   macOS 26 or later · Apple Silicon · No account · No analytics · No cloud
 </p>
 
-![The timeline: a recorded frame fills the screen, with the time pill, the Open button, and the strip of apps along the bottom](docs/images/timeline.png)
+![The timeline: a recorded frame fills the screen, with the time pill, the Open, zoom, and more buttons, and the strip of apps along the bottom](docs/images/timeline.png)
 
 <p align="center"><sub>All screenshots show synthetic test data.</sub></p>
 
@@ -31,6 +31,7 @@
 - [Getting started](#getting-started)
 - [Using Remind](#using-remind)
   - [The timeline](#the-timeline)
+  - [Working with a stretch of time](#working-with-a-stretch-of-time)
   - [Search](#search)
   - [Ask](#ask)
   - [Daily Recap](#daily-recap)
@@ -55,7 +56,7 @@ You saw it somewhere: a figure in a spreadsheet, an error message, a flight time
 
 | | |
 |---|---|
-| **Timeline** | Scroll back through your screen in a full-screen overlay that opens without switching apps. |
+| **Timeline** | Scroll back through your screen in a full-screen overlay that opens without switching apps. Select any stretch on the strip to star, export, or delete it. |
 | **Search** | The words on your screen are read and indexed on your Mac. A result takes you to the moment they were on screen, with the match outlined. |
 | **Ask** | Ask a question in plain language. Apple's on-device model answers from your recordings and cites the moments it used. |
 | **Daily Recap** | See where a day went: time per app, activity by the hour, your longest stretches, and your meetings. |
@@ -125,9 +126,13 @@ Setup explains what Remind is and how it works, then asks for permissions:
 | Microphone | Optional | Transcribes meetings you choose to record. |
 | Calendar | Optional | Names meetings. It's only requested when you turn this on in Settings → Meetings. |
 
-macOS only applies a new Screen Recording grant to new processes, so Remind offers to reopen itself and comes back at the same step. macOS also asks you to confirm screen recording from time to time. If recording stops, the menu bar icon tells you.
+macOS only applies a new Screen Recording grant to new processes, so Remind offers to reopen itself and comes back at the same step. You can also leave setup and return later, because Remind keeps your place and the menu bar offers **Finish setting up Remind…**. macOS also asks you to confirm screen recording from time to time. If recording stops, the menu bar icon tells you.
 
-After setup, Remind lives in the menu bar and starts recording. The first few times you open the timeline, three short hints show you how to scroll, search, and get back.
+The last step shows the three things worth remembering, and **Start recording** begins. Remind lives in the menu bar from then on. The first few times you open the timeline, three short hints show you how to scroll, search, and get back.
+
+<p align="center">
+  <img src="docs/images/onboarding-ready.png" width="560" alt="The last step of setup, headed You're ready: ⌘⇧ and scroll up goes back in time, ⇧⌘Space searches, and Esc comes straight back, above a Start recording button">
+</p>
 
 ## Using Remind
 
@@ -138,15 +143,16 @@ Hold ⌘⇧ and scroll up from any app. The swipe that opens the timeline is the
 The overlay opens on the display under your pointer. It never activates Remind, so the app you were using stays active, opening causes no Space or stage switch, and Esc puts you back with focus where it was. The frame reaches the screen before the window does, so there's no black flash, and the controls rise only after it.
 
 - **Scroll or swipe** to move through time. Scrolling moves the strip under a fixed playhead, and it follows your natural scrolling setting. Hold ⌥ to go 8 times faster.
-- **Pinch** to zoom the strip, from a whole day on screen down to seconds.
-- **The strip** shows which app was in front at each moment, in colour and with app icons.
+- **Pinch, or press ⌘+ and ⌘−,** to zoom the strip, from a whole day on screen down to seconds. The magnifier beside **Open** does the same with a slider.
+- **The strip** shows which app was in front at each moment, in colour and with app icons, plus marks for starred moments and for when something was being transcribed. Hover over a run to see its window and how long it lasted.
 - **The time pill** opens Jump to Date & Time. The calendar and hours dim wherever nothing was recorded, or you can type a phrase such as "yesterday 3pm" or "March 4". A phrase with no year or day means the most recent time it happened.
 - **Open** goes back to the app you were in, or reopens the page in the same browser.
 - **The arrow at the end of the strip** returns to now.
+- **The display picker** appears when more than one display has recordings. Recording follows your pointer, so each display has its own history, and you can look through any of them from where you are.
 
 ![Jump to Date & Time, with a calendar of the month, a list of hours, and a field for typing a phrase](docs/images/jump-to-date.png)
 
-**Text on a frame is live.** The pointer becomes an I-beam over recognised text. Drag to select lines, then press ⌘C. With nothing selected, ⌘C copies all the text on the frame.
+**Text on a frame is live.** The pointer becomes an I-beam over recognised text. Drag to select lines, then press ⌘C. With nothing selected, ⌘C copies all the text on the frame, and ⌘⇧C copies the frame as an image.
 
 **A frame can be dragged out.** Drag anywhere that isn't text to drop the frame into Finder or another app as a PNG. That temporary copy is unencrypted, so it's deleted about a minute after the drop.
 
@@ -154,13 +160,37 @@ The **⋯** menu holds everything else:
 
 | Action | What it does |
 |---|---|
-| Star this moment | Marks the frame, so the Starred search filter finds it. |
-| Copy text on screen | Copies the selected lines, or the whole frame's text. |
-| Copy image, Save image… | Copies the frame, or saves it as a PNG. |
+| Star moment, Remove star | Marks the frame, so the Starred search filter finds it and the strip shows it. |
+| Save image…, Copy image | Saves the frame as a PNG, or copies it. |
+| Copy text | Copies the selected lines, or the whole frame's text. |
 | Copy link to this moment | Copies a [`remind://` link](#moment-links). |
-| Export 5 minutes as video… | Saves the 5 minutes around the playhead as an MP4, without re-encoding. This is an unencrypted copy, and the save panel says so. |
+| Export 5 minutes as video… | Saves the 5 minutes around the playhead as an MP4. To choose exactly what to export, select it on the strip. |
+| Screen capture, Audio capture | The same switches as in the menu bar. |
 | Exclude this app from recording | Leaves the app out of recording from now on, effective at once. |
 | Forget the last 5 minutes… | Permanently deletes the 5 minutes before now, wherever the playhead is. It asks first. |
+| Settings… | Opens Settings. |
+
+### Working with a stretch of time
+
+The strip is also where you manage your history. Click a run to go to that moment and select the whole run. Drag to select any stretch, and drag either end of a selection to trim it. The ends snap to where an app starts or stops, because a stretch that ends where an app ends takes nothing from the next one. Esc clears the selection.
+
+<p align="center">
+  <img src="docs/images/slice-bar.png" width="640" alt="A selected stretch on the strip, with a handle at each end, under a bar showing how long it is, its times and size, and buttons for Star, Export, Fit, and Delete">
+</p>
+
+| Action | What it does |
+|---|---|
+| Star | Stars the first frame of the stretch, so the Starred filter finds it. |
+| Export | Saves exactly that stretch as an MP4, without re-encoding. This is an unencrypted copy, and the save panel says so. A still screen that lasted over a minute is cut to a second. If the display changed resolution partway, the video stops there and tells you. An existing file is only replaced once the new one is complete. |
+| Fit | Zooms the strip so the selection fills it. |
+| Exclude *app* | Appears when the stretch is all one app, and leaves that app out of recording from now on. |
+| Delete | Permanently deletes the stretch, after telling you exactly what will go. The Delete key does the same. |
+
+**Deleting says what it will do first.** The confirmation gives the size, and says if any starred moments or speech go with it. It also names any time just after the stretch that has to go too, because those frames can't be shown without it. Each app starts on a keyframe, so removing a whole run of one app takes nothing from the next.
+
+<p align="center">
+  <img src="docs/images/slice-confirm.png" width="640" alt="A confirmation above the selection bar, headed Delete 1 minute, 14 seconds of recordings, giving the times and size, saying the 16 seconds just after it go as well, and offering Cancel and Delete">
+</p>
 
 ### Search
 
@@ -168,7 +198,9 @@ Press ⌘⇧Space from anywhere, or start typing while the timeline is open. Ope
 
 ![Search results for the word "accompany": a card showing a crop of the frame with the match outlined, the window title, and how long ago it was](docs/images/search-expanded.png)
 
-Each result is a crop of the frame centred on the match, with the window title and the time. Click one to go to that moment, with each match outlined and numbered. Hover over it for **Open in** the app it came from. Something that was said, rather than shown, appears as the words themselves.
+Each result is a crop of the frame centred on the match, with the window title and the time. Click one to go to that moment, with each match outlined and numbered, even if it was on another display. Esc takes you back to the results. Hover over it for **Open in** the app it came from. Something that was said, rather than shown, appears as the words themselves, and choosing it opens its transcript.
+
+**You can keep your hands on the keyboard.** ↑ and ↓ move between rows, Tab and ⇧Tab move one result at a time, and Return goes to the chosen result, or the top one if you haven't moved.
 
 | Type this | To find |
 |---|---|
@@ -188,6 +220,10 @@ Three filters narrow a search:
 - **Meetings** limits it to what was said.
 - **Starred** limits it to frames you've starred.
 
+**Filters work without any words.** Turn one on with the search box empty to browse, most recent first: your starred moments, your past meetings, or the latest from some apps. This is how to find something when you can't remember a word from it.
+
+![The Starred filter turned on with an empty search box, listing four starred moments as cards with their window titles and how long ago they were](docs/images/search-starred.png)
+
 **Ranking.** A match in the window title ranks above one in the front window, which ranks above one elsewhere on screen. The newest 5,000 matches are ranked by relevance, and older ones follow, newest first, so every match stays reachable. Words rarer than that are ranked across all of your history.
 
 **Every result is a real moment.** To save space, the index merges frames that show nearly the same text, so two words might share a document without ever being on screen together. Each hit is checked against individual frames before you see it.
@@ -197,9 +233,13 @@ Three filters narrow a search:
 Press ⌘⇧- (the key to the right of 0, which is `ß` on a German keyboard) and ask something like "Where did I see the budget numbers?"
 
 1. **Planning.** Your question becomes search terms, with no model involved. Filler words are dropped in English and German, quoted phrases stay whole, and "yesterday", "today", "last week", "last month", or a date limits when to look.
-2. **Finding.** It searches for all the words together, then each alone, and collects up to 16 moments.
+2. **Finding.** It searches for all the words together, then each alone, and collects up to 16 moments. A question with nothing specific to look for, like "What did I do today?", takes moments spread evenly through what happened in that time instead, or today if it doesn't say when.
 3. **Answering.** As many excerpts as fit go to Apple's on-device model, which is told to answer only from them and to cite each fact.
 4. **Citing.** Citations such as [2] link to the moment they came from. Only sources that exist become links, because a model can invent a number.
+
+<p align="center">
+  <img src="docs/images/ask.png" width="560" alt="The Ask window with the question What did I do today, a written answer with numbered citations, and its source listed below">
+</p>
 
 **It works without the model.** If this Mac isn't eligible, Apple Intelligence is off, the model is still downloading, or it declines to answer, you still get the matching moments and a note saying why.
 
@@ -214,23 +254,33 @@ Open **Daily Recap** from the menu bar, or give it a shortcut in Settings. It's 
 - Total time on screen, and activity by the hour
 - Your top 8 apps, with time in each
 - Your 10 longest stretches of at least 5 minutes. Click one to go to that moment.
-- The meetings you transcribed
+- The meetings you transcribed. Click one to read its transcript.
+
+<p align="center">
+  <img src="docs/images/recap.png" width="420" alt="Daily Recap for one day: a meeting, 49 minutes on screen, a bar chart of activity by the hour, time per app, and the longest stretches">
+</p>
 
 ### Meetings and transcripts
 
-Remind checks for a call every 5 seconds. It recognises Zoom, Slack huddles, Webex, and the Microsoft Teams app. What happens next is up to you, in Settings → Meetings:
+Remind checks for a call every 5 seconds, including windows on other Spaces and minimised ones. It recognises Zoom, Slack huddles, Webex, and the Microsoft Teams app, and Google Meet, Zoom, and Teams in a browser. A browser call is recognised from the address of the front tab, which Remind only reads while your microphone is in use. Once it's recognised, switching tabs doesn't end it, but the microphone being let go does. What happens next is up to you, in Settings → Meetings:
 
 - **Ask me**, the default, because recording other people is a decision to make each time
 - **Record automatically**
 - **Don't record**
 
-About 30 seconds after a call's signs disappear, transcription stops by itself. You can also start or stop it at any time with the **Audio capture** switch in the menu bar.
+<p align="center">
+  <img src="docs/images/meeting-prompt.png" width="320" alt="A card saying You're in a Zoom meeting, named Design review, with a reminder to check that others are OK with being recorded, and buttons for Transcribe this meeting and Not now">
+</p>
 
-Browser calls aren't detected yet, so use the switch for those. See [Known limitations](#known-limitations).
+About 30 seconds after a call's signs disappear, transcription stops by itself. You can also start or stop it at any time with the **Audio capture** switch in the menu bar. Firefox doesn't expose its web address, so use the switch for calls there.
 
-**How transcription works.** Apple's speech framework transcribes on your Mac, and macOS downloads each language the first time it's used. Audio is never written to disk. The microphone and your computer's audio are transcribed separately, which labels each line **You** or **Others**. When your microphone picks up the call from your speakers, a word is dropped only if the same word came from the speakers at around the same moment. What you say over someone else is kept, unless it's that same word.
+**How transcription works.** Apple's speech framework transcribes on your Mac, and macOS downloads each language the first time it's used. Audio is never written to disk. The microphone and your computer's audio are transcribed separately, which labels each line **You** or **Others**. When your microphone picks up the call from your speakers, a word is dropped only if the same word came from the speakers at around the same moment. What you say over someone else is kept, unless it's that same word. Sound from apps you've excluded stays out too. If the microphone isn't allowed, Remind transcribes only your computer's audio and tells you.
 
-**Afterwards.** What was said is searchable alongside your screen, and the Meetings filter narrows to it. **Last transcript** in the menu bar opens the most recent one. Click a line to go to that moment on the timeline, or use the Details tab to summarise the meeting on your Mac. A long meeting is cut to what fits the model.
+**Afterwards.** What was said is searchable alongside your screen, and the Meetings filter narrows to it. **Transcripts** in the menu bar lists every transcript, most recent first. Words appear a few seconds after they're said, and a recent transcript keeps catching up while it's open. Click a line to go to that moment on the timeline, or use the Details tab to summarise the meeting on your Mac. A long meeting is cut to what fits the model.
+
+<p align="center">
+  <img src="docs/images/transcript.png" width="560" alt="A transcript window with Transcript and Details tabs, showing timed lines labelled You and Others">
+</p>
 
 **Calendar names** are off by default. When you turn them on, Remind reads the event in progress, or one starting within 5 minutes, and keeps only its title with the transcript.
 
@@ -241,16 +291,18 @@ Browser calls aren't detected yet, so use the switch for those. See [Known limit
 
 <img src="docs/images/status-menu.png" width="320" align="right" alt="Remind's menu: Search, Ask, Daily Recap, switches for screen and audio capture, Star moment, Pause for, Forget the last 5 minutes, Settings, and Quit">
 
-The menu bar icon shows the state at a glance. A filled frame means recording, an outline means paused, and a line through it means there's a problem, which the menu explains.
+The menu bar icon shows what's really happening. A filled frame means recording, an outline means paused or not recording yet, and a line through it means there's a problem, which the menu explains. Three extra bars mean audio is being transcribed.
 
-- **Pause** with the Screen capture switch, for 15 minutes or an hour, or from Shortcuts or Control Center. If you pause with no end time, a card reminds you every hour. You can turn that off in Settings.
+- **Pause** with the Screen capture switch, for 15 minutes or an hour, or from Shortcuts or Control Center. A pause carries on if Remind restarts. If you pause with no end time, a card reminds you every hour, and you can turn that off in Settings.
+- **Star moment** stars the next frame, even if the screen hasn't changed.
 - **Exclude an app** in Settings → Screen, or from the timeline's ⋯ menu. It takes effect at once.
 - **Forget the last 5 minutes** from the menu bar or the timeline. It's permanent, so it asks first.
 - **Set how long to keep recordings** in Settings → Storage.
 
 Remind also adjusts by itself:
 
-- It stops recording when your Mac sleeps or locks, and starts again afterwards.
+- It stops recording and transcribing when your Mac sleeps or locks, and starts recording again afterwards.
+- If recording stops unexpectedly, it says why and tries again about every 30 seconds.
 - It records the display your pointer is on, and moves once the pointer has stayed on another display for 2 seconds.
 - In Low Power Mode, it captures every 4 seconds instead of every 2.
 - When your Mac runs hot, text recognition pauses. Capture carries on, and frames wait safely in the log.
@@ -266,7 +318,7 @@ Remind also adjusts by itself:
 | ⌘⇧ and scroll up | Open the timeline. |
 | ⌘⇧Space | Open search. |
 | ⌘⇧- | Open Ask. This is the key to the right of 0, or `ß` on a German keyboard. |
-| Open Remind again while it's running | Open search. |
+| Open Remind again while it's running | Open search, or setup or the recovery key if they need you first. |
 
 You can change the two key combinations in Settings → Shortcuts. You can also assign shortcuts there for Daily Recap, Star moment, and Audio capture, which have none by default.
 
@@ -276,18 +328,28 @@ You can change the two key combinations in Settings → Shortcuts. You can also 
 |---|---|
 | Scroll or swipe | Move through time. |
 | ⌥ and scroll | Move 8 times faster. |
-| Pinch | Zoom the strip. |
+| Pinch, or ⌘+ and ⌘− | Zoom the strip. |
 | ← → | Go to the previous or next frame. |
 | ⌥← ⌥→ | Go to the previous or next stretch in an app. Going back first returns to the start of the current one. |
 | End | Go back to now. |
 | Start typing, or ⌘F | Search. |
 | Return | Open the app or page from this moment. |
 | ⌘C | Copy the selected text, or all the text on the frame. |
-| ⌘⇧S | Star this moment. |
-| Esc | Back out one level: date panel, search text, results, search panel, then the timeline itself. |
+| ⌘⇧C | Copy the frame as an image. |
+| ⌘⇧S | Star this moment, or remove its star. |
+| Delete | Delete what's selected on the strip, after asking. |
+| Esc | Back out one level: a panel or confirmation, the selection, the zoom slider, the app list, back to the results, the search text, the search panel, then the timeline itself. |
 | ⌘Q, ⌘W | The same as Esc, so they can't quit the recorder while the overlay is up. |
 
-While the search field has focus, the arrow keys, Return, and ⌘C go to the field instead.
+**In search**
+
+| Input | Action |
+|---|---|
+| ↑ ↓ | Move between rows of results. |
+| Tab, ⇧Tab | Move to the next or previous result. |
+| Return | Go to the chosen result, or the top one. |
+
+While the search field has focus, ← →, Delete, and ⌘C go to the field instead.
 
 The overlay also closes by itself when you switch Spaces or apps, when the screen sleeps or locks, and when displays change.
 
@@ -295,10 +357,10 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 
 | Tab | Setting | Default | Notes |
 |---|---|---|---|
-| General | Open Remind at login | Chosen during setup | It comes back after a crash, but not after you quit. |
+| General | Open Remind at login | Chosen during setup | It comes back after a crash, but not after you quit. If macOS is waiting for you to allow it, this says so and links to Login Items. |
 | | Remind me when recording is paused | On | Hourly, for pauses with no end time. |
 | | Show in Dock | Off | |
-| | Check for updates automatically | On | Only applies to builds with an updater. |
+| | Check for updates automatically | On | Only appears in builds with an updater. |
 | Screen | Exclude apps | None | Choose from installed or running apps, or add one with **+**. |
 | | Don't record private or incognito browser windows | On | Warns here if it can't check right now. |
 | | Text recognition | Standard | Standard reads the languages your Mac uses. Additional languages detects any language, and uses more system resources. |
@@ -306,10 +368,12 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 | | Record | Microphone and speaker audio | Or microphone only, or speaker audio only. |
 | Meetings | When a meeting is detected | Ask me | Or record automatically, or don't record. |
 | | Name meetings from your calendar | Off | Requests calendar access when you turn it on. |
-| Storage | Keep recordings for | Forever | 1 week, 1 month, 3 months, 6 months, 1 year, or forever. Whole days are removed. Shortening it asks before deleting anything. |
+| Storage | Keep recordings for | Forever | 1 week, 1 month, 3 months, 6 months, 1 year, or forever. Whole days are removed, and starred moments aren't kept any longer than the rest. Shortening it asks before deleting anything. |
 | | Space used | | Shows the total, an estimate per day from your own recordings, and free disk space. |
-| | Recovery key | | Saves a file that can decrypt your recordings. Remind reminds you once, a week after first run. See [Known limitations](#known-limitations). |
+| | By app | | Shows how much each app takes up, with a button to delete everything recorded from it. Remind keeps recording that app unless you exclude it. |
+| | Recovery key | | Saves a file that can restore your recordings if the key is lost. Remind reminds you once, a week after first run. See [If the key is lost](#if-the-key-is-lost). |
 | | Location | | Shows the vault in Finder. |
+| | Delete a time range… | | Deletes screen recordings and transcripts from the times you pick. You can also select a stretch on the timeline. |
 | | Delete all recordings… | | Deletes your screen recordings and transcripts. It can't be undone. |
 | Shortcuts | Search, Ask, Daily Recap, Star moment, Audio capture | | |
 
@@ -345,9 +409,9 @@ Add the **Remind recording** control to Control Center or the menu bar to pause 
 | | |
 |---|---|
 | **Recorded** | A picture of the display your pointer is on, about every 2 seconds when it has changed. The text on it. The app, window title, and web address of what's in front. A transcript, if you turn that on. |
-| **Left out** | Apps you exclude. Private and incognito browser windows. Remind's own windows. The audio behind a transcript. |
+| **Left out** | Apps you exclude, and their sound in a transcript. Private and incognito browser windows. Remind's own windows. The audio behind a transcript. |
 | **Not protected** | **Password fields and other sensitive content in ordinary windows do get recorded if they're visible.** Exclude any app you don't want recorded. |
-| **Read to work** | Scroll events, with Accessibility on, so ⌘⇧ and scrolling up can take over from the app underneath. It sees scroll events only, never the keyboard, and passes along everything except that gesture. With calendar names on, the title of the event happening now. |
+| **Read to work** | Scroll events, with Accessibility on, so ⌘⇧ and scrolling up can take over from the app underneath. It sees scroll events only, never the keyboard, and passes along everything except that gesture. While your microphone is in use, the front browser tab's address, to recognise a call. With calendar names on, the title of the event happening now. |
 
 ### Encryption
 
@@ -360,11 +424,23 @@ Add the **Remind recording** control to Control Center or the menu bar to pause 
 
 Chunk files are stored by random ID rather than by date, so the folder layout doesn't reveal when you were active.
 
+### If the key is lost
+
+A recovery key is the only way back if the key in your keychain is ever lost. Settings → Storage saves one to a file, and Remind reminds you once, a week after first run.
+
+If recordings exist but their key doesn't, Remind asks for it. Enter the key or choose the file you saved. It only goes back in the keychain once it has been shown to open these recordings, so a wrong key can't do any harm. With no recovery key, **Start over…** deletes the recordings, because they can never be read without it.
+
+<p align="center">
+  <img src="docs/images/recovery.png" width="480" alt="A window headed Remind can't unlock your recordings, with a field for the recovery key, Choose file and Unlock buttons, and Quit and Start over buttons">
+</p>
+
 ### Private windows
 
 Browsers offer no API for this, so Remind recognises private windows from their titles, in 16 languages. Arc also marks them in a way that doesn't depend on language. A browser is recognised by how it's built rather than from a fixed list, so new and renamed Chromium browsers are covered.
 
-**When in doubt, a frame is dropped.** A frame is kept only if the capture filter in effect when it was composed already hid every window that must be hidden. While a new private window is on its way into the filter, frames are thrown away. If a browser doesn't answer within 50 ms, that frame is dropped too, and Settings tells you if it keeps happening.
+**When in doubt, a frame is dropped.** A frame is kept only if the capture filter in effect when it was composed already hid every window that must be hidden. While a new private window is on its way into the filter, frames are thrown away. A browser window with no title yet counts as private until it has one. If a browser doesn't answer within 50 ms or gives an error, that frame is dropped too, and Settings tells you if it keeps happening.
+
+**Remind also watches between frames.** Frames only arrive every couple of seconds, which leaves time for a private window to open and close unseen. So it looks at the window list every 0.2 seconds, and usually has the filter updated before the next frame is composed. A new filter is only trusted after 0.25 seconds, because updating one returns a few milliseconds before frames stop showing what it hides. If a window that must be hidden closes before any filter covered it, everything composed up to that moment counts as unsafe. A private window open for less than 0.2 seconds may still go unseen.
 
 ### What it can't protect you from
 
@@ -420,7 +496,7 @@ Swift owns every Apple framework. Rust owns data and computation, and it never c
 1. **Capture.** A low-rate ScreenCaptureKit stream delivers frames at most every 2 seconds. An unchanged screen delivers nothing, and the cursor isn't captured.
 2. **Change check.** A Metal shader compares the frame with the last *stored* frame at half resolution. It takes about 1,000 changed pixels to keep a frame. Comparing with what's stored, rather than the previous capture, means slow changes add up until they count. Black frames are skipped.
 3. **Exclusion check.** It works out which windows must be hidden, and drops the frame unless the filter in effect already covered them.
-4. **Encoding.** Hardware HEVC at constant quality 0.75, with a keyframe at least every 30 frames. The encoder holds nothing back, so a crash can't lose frames inside it.
+4. **Encoding.** Hardware HEVC at constant quality 0.75, with a keyframe at least every 30 frames and whenever the front app changes. The encoder holds nothing back, so a crash can't lose frames inside it.
 5. **The log.** Rust encrypts the sample and appends it to a chunk file. This is the source of truth. A database row follows within a second or so, and the log never waits for it, so a stalled database can't delay a frame.
 6. **OCR.** A background task reads frames back from the log with Apple's Vision framework. It holds no pixels in memory while it's behind, and it picks up where it left off after a crash. When it's more than a minute behind, frames that stayed on screen for at least 4 seconds go first, because that's what you were likely reading.
 7. **Text runs.** Consecutive frames whose lines overlap the first frame's by at least 80% share one search document, for up to 5 minutes. Each frame records only which lines it shows and where.
@@ -435,7 +511,7 @@ Swift owns every Apple framework. Rust owns data and computation, and it never c
 
 A chunk holds one display's frames and is replaced at the next keyframe after 5 minutes or 64 MB. Every record is sealed with its sequence number as the nonce, so **a chunk is never reopened for writing**, because resuming after a crash could repeat a nonce. A new session always starts a new chunk. The format is documented in `core/crates/vault/src/lib.rs`.
 
-The database is a projection of the log, and its frame records can be rebuilt by scanning the chunks. Stars, recognised text, and transcripts live only in the database.
+The database is a projection of the log, and its frame records can be rebuilt by scanning the chunks. Stars, recognised text, and transcripts live only in the database. Frame IDs are never reused, because anything still holding an old ID would otherwise show a deleted frame. Giving space back rewrites the whole database, so it only happens after a big deletion.
 
 ### Search
 
@@ -464,8 +540,13 @@ Scrubbing outruns decoding, so the engine always works on the latest request and
 | Less than 2 GB free | Recording stops and says so. It resumes by itself above 4 GB. |
 | Encoder keeps failing | After 3 failures in a minute, capture stops and says so. Raw frames are never stored instead. |
 | A frame crashes OCR | An attempt is recorded before OCR runs, so a frame is given up on after 3 tries rather than crashing every launch. |
-| Keychain locked | Treated as temporarily unavailable, and never as missing. |
-| Key missing | Shown as an error. A new key is never created, because that would orphan all recorded history. |
+| Keychain locked | Treated as temporarily unavailable, and never as missing. Remind tries again when you unlock your Mac. |
+| Key missing | Remind asks for your recovery key. A new key is only created if you choose to start over, because otherwise it would orphan all recorded history. |
+| A second copy of Remind | A later copy hands over to the one running and leaves. The vault is also locked to one process, because recovery treats open chunks as crash leftovers, so two at once would damage each other's recordings. |
+| Recording stops unexpectedly | Remind says why, and tries again about every 30 seconds. |
+| The disk refuses writes | Remind says recordings aren't being saved, which can happen long before a disk looks full. It clears once writes work again. |
+| A chunk is damaged | A card says how many pieces can't be read. Everything else stays usable. |
+| A delete can't finish | Remind says so, and recording carries on. |
 
 ### Design
 
@@ -568,9 +649,9 @@ Development builds optimise the Rust core. Reading recordings means decrypting t
 
 ### Tests
 
-There are more than 300 Rust and Swift tests:
+There are nearly 400 Rust and Swift tests:
 
-- **Rust** has unit tests, property tests for the chunk format, tokenizer, and text codec, and integration tests for durability, search end to end, and storage.
+- **Rust** has unit tests, property tests for the chunk format, tokenizer, and text codec, and integration tests for durability, search end to end, storage, and working with stretches of time.
 - **Swift** has a suite per area: Ask, Audio, Capture, CoreLive, FrameEngine, Ingest, and the interface. Interface tests run against `CoreFake`, while the Ingest, FrameEngine, and Audio suites also use the real core through `CoreLive`.
 - **The real app** runs too, because an app can capture its own windows with no permission. `make scenarios`, `make bench`, `make interaction-test`, and `--spike endtoend` all exercise it. These found bugs the unit tests hadn't, and `docs/spikes.md` lists them.
 
@@ -600,9 +681,13 @@ open -n $APP --args --scenario search-expanded --out /path/to/shot.png
 
 # Capture checks. Frames are examined in memory and thrown away.
 open -n $APP --args --spike capture --out /path/to/report.txt
+
+# Its own vault, key, and settings, for going through first run without touching yours.
+# It still records your screen, into that folder.
+open -n $APP --args --sandbox /path/to/folder
 ```
 
-- **Scenarios:** `timeline`, `search-compact`, `search-expanded`, `jump-to-date`, `coach-marks`, `status-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
+- **Scenarios:** `timeline`, `timeline-zoom`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
 - **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, and `browsers` need Screen Recording.
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
@@ -616,6 +701,7 @@ These protect people's data, and several are enforced by a test or a check:
 - **Never change how keys are derived.** Known-answer tests guard this, because existing vaults depend on those values.
 - **Never edit a released migration.** Add a new one.
 - **Never reopen a chunk for writing.** It could repeat a nonce.
+- **Never let two processes open a vault, and never reuse a frame ID.** Tests guard both.
 - **A chunk must start with a keyframe.** A full-disk test caught chunks that could never be decoded because of this.
 - **Keep the split.** Swift owns Apple frameworks, Rust owns data and computation, and Rust never calls Swift. New core features go through `ffi`, the `RemindCore` protocol, `CoreLive`, and `CoreFake`.
 - **New network use needs a very good reason.** `make check-privacy` will fail, and the privacy statement would have to change.
@@ -637,18 +723,24 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 | What you see | What to do |
 |---|---|
-| "Remind needs Screen Recording permission." | Use **Open Screen Recording settings…** in the menu, turn it on, and choose **Try again**. |
-| "Your keychain is locked, so recordings can't be opened yet." | Unlock your login keychain, then quit and reopen Remind. Your recordings are safe. |
-| "The key for your recordings is missing from your keychain." | Remind won't make a new key, because that would orphan your history. See the recovery key entry under [Known limitations](#known-limitations). |
+| "Remind needs Screen Recording permission." | Use **Open Screen Recording settings…** in the menu, turn it on, and choose **Reopen Remind**, because a new grant only reaches a new process. |
+| "Your keychain is locked, so recordings can't be opened yet." | Unlock your login keychain. Remind tries again when you unlock your Mac, or you can choose **Try again**. Your recordings are safe. |
+| "Remind wasn't allowed to read its key from your keychain." | Deny was probably clicked when macOS asked. Choose **Try again** and allow it. |
+| "The key for your recordings is missing from your keychain." | Choose **Unlock with recovery key…**, then enter the key or choose the file you saved. See [If the key is lost](#if-the-key-is-lost). |
 | "Recording stopped because the disk is nearly full." | Free up some space. Recording resumes by itself above 4 GB free. |
+| "Recordings aren't being saved to disk." | The disk is refusing writes. Check for space and disk errors, then choose **Try again**. It clears by itself once writes work again. |
 | "Recording stopped because video encoding kept failing." | Choose **Try again** in the menu. |
 | "Recording is paused because Remind kept crashing." | Choose **Try again** in the menu. The count clears after 10 minutes without trouble. |
-| "Nothing recorded on this display yet" | Remind only records the display your pointer is on. |
+| "Nothing recorded on this display yet" | Remind only records the display your pointer is on. If another display has recordings, the display picker takes you there. |
 | New recordings can't be found by their text yet | The first text recognition under a new app identity compiles Vision's models. That took 31 s on an M4 Max, and a slower Mac will take longer. Frames wait safely in the log. |
 | Ask shows moments but no written answer | It says why. Usually Apple Intelligence is off, or its model is still downloading. |
 | "Accessibility is off for Remind…" in Settings → Screen | Grant Accessibility in System Settings. Without it, Remind can only spot private windows by their titles. |
 | "… isn't responding to Remind…" in Settings → Screen | That browser's windows aren't being recorded until it answers again. This is deliberate. |
 | "Transcription couldn't start…" | Check the language in Settings → Audio. macOS needs to download each language the first time. |
+| "That transcription language isn't available on this Mac." | Choose another in Settings → Audio. |
+| "Remind can't hear your microphone" | Allow the microphone in System Settings. Until then, only your computer's audio is transcribed. |
+| "Some recordings couldn't be read" | Those pieces of your recordings are damaged, so what's in them can't be shown. Everything else is fine. |
+| "macOS is waiting for you to allow this." in Settings → General | Choose **Open Login Items** and allow Remind there. |
 | Permissions keep resetting after rebuilds | macOS ties grants to the signature. Build with a real signing identity, and keep the same bundle ID. |
 | Xcode can't find `RemindCoreFFI.xcframework` | Run `make project`. The framework is generated by `make core`. |
 
@@ -657,18 +749,15 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 **Check these before relying on Remind:**
 
 - **Screen sharing is unverified.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). Remind's own capture of the panel gets a blank image while its ordinary windows capture normally, which is encouraging, but only a share from another process can settle it. Until then, don't open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
-- **Recording a whole display hasn't been tested yet.** The test build hasn't been granted Screen Recording, so capture has only run end to end on a harness window. The race between a new private window and the capture filter hasn't run either, so that protection rests on its design and unit tests for now.
-- **A recovery key can be saved, but not yet restored.** Settings saves the key to a file, but the app has no way to read it back. If the keychain item is lost, recovery isn't currently possible from within Remind.
+- **Recording a whole display has no recorded results yet.** The measurements here ran on a harness window, and [docs/spikes.md](docs/spikes.md) still lists a stream of a whole display and the race between a new private window and the capture filter as open. That race has been run enough to catch frames showing a window just after its filter was applied, which led to the settling time under [Private windows](#private-windows), but no result has been written down.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
 **Known gaps:**
 
-- **Browser calls aren't detected.** The detector recognises Google Meet, Zoom, and Teams on the web, but the app doesn't pass it web addresses yet. Use the Audio capture switch for these.
-- **Star moment in the menu bar doesn't add a star yet.** It and its global shortcut make sure the next frame is kept, but don't mark it. To star a moment, use ⌘⇧S or the ⋯ menu in the timeline.
-- **Private window detection depends on titles.** A language missing from the table means private windows aren't detected in it. This hasn't been checked in real browsers in each language.
+- **A browser call has to be in the front tab to be noticed,** and calls in Firefox aren't detected at all. Use the Audio capture switch for these.
+- **Private window detection depends on titles.** A language missing from the table means private windows aren't detected in it, and this hasn't been checked in real browsers in each language. A private window open for less than 0.2 seconds may also go unseen.
 - **Firefox web addresses aren't captured,** so **Open** reopens Firefox rather than the page. Private windows there are still recognised by title.
 - **Only one display records at a time:** the one your pointer is on.
-- **There's no list of past transcripts.** **Last transcript** opens the most recent one from the current run of the app. Older ones are reachable through search.
 - **The interface is English only.** Strings are marked for localisation, but no translations exist yet.
 - **Apple Silicon only.** Builds are `arm64`.
 

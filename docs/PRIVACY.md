@@ -14,9 +14,11 @@ and it doesn't upload your recordings, text, or transcripts anywhere.
 
 ## What it leaves out
 
-- Apps you exclude in Settings.
+- Apps you exclude in Settings, and their sound in a transcript.
 - Private and incognito browser windows. This relies on browsers' window titles, in languages
-  Remind knows. If a browser doesn't answer in time, Remind drops the frame.
+  Remind knows. A browser window with no title yet counts as private until it has one, and if a
+  browser doesn't answer in time, Remind drops the frame. A private window open for less than
+  0.2 seconds may go unseen.
 - Remind's own windows.
 
 **Password fields and other sensitive content in ordinary windows do get recorded** if they're
@@ -27,6 +29,8 @@ visible on screen. Exclude apps you don't want recorded.
 - **Scrolling, to open the timeline.** With Accessibility on, Remind watches scroll events so that
   ⌘⇧ and scrolling up can take over from the app underneath. It sees scroll events only, never the
   keyboard, and it passes along everything except that gesture.
+- **The front browser tab's address, while your microphone is in use.** This is how Remind recognises
+  a call in a browser. Nothing is read for this while the microphone is off.
 - **Your calendar, only if you turn it on.** Remind reads the title of the event happening now, to
   name a meeting. The title stays on your Mac with the transcript.
 
@@ -35,16 +39,18 @@ visible on screen. Exclude apps you don't want recorded.
 Recordings are encrypted with a key in your login keychain, in
 `~/Library/Application Support/<Remind's identifier>/vault`. They're excluded from Time Machine,
 because a backup couldn't be read without that key anyway. If you lose the key, your history can't
-be recovered. Settings can save a recovery key to a file, but Remind can't read one back yet, so
-restoring from it isn't possible within the app.
+be recovered without a recovery key. Settings can save one to a file, and if the key is ever lost,
+Remind asks for it. Anyone with that file and your recordings can read them, so keep it somewhere safe.
 
 Anyone who can use your Mac while you're logged in can open Remind and see your history.
 
 ## Deleting
 
-Deleting removes the recordings and their text from Remind's files, and whole chunk files are
-removed from disk. A few frames just after a deleted period also go, because they can't be
-decoded without what came before. Like any file deletion, old encrypted blocks can stay on the
+You can delete a stretch on the timeline, a time range, everything recorded from one app, or
+everything at once. Deleting removes the recordings and their text from Remind's files, and whole
+chunk files are removed from disk. A few frames just after a deleted period can also go, because
+they can't be decoded without what came before, and the timeline tells you before you confirm. Like
+any file deletion, old encrypted blocks can stay on the
 drive or in APFS snapshots until they're overwritten.
 
 ## The network
