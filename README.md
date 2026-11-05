@@ -533,7 +533,7 @@ With Accessibility on, an event tap takes the ⌘⇧ swipe away from the app und
 
 ### Scrubbing
 
-Scrubbing outruns decoding, so the engine always works on the latest request and skips any in between. It decodes every frame when the playhead is slow, only keyframes when it's fast, and when it stops it decodes the exact frame and then the groups on either side, so the next step is instant. The picture never blanks: until the right frame is ready, the closest cached one stays up. The cache takes 10% of memory, between 700 MB and 1.4 GB, and is freed when the overlay closes.
+Scrubbing outruns decoding, so the engine always works on the latest request and skips any in between. It decodes every frame when the playhead is slow, only keyframes when it's fast, and when it stops it decodes the exact frame and then the groups on either side, so the next step is instant. It gives the hardware decoder a group's frames together, so it can work on several at once, and starts no more once a newer request arrives. The picture never blanks: until the right frame is ready, the closest cached one stays up. The cache takes 10% of memory, between 700 MB and 1.4 GB, and is freed when the overlay closes.
 
 ### When things go wrong
 
@@ -561,7 +561,7 @@ Remind uses system Liquid Glass with its own accent, verdigris, the patina time 
 
 **Controls stay readable over anything.** A recorded frame can be any colour, and glass over a white page reads as pale grey. Liquid Glass also adapts any tint to what's behind it, so a tint made things worse. Control text sits on a 60% black fill under the glass instead, which took the time pill from 2.29:1 to 8.18:1 over a white page. `make scenarios` holds it to 4.5:1 on white, black, saturated, and noisy backdrops.
 
-![The timeline's controls over an all-white page: the time pill, the Open button, and the more and back-to-now buttons, all with white text on dark pills](docs/images/contrast-white.png)
+![The timeline's controls over an all-white page: the time pill, the Open button, and the zoom, more, and back-to-now buttons, all white on dark pills](docs/images/contrast-white.png)
 
 ## Measurements
 
@@ -585,10 +585,10 @@ These come from [docs/spikes.md](docs/spikes.md), which has the full results and
 |---|---|---|---|---|
 | Cached scrub | 0.1 ms | 0.1 ms | 0.1 ms | p95 25 ms |
 | Backward miss, exact frame | 43 ms | 78 ms | 136 ms | p95 120 ms, p99 280 ms |
-| Backward miss, first change | 43 ms | 78 ms | 136 ms | 50 ms, **missed at p95** |
+| Backward miss, first change | | 41 ms | | 50 ms |
 | Fast flick, per update | 0.2 ms | 14 ms | 15 ms | Keeps up with 60 Hz |
 
-The missed budget is the fully cold case, with nothing nearby in the cache. In real scrubbing a nearby frame shows first.
+The first-change row is the fully cold case, with nothing nearby in the cache, and that first change is the exact frame. It used to miss its budget, at 77 ms, until groups were decoded asynchronously, which takes a group of 30 from 45 ms to 31 ms. Only that one figure has been written down since, so the exact-frame row is from before the change.
 
 **Text recognition.** 2,000 frames at 3024×1964, while other heavy work was running:
 

@@ -269,15 +269,18 @@ underneath staying still is unproven. Its routing rules are unit tested.
 |---|---|---|---|---|
 | Cached scrub | 0.1 ms | 0.1 ms | 0.1 ms | p95 25 ms |
 | Backward miss, exact frame | 43 ms | 78 ms | 136 ms | p95 120 ms, p99 280 ms |
-| Backward miss, first change | 43 ms | 78 ms | 136 ms | 50 ms: **missed at p95** |
+| Backward miss, first change | | 41 ms | | 50 ms |
 | Fast flick, per update | 0.2 ms | 14 ms | 15 ms | Keeps up with 60 Hz |
 | Reading a group of 1.5 MB | 10 ms | 12 ms | 12 ms | |
 | Creating a decoder | 2 ms | 3 ms | 3 ms | |
 | Decoding a frame | 2.2 ms | 2.2 ms | 2.2 ms | Plan assumed 8 ms |
 
-The first-change miss is the fully cold case, with nothing nearby in the cache. In real scrubbing a
-nearby frame shows first. Showing the group's keyframe sooner would meet the number, but going backward
-it would jump past the target and return, which is worse to look at. So it stays as it is.
+The first-change row is the fully cold case, with nothing nearby in the cache. It used to miss its
+budget, at 77 ms at p95. Showing the group's keyframe sooner would have met the number, but going
+backward it would jump past the target and return, which is worse to look at. Decoding groups
+asynchronously met it instead. The hardware can work on several frames at once, so a group of 30 takes
+31 ms instead of 45 ms, and a cold miss now first changes the picture in 41 ms at p95, still on the exact
+frame. Only that p95 has been written down since, so the other rows are from before the change.
 
 Colour tags reaching the surface, lossless surfaces, and haptics aren't measured yet.
 
