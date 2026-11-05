@@ -162,6 +162,12 @@ public final class AskEngine: Sendable {
         return hits
     }
 
+    static let surveyFraming = """
+    These excerpts are samples of what was on the user's screen during that time, oldest first. \
+    Answer by describing what the user was looking at or working on, from what's in them.
+
+    """
+
     /// The text around a match, kept short so more moments fit.
     func excerpt(for hit: SearchHit, keywords: [String]) -> String {
         let lines = (try? core.frameText(of: hit.frameID)) ?? []
@@ -199,7 +205,10 @@ public final class AskEngine: Sendable {
         formatter.dateStyle = .medium
         formatter.timeStyle = .short
 
-        let closing = "\nQuestion: \(Self.sanitized(question))"
+        // A question about a whole period has no single answer to find in there, so it's
+        // told what the excerpts are and what to do with them.
+        let framing = plan.keywords.isEmpty ? Self.surveyFraming : ""
+        let closing = "\n\(framing)Question: \(Self.sanitized(question))"
         var budget = generator.contextSize - Self.answerReserve
         budget -= await generator.tokenCount(Self.instructions)
         budget -= await generator.tokenCount(closing)

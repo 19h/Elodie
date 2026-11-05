@@ -161,6 +161,8 @@ private func collect(_ engine: AskEngine, _ question: String) async -> [AskUpdat
         }
         #expect(sources.map(\.hit.frameID) == [0])
         #expect(generator.captured.text.contains("Quarterly budget review"))
+        // It has to know it's summarising, or it says it couldn't find an answer.
+        #expect(generator.captured.text.contains("samples of what was on the user's screen"))
     }
 
     @Test func aQuietPeriodSaysNothingWasRecorded() async throws {
@@ -173,6 +175,14 @@ private func collect(_ engine: AskEngine, _ question: String) async -> [AskUpdat
         }
         #expect(updates.first == .sources([]))
         #expect(updates.contains(.noAnswer(String(localized: "Nothing was recorded in that time."))))
+    }
+
+    /// A question with something to find is only asked to find it.
+    @Test func aSpecificQuestionIsNotToldToSummarise() async throws {
+        let generator = ScriptedGenerator()
+        let engine = AskEngine(core: try core(with: ["Quarterly budget review"]), generator: generator)
+        _ = await collect(engine, "What was the budget?")
+        #expect(!generator.captured.text.contains("samples of what was on the user's screen"))
     }
 
     /// Text on a screen must not be able to pass as part of the prompt's structure.

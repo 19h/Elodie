@@ -1475,6 +1475,22 @@ extension AppController {
                 try await ScreenContent.saveScreenshot(ofWindow: window, to: URL(filePath: argument))
             case "shootWindow":
                 try await ScreenContent.saveScreenshotOfLargestOwnWindow(to: URL(filePath: argument))
+            case "askNow":
+                guard let core else { return "no vault" }
+                var sources = 0
+                var answer = ""
+                for await update in AskEngine(core: core).ask(argument) {
+                    switch update {
+                    case .sources(let found): sources = found.count
+                    case .answer(let text): answer = text
+                    case .noAnswer(let reason): answer = "(no answer) \(reason)"
+                    }
+                }
+                return "sources: \(sources)\nanswer: \(answer)"
+            case "startOver":
+                startOver()
+            case "restore":
+                return "\(await restore(from: argument))"
             case "recoveryKey":
                 return (try? RecoveryKey.text(for: KeyStore.key(vaultExists: true))) ?? "none"
             case "state":
