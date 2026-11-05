@@ -777,7 +777,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 - **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and an ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
 - **A real first run has only happened on one Mac, with other apps excluded.** It recorded two real displays into a scratch vault, and [docs/spikes.md](docs/spikes.md) has what it covered. Normal daily use, and energy use, haven't been measured.
-- **Very brief private windows can reach a recording.** Spike 2 found no marker in 13,561 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 3 of 49 allowed frames. Remind only promises to catch windows open for at least 0.25 seconds.
+- **Very brief private windows can reach a recording.** Spike 2 found no marker in 22,897 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 2 to 3 of about 50 allowed frames. Remind only promises to catch windows open for at least 0.25 seconds.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
 **Known gaps:**
@@ -789,7 +789,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 - **The interface is English only.** Strings are marked for localisation, but no translations exist yet.
 - **Apple Silicon only.** Builds are `arm64`.
 
-**Not yet tested with real hardware or people:** the swipe on a real trackpad and mouse, including whether the app underneath stays perfectly still, since the event tap itself hasn't run. Also scroll speed, the login item, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center switch. The [release checklist](docs/release-checklist.md) has the full list.
+**Not yet tested with real hardware or people:** how the swipe feels on a real trackpad and mouse, and its scroll speed. With synthetic events through the real event tap, none reached the app underneath. Also the login item across a restart, words from a real microphone, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center switch in Control Center itself. The [release checklist](docs/release-checklist.md) has the full list.
 
 ## Documentation
 

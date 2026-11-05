@@ -233,10 +233,12 @@ marker with the gate off first, to prove the check would see a leak.
 | 1, German | Yes, 16 frames | 4,626 | 0 |
 | 2, English | Yes, 17 frames | 4,304 | 0 |
 | 2, German | Yes, 13 frames | 4,631 | 0 |
+| 3, English | Yes, 15 frames | 4,651 | 0 |
+| 3, German | Yes, 15 frames | 4,685 | 0 |
 
-That's 0 in 13,561 frames across the runs that count. The run before these fixes leaked 1 frame in 4,254,
+That's 0 in 22,897 frames across the runs that count. The run before these fixes leaked 1 frame in 4,254,
 which is what led to the second fix. **Windows open under 120 ms remain a limit:** the marker reached the
-encoder in 3 of 49 allowed frames in the last run. A window that brief can open and close between two
+encoder in 3 of 49 and 2 of 57 allowed frames in the last two runs. A window that brief can open and close between two
 looks. About half of all frames are dropped here, because a private window is opening or closing almost
 constantly, far more than in real use.
 
@@ -244,7 +246,7 @@ constantly, far more than in real use.
 
 | Question | Result |
 |---|---|
-| Does `sharingType = .none` hide the panel from capture? | From another process, yes. In `--spike sharing`, a separate copy of the app captures the display. With the overlay's setting it finds nothing, by screenshot, stream, or asking for that window alone, and the same panel set to share normally shows up every time. The check now also tries the system's `screencapture` tool, and that result isn't written down yet. **A real call is still to try** |
+| Does `sharingType = .none` hide the panel from capture? | From another process, yes, and from the system's `screencapture` tool too. In `--spike sharing`, a separate copy of the app captures the display. With the overlay's setting it finds nothing, by screenshot, stream, or asking for that window alone, and the same panel set to share normally shows up every time. The check now also tries the system's `screencapture` tool, and that result isn't written down yet. **A real call is still to try** |
 | Does scrolling reach the timeline through the SwiftUI layer and the strip? | Yes, with real events through the real panel |
 | Does typing start a search, and does the field take over? | Yes |
 | Drag across text, then ⌘C | Copies it |
@@ -260,8 +262,22 @@ in the test and failed it.
 ⌘⇧ and scrolling up is one motion: the swipe that opens the timeline keeps moving through it, and
 the app underneath stays still. With real events through the real coordinator, the first scroll isn't
 lost, the swipe carries on after the keys are let go and through momentum, and opening costs 24 ms on
-the main thread. **The event tap itself hasn't run**, because that needs Accessibility, so the app
-underneath staying still is unproven. Its routing rules are unit tested.
+the main thread.
+
+**The real event tap has now run**, both under the shell's Accessibility grant and under Remind's own. A
+separate process filled the screen and counted every marked scroll that reached it, standing in for the
+app underneath, while scrolls were posted through the system:
+
+| Scroll | Reached the app underneath | Timeline |
+|---|---|---|
+| Plain wheel, plain trackpad swipe | All of them | Stays closed |
+| ⌘⇧ and scrolling down, timeline closed | All 8 | Stays closed |
+| ⌘⇧ and swiping up | **0 of 22** | Opens, and moves back the expected distance |
+| One swipe with the keys let go midway, then momentum | **0 of 22** | Keeps moving through all of it |
+| ⌘⇧ and mouse wheel up | **0 of 12** | Opens |
+| A plain swipe after closing | All of them | Stays closed |
+
+These are synthetic events. How it feels on real fingers still needs a person.
 
 ### Spike 8 and the scrub budgets (M4 Max, 3024×1964, keyframe every 30)
 
@@ -332,8 +348,19 @@ code, live transcription stopping within seconds, highlights off on a display of
 recording back on not clearing "kept crashing", Ask refusing to summarise a whole period, and the
 coach mark covering the selection bar.
 
-**Not covered by this run**, because each needs a person or a grant: the Accessibility prompt and everything
-behind it, the microphone, a real call, and the login item.
+Once every permission had been granted, first run was repeated under Remind's own identity: all three rows
+showed as granted, Continue was on, and Start recording started recording with the event tap live.
+
+| Also tested for real | Result |
+|---|---|
+| Login item, through `SMAppService` and launchd | Registers as enabled, launchd starts it, a second copy leaves, launchd brings it back 21 s after a SIGKILL, a proper quit isn't brought back, and unregistering stops it. Coming back after a restart hasn't been tried |
+| Microphone | Real buffers arrive at a real level, 1,551 in about 15 s. The output was muted, so nothing spoken reached it, and the microphone has yet to produce words |
+| Control Center channel | A sandboxed process, like the button, read the state and paused and resumed the app. The button itself hasn't been seen in Control Center |
+
+**One mistake to learn from.** The login item test started the real app, not the sandbox, and put real
+onboarding on the screen of someone using the Mac. Setup got finished in it, so that copy recorded their real
+screen with nothing excluded, and it was then force-killed while they may have been using it. Anything
+that starts the app without `--sandbox` has to be treated as real.
 
 ## Open items
 
@@ -348,5 +375,5 @@ behind it, the microphone, a real call, and the login item.
   seconds, failing 10 tests at once. It didn't come back in 11,520 opens on 48 threads, or in the full runs
   since. It isn't mistaken for a wrong key, and opening now tries again a few times.
 - **Still needs a real call:** screen sharing with an actual call app. See spike 7.
-- **Still needs Accessibility:** the event tap, and with it the app underneath staying still.
+- **Still needs someone speaking:** words from the microphone, as opposed to its audio arriving.
 - **Hotkey to first pixel isn't measured.** It takes over the screen, so it isn't part of `make bench`.
