@@ -48,7 +48,10 @@ private struct GeneralTab: View {
             ))
             Toggle("Remind me when recording is paused", isOn: $model.remindWhenPaused)
             Toggle("Show in Dock", isOn: $model.showInDock)
-            Toggle("Check for updates automatically", isOn: $model.checkForUpdates)
+            Toggle("Check for updates automatically", isOn: Binding(
+                get: { model.checkForUpdates },
+                set: { actions.setChecksForUpdates($0) }
+            ))
         }
         .formStyle(.columns)
         .padding(28)

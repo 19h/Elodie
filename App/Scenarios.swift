@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import Capture
 import CoreAPI
@@ -74,9 +75,30 @@ enum Scenarios {
 
     enum ScenarioError: Error {
         case unknown(String)
+        case couldNotDraw
     }
 
     /// Screenshots a window through ScreenCaptureKit, so glass renders as it really does.
+    ///
+    /// Without Screen Recording permission, the window draws itself into a bitmap instead.
+    /// Layout and text are right in that image, but glass has no backdrop to sample and
+    /// anything drawn through Metal or an IOSurface may be missing.
+    @MainActor
+    private static func screenshot(_ window: NSWindow, to output: URL) async throws {
+        if CGPreflightScreenCaptureAccess() {
+            try await ScreenContent.saveScreenshot(ofWindow: CGWindowID(window.windowNumber), to: output)
+            return
+        }
+        guard let view = window.contentView,
+              let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+        else { throw ScenarioError.couldNotDraw }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else {
+            throw ScenarioError.couldNotDraw
+        }
+        try data.write(to: output)
+    }
+
     @MainActor
     private static func capture(_ view: AnyView, size: NSSize, to output: URL) async throws {
         let window = NSWindow(
@@ -91,7 +113,7 @@ enum Scenarios {
         window.center()
         window.orderFrontRegardless()
         try await Task.sleep(for: .milliseconds(700))
-        try await ScreenContent.saveScreenshot(ofWindow: CGWindowID(window.windowNumber), to: output)
+        try await screenshot(window, to: output)
     }
 
     @MainActor
@@ -132,6 +154,7 @@ enum Scenarios {
             highlights: highlights,
             onOpen: {},
             onDismiss: {},
+            actions: OverflowActions(),
             onSelectHit: { _ in },
             onOpenHit: { _ in },
             fieldCreated: { textField = $0 },
@@ -160,7 +183,7 @@ enum Scenarios {
         }
         _ = textField
         try await Task.sleep(for: .milliseconds(1200))
-        try await ScreenContent.saveScreenshot(ofWindow: CGWindowID(window.windowNumber), to: output)
+        try await screenshot(window, to: output)
     }
 }
 
@@ -188,6 +211,7 @@ private final class PreviewActions: SettingsActions {
     func saveRecoveryKey() {}
     func revealVault() {}
     func setLaunchAtLogin(_ enabled: Bool) {}
+    func setChecksForUpdates(_ enabled: Bool) {}
     var launchAtLogin: Bool { true }
     var runningApps: [AppChoice] {
         NSWorkspace.shared.runningApplications
@@ -198,3 +222,5 @@ private final class PreviewActions: SettingsActions {
             }
     }
 }
+
+#endif

@@ -1,9 +1,11 @@
 import AppKit
+import Audio
 import Capture
 import CoreAPI
 import CoreLive
 import CoreVideo
 import FeatureAsk
+import FeatureMeetings
 import FeatureOnboarding
 import FeatureRecap
 import FeatureSettings
@@ -60,6 +62,21 @@ final class AppController: NSObject {
     private var settingsWindow: NSWindow?
     private var askWindow: NSWindow?
     private var recapWindow: NSWindow?
+    private var transcriptWindow: NSWindow?
+    private var promptPanel: NSPanel?
+    private var audio: AudioRecorder?
+    private var meetingTimer: Timer?
+    private var currentMeeting: DetectedMeeting?
+    private var dismissedMeeting: DetectedMeeting?
+    private var audioStarted: Date?
+    private var lastTranscript: DateInterval?
+    private var meetingGoneSince: Date?
+    private let inventory = WindowInventory()
+    let updater = Updater()
+    private(set) var isTranscribing = false
+    /// Set once the app is running, so Shortcuts actions and the Control Center button can
+    /// reach it.
+    private(set) static weak var shared: AppController?
     private var scrollMonitor: ScrollToOpen?
     private var resumeTimer: Timer?
     private var diskTimer: Timer?
@@ -73,6 +90,9 @@ final class AppController: NSObject {
     }
 
     func start() {
+        Self.shared = self
+        updater.checksAutomatically = settings.checkForUpdates
+        listenForControlCenter()
         NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
         menu = StatusMenu(controller: self)
         registerShortcuts()
@@ -93,6 +113,7 @@ final class AppController: NSObject {
         KeyboardShortcuts.onKeyDown(for: .ask) { [weak self] in self?.openAsk() }
         KeyboardShortcuts.onKeyDown(for: .dailyRecap) { [weak self] in self?.openRecap() }
         KeyboardShortcuts.onKeyDown(for: .starMoment) { [weak self] in self?.starMoment() }
+        KeyboardShortcuts.onKeyDown(for: .toggleAudio) { [weak self] in self?.toggleTranscribing() }
         scrollMonitor = ScrollToOpen { [weak self] in self?.overlay?.open() }
     }
 
@@ -150,11 +171,194 @@ final class AppController: NSObject {
         }
         self.recording = recording
         overlay.latestFrame = { [weak recording] in recording?.latestFrame }
+        overlay.excludeApp = { [weak self] bundleID in
+            self?.settings.excludedApps.insert(bundleID)
+            self?.recording?.update(policy: self?.currentPolicy() ?? ExclusionPolicy(excludedBundleIDs: []))
+        }
+        audio = AudioRecorder(core: core)
         observeSystemEvents()
         startRecording()
         applyRetention()
         startDiskWatch()
+        startMeetingWatch()
         menu?.refresh()
+    }
+
+    // MARK: Transcribing
+
+    func toggleTranscribing() {
+        if isTranscribing {
+            stopTranscribing()
+        } else {
+            startTranscribing(title: currentMeeting?.title ?? currentMeeting?.app)
+        }
+    }
+
+    private func startTranscribing(title: String?) {
+        guard !isTranscribing, let audio else { return }
+        isTranscribing = true
+        audioStarted = Date()
+        menu?.refresh()
+        let sources = AudioSources(
+            microphone: settings.audioSource != .speakerOnly,
+            speakers: settings.audioSource != .microphoneOnly
+        )
+        let locale = Locale(identifier: settings.transcriptionLanguage)
+        Task {
+            do {
+                try await audio.start(sources: sources, locale: locale, title: title)
+            } catch {
+                isTranscribing = false
+                show(problem: .other("Transcription couldn't start: \(error.localizedDescription)"))
+            }
+        }
+    }
+
+    private func stopTranscribing() {
+        guard isTranscribing else { return }
+        isTranscribing = false
+        if let audioStarted {
+            lastTranscript = DateInterval(start: audioStarted, end: Date())
+        }
+        menu?.refresh()
+        Task { await audio?.stop() }
+    }
+
+    var hasTranscript: Bool { lastTranscript != nil }
+
+    func openLastTranscript() {
+        guard let core, let lastTranscript else { return }
+        let view = TranscriptView(
+            core: core,
+            interval: lastTranscript,
+            title: currentMeeting?.app
+        ) { [weak self] time in
+            self?.overlay?.open(at: time)
+        }
+        transcriptWindow = makeWindow(title: "Transcript", content: view, size: NSSize(width: 560, height: 640))
+        show(transcriptWindow)
+    }
+
+    // MARK: Meetings
+
+    private func startMeetingWatch() {
+        meetingTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkForMeeting() }
+        }
+    }
+
+    private func checkForMeeting() {
+        let windows = inventory.onScreenWindows().filter { $0.layer == 0 }.map { window in
+            MeetingSignals.Window(bundleID: inventory.identify(window.ownerPID).bundleID, title: window.title)
+        }
+        let detected = MeetingDetector.detect(MeetingSignals(
+            windows: windows,
+            isMicrophoneInUse: MeetingDetector.isMicrophoneInUse
+        ))
+
+        if let detected {
+            meetingGoneSince = nil
+            guard detected != currentMeeting else { return }
+            currentMeeting = detected
+            guard !isTranscribing, detected != dismissedMeeting else { return }
+            switch settings.meetingDetected {
+            case .ask: showMeetingPrompt(detected)
+            case .recordAutomatically: startTranscribing(title: detected.title ?? detected.app)
+            case .doNotRecord: break
+            }
+        } else if currentMeeting != nil {
+            // Windows change as calls settle, so this waits before calling it over.
+            let gone = meetingGoneSince ?? Date()
+            meetingGoneSince = gone
+            if Date().timeIntervalSince(gone) > 30 {
+                currentMeeting = nil
+                dismissedMeeting = nil
+                meetingGoneSince = nil
+                closeMeetingPrompt()
+                stopTranscribing()
+            }
+        }
+    }
+
+    private func showMeetingPrompt(_ meeting: DetectedMeeting) {
+        closeMeetingPrompt()
+        let view = MeetingPrompt(
+            appName: meeting.app,
+            title: meeting.title,
+            onRecord: { [weak self] in
+                self?.closeMeetingPrompt()
+                self?.startTranscribing(title: meeting.title ?? meeting.app)
+            },
+            onDismiss: { [weak self] in
+                self?.dismissedMeeting = meeting
+                self?.closeMeetingPrompt()
+            }
+        )
+        let hosting = NSHostingView(rootView: view)
+        let size = hosting.fittingSize
+        let panel = NSPanel(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.titleVisibility = .hidden
+        panel.titlebarAppearsTransparent = true
+        panel.isMovableByWindowBackground = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.contentView = hosting
+        panel.isReleasedWhenClosed = false
+        if let screen = NSScreen.main {
+            panel.setFrameOrigin(NSPoint(
+                x: screen.visibleFrame.maxX - size.width - 16,
+                y: screen.visibleFrame.maxY - size.height - 16
+            ))
+        }
+        panel.orderFrontRegardless()
+        promptPanel = panel
+    }
+
+    private func closeMeetingPrompt() {
+        promptPanel?.close()
+        promptPanel = nil
+    }
+
+    // MARK: Control Center
+
+    /// The Control Center button runs in a separate sandboxed process, and it signals
+    /// through this notification, which can't carry any data.
+    private func listenForControlCenter() {
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            { _, _, _, _, _ in
+                DispatchQueue.main.async {
+                    AppController.shared?.togglePaused()
+                }
+            },
+            "app.remind.toggle-recording" as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    func togglePaused() {
+        setPaused(!isPaused)
+    }
+
+    /// Opens the timeline at a moment, from a link or a Shortcuts action.
+    func showMoment(at time: Date) {
+        overlay?.open(at: time)
+    }
+
+    /// Permanently deletes the last 5 minutes.
+    func forgetRecent() {
+        guard let core else { return }
+        let now = Date()
+        Task.detached(priority: .userInitiated) {
+            try? core.deleteRange(from: now.addingTimeInterval(-5 * 60), to: now)
+        }
     }
 
     private func currentPolicy() -> ExclusionPolicy {
@@ -461,6 +665,11 @@ extension AppController: SettingsActions {
 
     var launchAtLogin: Bool {
         SMAppService.mainApp.status == .enabled
+    }
+
+    func setChecksForUpdates(_ enabled: Bool) {
+        settings.checkForUpdates = enabled
+        updater.checksAutomatically = enabled
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {

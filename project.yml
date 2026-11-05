@@ -20,6 +20,9 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.0.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    from: 2.6.0
 targets:
   Remind:
     type: application
@@ -34,6 +37,9 @@ targets:
         INFOPLIST_FILE: App/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/Remind.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
     dependencies:
       - package: RemindKit
         product: CoreAPI
@@ -66,8 +72,16 @@ targets:
       - package: RemindKit
         product: FeatureAsk
       - package: RemindKit
+        product: FeatureMeetings
+      - package: RemindKit
+        product: Audio
+      - package: RemindKit
         product: FeatureRecap
       - package: KeyboardShortcuts
+      - package: Sparkle
+      - target: RemindWidgets
+        embed: true
+        codeSign: true
     preBuildScripts:
       - name: Build Rust core
         basedOnDependencyAnalysis: false
@@ -75,6 +89,23 @@ targets:
           profile=debug
           [ "$CONFIGURATION" = "Release" ] && profile=release
           "$SRCROOT/scripts/build-core.sh" "$profile"
+  RemindWidgets:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Widgets
+        excludes:
+          - Info.plist
+          - "*.entitlements"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.remind.Remind.dev.controls
+        INFOPLIST_FILE: Widgets/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Widgets/RemindWidgets.entitlements
+        SKIP_INSTALL: YES
+      configs:
+        Release:
+          CODE_SIGN_IDENTITY: "Developer ID Application"
 schemes:
   Remind:
     build:

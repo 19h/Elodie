@@ -261,3 +261,63 @@ private func settle(_ engine: ScrubEngine) async throws {
         #expect(ScrubEngine.defaultBudget(physicalMemory: memory) == expected)
     }
 }
+
+import AVFoundation
+
+@Suite struct Exporting {
+    @Test func aClipIsAPlayableVideoOfTheRightFrames() async throws {
+        let (core, recording, directory) = try await fixture(count: 40)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "clip.mp4")
+
+        let frames = try await MP4Exporter.export(
+            core: core,
+            display: recording.display,
+            from: recording.time(of: 5),
+            to: recording.time(of: 34),
+            to: url
+        )
+        // It starts at the keyframe before frame 5, which is frame 0.
+        #expect(frames == 35)
+
+        let asset = AVURLAsset(url: url)
+        let track = try #require(try await asset.loadTracks(withMediaType: .video).first)
+        let size = try await track.load(.naturalSize)
+        #expect(size.width == 1280 && size.height == 800)
+        // 35 frames, 2 seconds apart, with the last held for 2 seconds.
+        let duration = try await asset.load(.duration).seconds
+        #expect(abs(duration - 70) < 1, "duration \(duration)")
+
+        // AVFoundation can read it back, and the barcode proves it's the right frame.
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: [
+            kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        ])
+        reader.add(output)
+        #expect(reader.startReading())
+        var numbers: [Int] = []
+        while let sample = output.copyNextSampleBuffer() {
+            guard let image = CMSampleBufferGetImageBuffer(sample) else { continue }
+            if let number = FrameBarcode.read(from: image, originY: recording.barcodeY) {
+                numbers.append(number)
+            }
+        }
+        #expect(numbers == Array(0..<35))
+    }
+
+    @Test func nothingRecordedInThatPeriodIsAnError() async throws {
+        let (core, recording, directory) = try await fixture(count: 3)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "clip.mp4")
+        await #expect(throws: ExportError.nothingRecorded) {
+            try await MP4Exporter.export(
+                core: core,
+                display: UUID(),
+                from: recording.start,
+                to: recording.start.addingTimeInterval(60),
+                to: url
+            )
+        }
+        #expect(!FileManager.default.fileExists(atPath: url.path))
+    }
+}

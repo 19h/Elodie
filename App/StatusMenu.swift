@@ -46,8 +46,20 @@ final class StatusMenu: NSObject {
             menu.addItem(pause)
         }
 
+        menu.addItem(entry(
+            controller.isTranscribing ? "Stop transcribing" : "Transcribe audio",
+            symbol: controller.isTranscribing ? "stop.circle" : "waveform",
+            action: #selector(toggleTranscribing)
+        ))
+        if controller.hasTranscript {
+            menu.addItem(entry("Last transcript", symbol: "text.quote", action: #selector(transcript)))
+        }
+        menu.addItem(entry("Forget the last 5 minutes…", symbol: "clock.arrow.circlepath", action: #selector(forget)))
         menu.addItem(.separator())
         menu.addItem(entry("Settings…", symbol: "gearshape", action: #selector(settings), key: ","))
+        if controller.updater.isAvailable {
+            menu.addItem(entry("Check for updates…", action: #selector(checkForUpdates)))
+        }
         menu.addItem(.separator())
         menu.addItem(entry("Quit Remind", action: #selector(quit), key: "q"))
         item.menu = menu
@@ -98,7 +110,25 @@ final class StatusMenu: NSObject {
     @objc private func pause15() { controller?.setPaused(true, for: 15 * 60) }
     @objc private func pause60() { controller?.setPaused(true, for: 60 * 60) }
     @objc private func pauseIndefinitely() { controller?.setPaused(true) }
+    @objc private func toggleTranscribing() { controller?.toggleTranscribing() }
+    @objc private func transcript() { controller?.openLastTranscript() }
+
+    @objc private func forget() {
+        // It can't be undone, so it asks first.
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Forget the last 5 minutes?")
+        alert.informativeText = String(localized: "This permanently deletes those recordings and their text.")
+        alert.addButton(withTitle: String(localized: "Forget"))
+        alert.buttons.first?.hasDestructiveAction = true
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        NSApp.activate()
+        if alert.runModal() == .alertFirstButtonReturn {
+            controller?.forgetRecent()
+        }
+    }
+
     @objc private func settings() { controller?.openSettings() }
+    @objc private func checkForUpdates() { controller?.updater.checkNow() }
     @objc private func quit() { NSApp.terminate(nil) }
 }
 

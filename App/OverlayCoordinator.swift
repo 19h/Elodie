@@ -2,9 +2,11 @@ import AppKit
 import Capture
 import CoreAPI
 import CoreVideo
+import CoreImage
 import DesignSystem
 import FeatureSearch
 import FeatureTimeline
+import FrameEngine
 import Observation
 import OverlayShell
 import SwiftUI
@@ -20,6 +22,11 @@ final class OverlayCoordinator {
     private var isSearchEditing = false
     private var highlights = HighlightModel()
     private var observers: [Any] = []
+    private var currentBuffer: CVPixelBuffer?
+    private var currentDisplay: UUID?
+
+    /// Leaves an app out of recording from now on.
+    var excludeApp: (String) -> Void = { _ in }
 
     /// The most recent captured frame, shown first so opening feels instant.
     var latestFrame: () -> CVPixelBuffer? = { nil }
@@ -56,9 +63,11 @@ final class OverlayCoordinator {
         )
         controller.onAction = { [weak self] action in self?.handle(action) }
         controller.isSearchFocused = { [weak self] in self?.isSearchEditing ?? false }
-        controller.onFrameShown = { [weak self] frameID, _ in
+        controller.onFrameShown = { [weak self] frameID, buffer in
             self?.highlights.frameChanged(to: frameID)
+            self?.currentBuffer = buffer
         }
+        currentDisplay = uuid
 
         controller.install(chrome: OverlayContent(
             core: core,
@@ -67,6 +76,15 @@ final class OverlayCoordinator {
             highlights: highlights,
             onOpen: { [weak self] in self?.openCurrent() },
             onDismiss: { [weak self] in self?.dismiss() },
+            actions: OverflowActions(
+                star: { [weak self] in self?.starCurrent() },
+                copyImage: { [weak self] in self?.copyImage() },
+                saveImage: { [weak self] in self?.saveImage() },
+                copyLink: { [weak self] in self?.copyLink() },
+                exportClip: { [weak self] in self?.exportClip() },
+                forget: { [weak self] in self?.forgetRecent() },
+                exclude: { [weak self] in self?.excludeCurrentApp() }
+            ),
             onSelectHit: { [weak self] hit in self?.select(hit) },
             onOpenHit: { [weak self] hit in self?.openExternally(hit) },
             fieldCreated: { [weak self] field in self?.searchField = field },
@@ -93,6 +111,7 @@ final class OverlayCoordinator {
         timeline?.stop()
         timeline = nil
         panel = nil
+        currentBuffer = nil
         isSearchEditing = false
         search.clear()
         highlights.clear()
@@ -209,6 +228,81 @@ final class OverlayCoordinator {
         Task.detached { try? core.setStarred(true, frameID: frameID) }
     }
 
+    private func currentImage() -> NSImage? {
+        guard let currentBuffer else { return nil }
+        let image = CIImage(cvPixelBuffer: currentBuffer)
+        guard let cgImage = CIContext().createCGImage(image, from: image.extent) else { return nil }
+        return NSImage(cgImage: cgImage, size: .zero)
+    }
+
+    private func copyImage() {
+        guard let image = currentImage() else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects([image])
+    }
+
+    private func saveImage() {
+        guard let image = currentImage() else { return }
+        dismiss()
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = "Remind \(Self.fileDate()).png"
+        NSApp.activate()
+        guard panel.runModal() == .OK, let url = panel.url,
+              let data = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: data)?.representation(using: .png, properties: [:])
+        else { return }
+        try? png.write(to: url)
+    }
+
+    private func copyLink() {
+        guard let time = timeline?.playhead else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(DeepLink.url(for: time).absoluteString, forType: .string)
+    }
+
+    /// Exports the 5 minutes around the playhead as a video file.
+    private func exportClip() {
+        guard let time = timeline?.playhead, let display = currentDisplay else { return }
+        dismiss()
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.mpeg4Movie]
+        panel.nameFieldStringValue = "Remind \(Self.fileDate()).mp4"
+        panel.message = "This saves an unencrypted copy of about 5 minutes of your screen."
+        NSApp.activate()
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        let core = self.core
+        Task.detached(priority: .userInitiated) {
+            try? await MP4Exporter.export(
+                core: core,
+                display: display,
+                from: time.addingTimeInterval(-150),
+                to: time.addingTimeInterval(150),
+                to: url
+            )
+        }
+    }
+
+    /// Permanently deletes the last 5 minutes. Recording carries on from now.
+    private func forgetRecent() {
+        let core = self.core
+        let now = Date()
+        dismiss()
+        Task.detached(priority: .userInitiated) {
+            try? core.deleteRange(from: now.addingTimeInterval(-5 * 60), to: now)
+        }
+    }
+
+    private func excludeCurrentApp() {
+        guard let bundleID = timeline?.model.currentContext?.bundleID else { return }
+        excludeApp(bundleID)
+    }
+
+    private static func fileDate() -> String {
+        Date().formatted(.iso8601.year().month().day().dateTimeSeparator(.space).time(includingFractionalSeconds: false))
+            .replacingOccurrences(of: ":", with: "-")
+    }
+
     private func activeDisplayID() -> CGDirectDisplayID {
         let location = CGEvent(source: nil)?.location ?? .zero
         var display = CGDirectDisplayID()
@@ -262,6 +356,7 @@ struct OverlayContent: View {
     let highlights: HighlightModel
     let onOpen: () -> Void
     let onDismiss: () -> Void
+    var actions = OverflowActions()
     let onSelectHit: (SearchHit) -> Void
     let onOpenHit: (SearchHit) -> Void
     let fieldCreated: (NSTextField) -> Void
@@ -288,7 +383,7 @@ struct OverlayContent: View {
                     onOpen: onOpen,
                     onJumpToNow: { timeline.move(to: Date()) },
                     overflow: {
-                        OverflowMenu(core: core, onDismiss: onDismiss)
+                        OverflowMenu(actions: actions)
                     }
                 )
 
@@ -345,19 +440,33 @@ struct MatchHighlight: View {
     }
 }
 
+/// What the overflow menu can do.
+struct OverflowActions {
+    var star: () -> Void = {}
+    var copyImage: () -> Void = {}
+    var saveImage: () -> Void = {}
+    var copyLink: () -> Void = {}
+    var exportClip: () -> Void = {}
+    var forget: () -> Void = {}
+    var exclude: () -> Void = {}
+}
+
 struct OverflowMenu: View {
-    let core: any RemindCore
-    let onDismiss: () -> Void
+    let actions: OverflowActions
+    @State private var confirmingForget = false
 
     var body: some View {
         Menu {
-            Button("Star this moment", systemImage: "star") {}
-            Button("Copy image", systemImage: "doc.on.clipboard") {}
-            Button("Save image…", systemImage: "square.and.arrow.down") {}
-            Button("Copy link to this moment", systemImage: "link") {}
+            Button("Star this moment", systemImage: "star", action: actions.star)
+            Button("Copy image", systemImage: "doc.on.clipboard", action: actions.copyImage)
+            Button("Save image…", systemImage: "square.and.arrow.down", action: actions.saveImage)
+            Button("Copy link to this moment", systemImage: "link", action: actions.copyLink)
+            Button("Export 5 minutes as video…", systemImage: "film", action: actions.exportClip)
             Divider()
-            Button("Forget last 5 minutes", systemImage: "clock.arrow.circlepath") {}
-            Button("Exclude this app", systemImage: "eye.slash") {}
+            Button("Exclude this app from recording", systemImage: "eye.slash", action: actions.exclude)
+            Button("Forget the last 5 minutes…", systemImage: "clock.arrow.circlepath", role: .destructive) {
+                confirmingForget = true
+            }
         } label: {
             Image(systemName: "ellipsis")
         }
@@ -365,6 +474,35 @@ struct OverflowMenu: View {
         .buttonStyle(ChromeControlStyle())
         .menuIndicator(.hidden)
         .fixedSize()
+        // Deleting can't be undone, so this asks in place. A separate alert window
+        // wouldn't work over a panel that never activates.
+        .overlay(alignment: .bottomTrailing) {
+            if confirmingForget {
+                ReadingSurface(cornerRadius: 14) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Forget the last 5 minutes?")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                        Text("This permanently deletes those recordings and their text.")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack {
+                            Button("Cancel") { confirmingForget = false }
+                            Button("Forget", role: .destructive) {
+                                confirmingForget = false
+                                actions.forget()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+                    .padding(14)
+                }
+                .frame(width: 280)
+                .fixedSize(horizontal: true, vertical: true)
+                .offset(y: -44)
+            }
+        }
     }
 }
 
@@ -377,7 +515,20 @@ struct HitThumbnail: View {
     var body: some View {
         ZStack {
             Color.white.opacity(0.05)
-            if let image {
+            if hit.isTranscript {
+                // Something said has no frame to show, so the words stand in.
+                VStack(alignment: .leading, spacing: 8) {
+                    Image(systemName: "waveform")
+                        .foregroundStyle(Palette.verdigris)
+                    Text(hit.snippet)
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(0.9))
+                        .lineLimit(5)
+                    Spacer(minLength: 0)
+                }
+                .padding(14)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else if let image {
                 Image(decorative: image, scale: 1)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -387,6 +538,7 @@ struct HitThumbnail: View {
         }
         .clipped()
         .task(id: hit.frameID) {
+            guard !hit.isTranscript else { return }
             image = await ThumbnailLoader.crop(core: core, hit: hit)
         }
     }

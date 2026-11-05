@@ -137,6 +137,7 @@ public protocol SettingsActions: AnyObject {
     func revealVault()
     func setLaunchAtLogin(_ enabled: Bool)
     var launchAtLogin: Bool { get }
+    func setChecksForUpdates(_ enabled: Bool)
     var runningApps: [AppChoice] { get }
 }
 

@@ -1,3 +1,4 @@
+#if DEBUG
 import AppKit
 import Capture
 import CoreVideo
@@ -525,3 +526,5 @@ final class RaceResults: @unchecked Sendable {
 
     func snapshot() -> Snapshot { lock.withLock { state } }
 }
+
+#endif
