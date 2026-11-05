@@ -31,9 +31,11 @@ run() {
 }
 
 scenes=(
-    onboarding-welcome onboarding-how onboarding-permissions
+    onboarding-welcome onboarding-how onboarding-permissions onboarding-ready recovery
     settings-general settings-screen settings-audio settings-meetings settings-storage settings-shortcuts
-    timeline coach-marks search-compact search-expanded jump-to-date status-menu
+    timeline coach-marks search-compact search-expanded search-starred jump-to-date status-menu
+    slice-hover slice-selected slice-range slice-confirm timeline-zoom forget-confirm
+    meeting-prompt notice-card transcripts transcript recap ask
 )
 for name in $scenes; do
     run "$name" "$name.png"

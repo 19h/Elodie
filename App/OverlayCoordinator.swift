@@ -877,7 +877,7 @@ struct OverflowMenu: View {
                                 model.isConfirmingForget = false
                                 actions.forget()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(DestructiveActionStyle())
                         }
                     }
                     .padding(14)

@@ -275,7 +275,7 @@ public struct TranscriptsView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Text(Duration.seconds(session.end.timeIntervalSince(session.start)).formatted(.units(allowed: [.hours, .minutes], width: .narrow)))
+                            Text(Self.length(of: session))
                                 .font(.system(size: 12))
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
@@ -289,6 +289,13 @@ public struct TranscriptsView: View {
         .frame(minWidth: 380, minHeight: 300)
         .tint(Palette.verdigris)
         .task { await load() }
+    }
+
+    /// A short one isn't nothing, so it doesn't get rounded down to it.
+    private static func length(of session: TranscriptSession) -> String {
+        let seconds = session.end.timeIntervalSince(session.start)
+        guard seconds >= 60 else { return String(localized: "Under a minute") }
+        return Duration.seconds(seconds).formatted(.units(allowed: [.hours, .minutes], width: .narrow))
     }
 
     private func load() async {

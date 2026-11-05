@@ -6,7 +6,10 @@ import CoreFake
 import CoreLive
 import CoreVideo
 import DesignSystem
+import FeatureAsk
+import FeatureMeetings
 import FeatureOnboarding
+import FeatureRecap
 import FeatureSearch
 import FeatureSettings
 import FeatureTimeline
@@ -54,6 +57,36 @@ enum Scenarios {
             try await capture(onboarding(.howItWorks), size: NSSize(width: 800, height: 628), to: output)
         case "onboarding-permissions":
             try await capture(onboarding(.permissions), size: NSSize(width: 800, height: 628), to: output)
+        case "onboarding-ready":
+            try await capture(onboarding(.ready), size: NSSize(width: 800, height: 628), to: output)
+        case "recovery":
+            try await capture(
+                AnyView(RecoveryView(onRestore: { _ in .notAKey }, onStartOver: {}, onQuit: {})),
+                size: NSSize(width: 560, height: 520),
+                to: output
+            )
+        case "meeting-prompt":
+            try await capture(
+                AnyView(MeetingPrompt(appName: "Zoom", title: "Design review", onRecord: {}, onDismiss: {})),
+                size: NSSize(width: 320, height: 300),
+                to: output
+            )
+        case "notice-card":
+            try await capture(
+                AnyView(NoticeCard(
+                    symbol: "rectangle.dashed.badge.record",
+                    title: "Remind has stopped recording",
+                    detail: "It needs Screen Recording permission. If it's already on, reopening Remind applies it.",
+                    primary: "Open System Settings",
+                    secondary: "Reopen Remind",
+                    onPrimary: {},
+                    onSecondary: {}
+                )),
+                size: NSSize(width: 300, height: 300),
+                to: output
+            )
+        case "transcripts", "transcript", "recap", "ask":
+            try await captureHistoryWindow(name, to: output)
         case "settings-general", "settings-screen", "settings-audio", "settings-meetings", "settings-storage", "settings-shortcuts":
             let tabs = ["general": SettingsTab.general, "screen": .screen, "audio": .audio, "meetings": .meetings, "storage": .storage, "shortcuts": .shortcuts]
             let window = ScenarioWindow(contentViewController: SettingsWindow.controller(
@@ -67,7 +100,9 @@ enum Scenarios {
             present(window)
             try await Task.sleep(for: .milliseconds(900))
             try await screenshot(window, to: output)
-        case "timeline", "search-compact", "search-expanded", "jump-to-date", "coach-marks":
+        case "timeline", "search-compact", "search-expanded", "jump-to-date", "coach-marks",
+             "slice-hover", "slice-selected", "slice-range", "slice-confirm", "timeline-zoom",
+             "search-starred", "forget-confirm", "display-picker":
             try await captureOverlay(name, to: output)
         case "overlay-input":
             try await InputSelfTest.run(to: output)
@@ -106,9 +141,11 @@ enum Scenarios {
         try await ScreenContent.saveScreenshot(ofWindow: CGWindowID(window.windowNumber), to: output)
     }
 
-    /// Shows a window without taking focus from whatever someone's doing.
+    /// Shows a window without taking focus from whatever someone's doing. Their pointer goes
+    /// straight through it too, so a stray scroll can't change what's being photographed.
     @MainActor
     private static func present(_ window: NSWindow) {
+        window.ignoresMouseEvents = true
         window.orderFrontRegardless()
         window.makeKey()
     }
@@ -343,6 +380,7 @@ enum Scenarios {
         window.contentView = controller.rootView
         window.center()
         present(window)
+        controller.ignoreRealPointer()
         controller.present(at: recording.time(of: count - 12))
         // Opening by scrolling leaves the frame clear, which is what `timeline` shows.
         controller.model.isSearchVisible = name != "timeline"
@@ -383,9 +421,153 @@ enum Scenarios {
         if name == "jump-to-date" {
             controller.model.isJumpToDateOpen = true
         }
+        if name == "timeline-zoom" {
+            controller.model.isZoomOpen = true
+        }
+        if name == "forget-confirm" {
+            controller.model.isConfirmingForget = true
+        }
+        if name == "search-starred" {
+            for frame in [8, 40, 75, 100] {
+                if let found = try core.lookup(display: display, at: recording.time(of: frame)) {
+                    try core.setStarred(true, frameID: found.id)
+                }
+            }
+            search.starredOnly = true
+        }
+        if name.hasPrefix("slice-") {
+            // Real events through the same path the mouse uses, once the strip has loaded.
+            try await Task.sleep(for: .milliseconds(600))
+            let middle = Double(size.width) / 2
+            switch name {
+            case "slice-hover":
+                controller.simulateStrip(.moved(middle - 90))
+            case "slice-selected", "slice-confirm":
+                controller.simulateStrip(.down(middle - 90, clicks: 1))
+                controller.simulateStrip(.up(middle - 90))
+            default:
+                controller.simulateStrip(.down(middle - 300, clicks: 1))
+                controller.simulateStrip(.dragged(middle - 200))
+                controller.simulateStrip(.dragged(middle + 60))
+                controller.simulateStrip(.up(middle + 60))
+            }
+            try await Task.sleep(for: .milliseconds(300))
+            if name == "slice-confirm" {
+                controller.model.isConfirmingDelete = true
+            }
+        }
         _ = textField
         try await Task.sleep(for: .milliseconds(1200))
         try await screenshot(window, to: output)
+    }
+
+    /// The windows that show history, over a real vault with something in it.
+    @MainActor
+    private static func captureHistoryWindow(_ name: String, to output: URL) async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "remind-scenario-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 9, count: 32))
+
+        let end = Date()
+        let start = end.addingTimeInterval(-3600)
+        let count = name == "recap" ? 400 : 40
+        let recording = try await FixtureVault.record(
+            into: core,
+            width: 1600,
+            height: 1000,
+            count: count,
+            start: start,
+            spacing: 3000 / Double(count),
+            appForScene: { scene in
+                switch scene {
+                case "editor": "com.apple.dt.Xcode"
+                case "article": "com.apple.Safari"
+                case "terminal": "com.apple.Terminal"
+                case "table": "com.apple.Notes"
+                default: "com.apple.QuickTimePlayerX"
+                }
+            }
+        )
+        // Something said, so there's a meeting to find.
+        let spoken = "We agreed the launch moves to March so the storage work can finish first. Sam will share the numbers on Friday, and the next review is on Tuesday."
+            .split(separator: " ").map(String.init)
+        let callStart = start.addingTimeInterval(600)
+        let words = spoken.enumerated().map { index, word in
+            SpokenWord(text: word, time: callStart.addingTimeInterval(Double(index) * 0.45), duration: 0.4, confidence: 0.96, isMe: index < 12)
+        }
+        try core.appendTranscript(words, title: "Design review")
+        try core.recordMeeting(title: "Design review", from: callStart, to: callStart.addingTimeInterval(1500))
+
+        let view: AnyView
+        var size = NSSize(width: 560, height: 640)
+        switch name {
+        case "transcripts":
+            try await waitForTranscript(core, from: start, to: end)
+            view = AnyView(TranscriptsView(core: core, onOpen: { _ in }))
+            size = NSSize(width: 480, height: 560)
+        case "transcript":
+            try await waitForTranscript(core, from: start, to: end)
+            view = AnyView(TranscriptView(
+                core: core,
+                interval: DateInterval(start: callStart, duration: 1500),
+                title: "Design review",
+                onOpenMoment: { _ in }
+            ))
+        case "recap":
+            try await waitForTranscript(core, from: start, to: end)
+            view = AnyView(RecapView(core: core, onOpenMoment: { _ in }))
+            size = NSSize(width: 620, height: 720)
+        default:
+            let worker = OCRWorker(core: core)
+            worker.start()
+            let began = Date()
+            while worker.framesProcessed < count, Date().timeIntervalSince(began) < 300 {
+                try await Task.sleep(for: .milliseconds(100))
+            }
+            try await Task.sleep(for: .milliseconds(800))
+            worker.stop()
+            let model = AskModel(engine: AskEngine(core: core, generator: ScenarioAnswers()))
+            model.draft = "What did I do today?"
+            model.send()
+            view = AnyView(AskView(model: model, onOpenMoment: { _ in }))
+            size = NSSize(width: 560, height: 680)
+        }
+        _ = recording
+        let window = ScenarioWindow(
+            contentRect: NSRect(origin: .zero, size: size),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = name.capitalized
+        window.contentView = NSHostingView(rootView: view)
+        window.center()
+        present(window)
+        try await Task.sleep(for: .milliseconds(1500))
+        try await screenshot(window, to: output)
+    }
+
+    /// Words reach the index in batches.
+    private static func waitForTranscript(_ core: any RemindCore, from: Date, to: Date) async throws {
+        for _ in 0..<100 {
+            if try !core.transcriptSessions(from: from, to: to, limit: 1).isEmpty { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+    }
+}
+
+/// A written answer, without depending on whether this Mac has Apple's model.
+private struct ScenarioAnswers: AnswerGenerator {
+    var unavailableReason: ModelUnavailable? { nil }
+    var contextSize: Int { 4096 }
+    func tokenCount(_ text: String) async -> Int { text.count / 4 }
+    func answer(instructions: String, prompt: String) -> AsyncThrowingStream<String, any Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield("You spent most of the morning in your editor [1], then read through some notes [2] and finished in the terminal [3].")
+            continuation.finish()
+        }
     }
 }
 

@@ -377,6 +377,18 @@ public final class TimelineController: NSObject, NSDraggingSource {
         return min(earliest ?? .distantPast, now)...now
     }
 
+    #if DEBUG
+    /// Sends the strip what the mouse would, for screenshots.
+    public func simulateStrip(_ event: StripInteractionView.Event) {
+        handle(strip: event)
+    }
+
+    /// Stops the strip following the real pointer, so screenshots come out the same each time.
+    public func ignoreRealPointer() {
+        stripInput.isHidden = true
+    }
+    #endif
+
     private func handle(strip event: StripInteractionView.Event) {
         switch event {
         case .moved(let x):

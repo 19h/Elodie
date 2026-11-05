@@ -82,6 +82,28 @@ public struct PrimaryActionStyle: ButtonStyle {
     }
 }
 
+/// The button that deletes something. The overlay never activates the app, and system
+/// prominent buttons go grey when it's inactive, so this keeps its colour.
+public struct DestructiveActionStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    public init() {}
+
+    public func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 6)
+            .background(
+                Color(red: 0.8, green: 0.2, blue: 0.18).opacity(configuration.isPressed ? 0.8 : 1),
+                in: Capsule()
+            )
+            .contentShape(Capsule())
+            .opacity(isEnabled ? 1 : 0.35)
+    }
+}
+
 /// A round control on recorded content, for a single symbol.
 public struct ChromeIconStyle: ButtonStyle {
     public init() {}

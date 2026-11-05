@@ -327,6 +327,7 @@ import Testing
 
     @Test func durationsReadNaturally() {
         #expect(SliceDescription.duration(40) == "40 seconds")
+        #expect(SliceDescription.duration(74) == "1 minute, 14 seconds")
         #expect(SliceDescription.duration(29 * 60) == "29 minutes")
         #expect(SliceDescription.duration(2 * 3600 + 5 * 60) == "2 hours, 5 minutes")
     }

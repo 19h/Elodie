@@ -185,7 +185,10 @@ public enum SliceDescription {
     public static func range(_ interval: DateInterval, calendar: Calendar = .current) -> String {
         let sameDay = calendar.isDate(interval.start, inSameDayAs: interval.end)
         let isToday = calendar.isDateInToday(interval.start)
-        let time = Date.FormatStyle.dateTime.hour().minute()
+        // A short stretch can start and end in the same minute, so it needs the seconds.
+        let time = interval.duration < 600
+            ? Date.FormatStyle.dateTime.hour().minute().second()
+            : Date.FormatStyle.dateTime.hour().minute()
         if sameDay && isToday {
             return "\(interval.start.formatted(time)) – \(interval.end.formatted(time))"
         }
@@ -196,12 +199,15 @@ public enum SliceDescription {
         return "\(interval.start.formatted(day)) – \(interval.end.formatted(day))"
     }
 
-    /// "29 minutes", "2 hours, 5 minutes", or "40 seconds".
+    /// "29 minutes", "2 hours, 5 minutes", "1 minute, 14 seconds", or "40 seconds". Seconds
+    /// stay in while they matter, so a stretch isn't described as shorter than it looks.
     public static func duration(_ seconds: TimeInterval) -> String {
         let formatter = DateComponentsFormatter()
         formatter.unitsStyle = .full
         formatter.maximumUnitCount = 2
-        formatter.allowedUnits = seconds < 60 ? [.second] : [.day, .hour, .minute]
+        formatter.allowedUnits = seconds < 60 ? [.second]
+            : seconds < 600 ? [.minute, .second]
+            : [.day, .hour, .minute]
         return formatter.string(from: max(seconds, 1)) ?? ""
     }
 

@@ -113,7 +113,8 @@ public struct TimelineChrome: View {
                     StripHoverCard(hover: hover)
                         .position(
                             x: min(max(hover.x, 170), geometry.size.width - 170),
-                            y: geometry.size.height - TimelineMetrics.controlsBottom - 40
+                            // Above the time pill, which is what's being read while moving along.
+                            y: geometry.size.height - TimelineMetrics.controlsBottom - 74
                         )
                         .allowsHitTesting(false)
                         .transition(.opacity)
@@ -455,8 +456,7 @@ private struct SliceBar: View {
                     .keyboardShortcut(.cancelAction)
                     .disabled(model.isDeleting)
                 Button("Delete", role: .destructive) { delete() }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color(red: 0.86, green: 0.25, blue: 0.22))
+                    .buttonStyle(DestructiveActionStyle())
                     .disabled(model.isDeleting || model.sliceSummary == nil)
             }
         }

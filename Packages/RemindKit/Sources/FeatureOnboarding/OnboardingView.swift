@@ -212,7 +212,7 @@ public struct OnboardingView: View {
             Spacer()
             Text("Text from your screen becomes searchable a little while after you see it, and the first time takes up to a minute.")
                 .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 90)
             primaryButton("Start recording") { onFinish(openAtLogin) }

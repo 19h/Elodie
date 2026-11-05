@@ -32,6 +32,8 @@ public enum AskUpdate: Equatable, Sendable {
 public final class AskEngine: Sendable {
     /// The most sources worth finding. The context limit may keep fewer.
     private static let maxCandidates = 16
+    /// The most stretches in an app to choose from when looking across a whole period.
+    private static let surveyedStretches = 1000
     private static let excerptCharacters = 900
     private static let contextLines = 3
     /// Tokens kept free for the answer itself.
@@ -118,23 +120,18 @@ public final class AskEngine: Sendable {
     }
 
     /// A question with nothing to look for, like "What did I do today?", is about the period
-    /// itself. So this takes moments spread evenly across it, today if it doesn't say when.
+    /// itself. So this takes moments spread evenly through what happened in it, in the order
+    /// they happened, and today if it doesn't say when.
     func survey(_ plan: SearchPlan, now: Date) -> [SearchHit] {
         let from = plan.from ?? Calendar.current.startOfDay(for: now)
         let to = min(plan.to ?? now, now)
-        guard to > from else { return [] }
-        let step = to.timeIntervalSince(from) / Double(Self.maxCandidates)
-        var hits: [SearchHit] = []
-        var seen = Set<Int64>()
-        for index in 0..<Self.maxCandidates {
-            let before = from.addingTimeInterval(step * Double(index + 1))
-            guard let moment = try? core.moments(facets: SearchFacets(), before: before, limit: 1).first,
-                  moment.capturedAt >= from,
-                  seen.insert(moment.frameID).inserted
-            else { continue }
-            hits.append(moment)
-        }
-        return hits
+        guard to > from,
+              let stretches = try? core.moments(facets: SearchFacets(), before: to, limit: Self.surveyedStretches)
+        else { return [] }
+        let inPeriod = Array(stretches.prefix { $0.capturedAt >= from }.reversed())
+        guard inPeriod.count > Self.maxCandidates else { return inPeriod }
+        let step = Double(inPeriod.count - 1) / Double(Self.maxCandidates - 1)
+        return (0..<Self.maxCandidates).map { inPeriod[Int((Double($0) * step).rounded())] }
     }
 
     /// Looks for all the words together first, then each alone, so the strongest
