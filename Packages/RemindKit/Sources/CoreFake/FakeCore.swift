@@ -117,6 +117,20 @@ public final class FakeCore: RemindCore, @unchecked Sendable {
         }
     }
 
+    public func recordedPeriods(display: UUID, minimumGap: TimeInterval) throws -> [DateInterval] {
+        lock.withLock {
+            var periods: [DateInterval] = []
+            for time in samples.filter({ $0.displayID == display }).map(\.capturedAt).sorted() {
+                if let last = periods.last, time.timeIntervalSince(last.end) < minimumGap {
+                    periods[periods.count - 1].end = time
+                } else {
+                    periods.append(DateInterval(start: time, end: time))
+                }
+            }
+            return periods
+        }
+    }
+
     public func frameContext(of frameID: Int64) throws -> FrameContext? {
         lock.withLock {
             samples.indices.contains(Int(frameID)) ? samples[Int(frameID)].context : nil

@@ -147,6 +147,11 @@ const MIGRATIONS: &[&str] = &[
          floor INTEGER NOT NULL
      );
      INSERT INTO frame_id_floor(only_row, floor) VALUES (1, 0);",
+    // Version 6: opening the timeline reads when every segment started and ended, to find
+    // the stretches where nothing was recorded. With the end in the index, that doesn't have
+    // to read whole rows, with their window titles and URLs, on the way past.
+    "DROP INDEX segment_time;
+     CREATE INDEX segment_time ON segment(display_id, t_start, t_end);",
 ];
 
 /// Brings the database up to the current schema.
@@ -178,5 +183,31 @@ mod tests {
         migrate(&mut conn).unwrap();
         let version: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
         assert_eq!(version, current_version());
+    }
+
+    #[test]
+    fn a_vault_from_before_the_span_index_keeps_its_segments_and_gains_the_index() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::fts5::register_tokenizer(&conn).unwrap();
+        for migration in &MIGRATIONS[..5] {
+            conn.execute_batch(migration).unwrap();
+        }
+        conn.pragma_update(None, "user_version", 5).unwrap();
+        conn.execute("INSERT INTO display(id, uuid) VALUES (1, x'01')", []).unwrap();
+        conn.execute("INSERT INTO segment(display_id, t_start, t_end) VALUES (1, 100, 200)", []).unwrap();
+
+        migrate(&mut conn).unwrap();
+
+        let span: (i64, i64) =
+            conn.query_row("SELECT t_start, t_end FROM segment", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!(span, (100, 200));
+        let plan: String = conn
+            .query_row(
+                "EXPLAIN QUERY PLAN SELECT t_start, t_end FROM segment WHERE display_id = 1 ORDER BY t_start",
+                [],
+                |r| r.get(3),
+            )
+            .unwrap();
+        assert!(plan.contains("COVERING INDEX segment_time"), "{plan}");
     }
 }

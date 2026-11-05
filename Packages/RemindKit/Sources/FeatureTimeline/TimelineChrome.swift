@@ -296,6 +296,11 @@ private final class DisplayMenuItem: NSMenuItem {
 private struct StripHoverCard: View {
     let hover: StripHover
 
+    private var title: String {
+        if hover.isBreak { return String(localized: "Nothing recorded") }
+        return hover.window ?? TimelineChrome.appName(for: hover.bundleID) ?? String(localized: "Recording")
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             if let icon = TimelineChrome.appIcon(for: hover.bundleID) {
@@ -304,7 +309,7 @@ private struct StripHoverCard: View {
                     .frame(width: 26, height: 26)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(hover.window ?? TimelineChrome.appName(for: hover.bundleID) ?? String(localized: "Recording"))
+                Text(title)
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 Text("\(SliceDescription.range(DateInterval(start: hover.start, end: max(hover.end, hover.start)))), \(SliceDescription.duration(hover.end.timeIntervalSince(hover.start)))")
@@ -347,7 +352,7 @@ private struct SliceBar: View {
             }
             HStack(spacing: 2) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(SliceDescription.duration(slice.duration))
+                    Text(SliceDescription.duration(model.sliceRecordedTime))
                         .font(.system(size: 13, weight: .semibold))
                     Text(subtitle)
                         .font(.system(size: 11))
@@ -428,7 +433,7 @@ private struct SliceBar: View {
     /// window wouldn't work over a panel that never activates.
     private var confirmation: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Delete \(SliceDescription.duration(slice.duration)) of recordings?")
+            Text("Delete \(SliceDescription.duration(model.sliceRecordedTime)) of recordings?")
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundStyle(.white)
             if let summary = model.sliceSummary {
@@ -472,12 +477,13 @@ private struct SliceBar: View {
         model.isDeleting = true
         failure = nil
         let slice = self.slice
+        let recordedTime = model.sliceRecordedTime
         Task {
             do {
                 try await actions.delete(slice)
                 model.isDeleting = false
                 model.isConfirmingDelete = false
-                model.showToast(String(localized: "Deleted \(SliceDescription.duration(slice.duration))"))
+                model.showToast(String(localized: "Deleted \(SliceDescription.duration(recordedTime))"))
                 onClear()
             } catch {
                 model.isDeleting = false

@@ -18,6 +18,10 @@ public final class TimelineModel {
     public private(set) var currentContext: FrameContext?
     public private(set) var isAtNow = true
 
+    /// The last moment with anything to show, when that was a while ago. Until then, the
+    /// timeline goes up to now.
+    public var endOfRecordings: Date?
+
     /// Replaces the clock, so previews and tests can freeze time.
     public var now: () -> Date = Date.init
 
@@ -29,7 +33,7 @@ public final class TimelineModel {
         if text != timeLabel {
             timeLabel = text
         }
-        let atNow = now().timeIntervalSince(time) < 5
+        let atNow = (endOfRecordings ?? now()).timeIntervalSince(time) < 5
         if atNow != isAtNow {
             isAtNow = atNow
         }
@@ -54,6 +58,9 @@ public final class TimelineModel {
     /// The stretch picked out on the strip, and what it holds.
     public private(set) var slice: DateInterval?
     public private(set) var sliceSummary: SliceSummary?
+    /// How much of that stretch has anything recorded in it. It can reach across a break,
+    /// and the time away isn't anything to star, export, or delete.
+    public private(set) var sliceRecordedTime: TimeInterval = 0
     /// Where the picture is on screen, with the origin at the top left. It only fills the
     /// screen when it's from a display of the same shape.
     public var pictureRect: CGRect?
@@ -88,7 +95,8 @@ public final class TimelineModel {
         }
     }
 
-    func setSlice(_ slice: DateInterval?) {
+    func setSlice(_ slice: DateInterval?, recordedTime: TimeInterval? = nil) {
+        sliceRecordedTime = recordedTime ?? slice?.duration ?? 0
         guard slice != self.slice else { return }
         self.slice = slice
         sliceSummary = nil
@@ -108,6 +116,8 @@ public final class TimelineModel {
         hover = nil
         slice = nil
         sliceSummary = nil
+        sliceRecordedTime = 0
+        endOfRecordings = nil
         recordedDisplays = []
         isConfirmingDelete = false
         isDeleting = false
@@ -138,13 +148,24 @@ public struct StripHover: Equatable, Sendable {
     public var bundleID: String?
     public var window: String?
     public var url: String?
+    /// Over a break, where nothing was recorded, and not over a run.
+    public var isBreak: Bool
 
-    public init(x: Double, start: Date, end: Date, bundleID: String?, window: String? = nil, url: String? = nil) {
+    public init(
+        x: Double,
+        start: Date,
+        end: Date,
+        bundleID: String?,
+        window: String? = nil,
+        url: String? = nil,
+        isBreak: Bool = false
+    ) {
         self.x = x
         self.start = start
         self.end = end
         self.bundleID = bundleID
         self.window = window
         self.url = url
+        self.isBreak = isBreak
     }
 }

@@ -102,6 +102,7 @@ enum Scenarios {
             try await screenshot(window, to: output)
         case "timeline", "search-compact", "search-expanded", "jump-to-date", "coach-marks",
              "slice-hover", "slice-selected", "slice-range", "slice-confirm", "timeline-zoom",
+             "timeline-break", "timeline-break-hover", "timeline-break-crossed", "timeline-break-range",
              "search-starred", "search-apps", "forget-confirm", "display-picker":
             try await captureOverlay(name, to: output)
         case "overlay-input":
@@ -367,6 +368,28 @@ enum Scenarios {
         let display = UUID()
         let end = Date()
         let count = 120
+        let appForScene: @Sendable (String) -> String = { scene in
+            switch scene {
+            case "editor": "com.apple.dt.Xcode"
+            case "article": "com.apple.Safari"
+            case "terminal": "com.apple.Terminal"
+            case "table": "com.apple.Notes"
+            default: "com.apple.QuickTimePlayerX"
+            }
+        }
+        let showsBreak = name.hasPrefix("timeline-break")
+        if showsBreak {
+            // Ten hours before the recording below, with nothing in between.
+            _ = try await FixtureVault.record(
+                into: core,
+                width: Int(size.width) * 2,
+                height: Int(size.height) * 2,
+                count: count,
+                display: display,
+                start: end.addingTimeInterval(-Double(count) * 4 - 10 * 3600),
+                appForScene: appForScene
+            )
+        }
         let recording = try await FixtureVault.record(
             into: core,
             width: Int(size.width) * 2,
@@ -374,15 +397,7 @@ enum Scenarios {
             count: count,
             display: display,
             start: end.addingTimeInterval(-Double(count) * 2),
-            appForScene: { scene in
-                switch scene {
-                case "editor": "com.apple.dt.Xcode"
-                case "article": "com.apple.Safari"
-                case "terminal": "com.apple.Terminal"
-                case "table": "com.apple.Notes"
-                default: "com.apple.QuickTimePlayerX"
-                }
-            }
+            appForScene: appForScene
         )
 
         let window = ScenarioWindow(
@@ -414,9 +429,10 @@ enum Scenarios {
         window.center()
         present(window)
         controller.ignoreRealPointer()
-        controller.present(at: recording.time(of: count - 12))
+        // Just after the break when there's one to see, so it's in the middle of the strip.
+        controller.present(at: recording.time(of: showsBreak ? 6 : count - 12))
         // Opening by scrolling leaves the frame clear, which is what `timeline` shows.
-        controller.model.isSearchVisible = name != "timeline"
+        controller.model.isSearchVisible = name != "timeline" && !showsBreak
 
         if name == "search-expanded" || name == "search-compact" {
             // OCR, so there's something to find.
@@ -456,6 +472,26 @@ enum Scenarios {
         }
         if name == "timeline-zoom" {
             controller.model.isZoomOpen = true
+        }
+        if name == "timeline-break-hover" {
+            try await Task.sleep(for: .milliseconds(600))
+            // The playhead is 12 seconds past the break, at the usual zoom.
+            let breakMiddle = Double(size.width) / 2 - 12 * TimelineZoom.defaultPointsPerSecond - StripAxis.breakWidth / 2
+            controller.simulateStrip(.moved(breakMiddle))
+        }
+        if name == "timeline-break-range" {
+            try await Task.sleep(for: .milliseconds(600))
+            // From before the break to after it, through the path the mouse uses.
+            let middle = Double(size.width) / 2
+            controller.simulateStrip(.down(middle - 170, clicks: 1))
+            controller.simulateStrip(.dragged(middle - 100))
+            controller.simulateStrip(.dragged(middle + 90))
+            controller.simulateStrip(.up(middle + 90))
+        }
+        if name == "timeline-break-crossed" {
+            try await Task.sleep(for: .milliseconds(600))
+            // Back to the break, and just past halfway across it, in one short movement.
+            controller.simulateScroll(points: 12 * TimelineZoom.defaultPointsPerSecond + StripAxis.breakWidth / 2 + 1)
         }
         if name == "forget-confirm" {
             controller.model.isConfirmingForget = true

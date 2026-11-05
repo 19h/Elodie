@@ -3,6 +3,19 @@ import Metal
 import QuartzCore
 import StripRenderer
 
+/// A stretch with nothing recorded, squeezed down and labelled with how long it was.
+public struct StripBreak: Equatable {
+    public var start: Float
+    public var end: Float
+    public var label: String
+
+    public init(start: Float, end: Float, label: String) {
+        self.start = start
+        self.end = end
+        self.label = label
+    }
+}
+
 /// What's drawn over the runs. Times are seconds from the same origin as the runs.
 public struct StripOverlays: Equatable {
     /// The run under the pointer.
@@ -13,17 +26,21 @@ public struct StripOverlays: Equatable {
     public var stars: [Float]
     /// When something was being transcribed.
     public var speech: [ClosedRange<Float>]
+    /// Where nothing was recorded.
+    public var breaks: [StripBreak]
 
     public init(
         hovered: ClosedRange<Float>? = nil,
         selection: ClosedRange<Float>? = nil,
         stars: [Float] = [],
-        speech: [ClosedRange<Float>] = []
+        speech: [ClosedRange<Float>] = [],
+        breaks: [StripBreak] = []
     ) {
         self.hovered = hovered
         self.selection = selection
         self.stars = stars
         self.speech = speech
+        self.breaks = breaks
     }
 }
 
@@ -101,6 +118,7 @@ public final class StripView: NSView, CALayerDelegate {
     private let renderer: StripRenderer
     private var icons: [StripIcon] = []
     private var iconLayers: [CALayer] = []
+    private var breakLayers: [CATextLayer] = []
     private let speechLayer = CAShapeLayer()
     private let starLayer = CAShapeLayer()
     private let hoverLayer = CAShapeLayer()
@@ -196,6 +214,42 @@ public final class StripView: NSView, CALayerDelegate {
         layoutIcons(viewport: viewport)
         capsuleHeight = CGFloat(viewport.capsuleHeightPoints)
         layoutOverlays(viewport: viewport)
+        layoutBreaks(viewport: viewport)
+    }
+
+    /// How long each break was, in the middle of it. These are plain layers like the icons,
+    /// and there are only ever a few on screen.
+    private func layoutBreaks(viewport: StripViewport) {
+        let width = CGFloat(viewport.widthPoints)
+        let height: CGFloat = 13
+        let labelWidth: CGFloat = 60
+        var used = 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for mark in overlays.breaks {
+            let middle = (Double(mark.start) + Double(mark.end)) / 2
+            let x = CGFloat((middle - viewport.center) * viewport.pointsPerSecond + viewport.widthPoints / 2)
+            guard x > -labelWidth, x < width + labelWidth else { continue }
+            if used == breakLayers.count {
+                let layer = CATextLayer()
+                layer.font = NSFont.systemFont(ofSize: 10, weight: .semibold)
+                layer.fontSize = 10
+                layer.alignmentMode = .center
+                layer.foregroundColor = NSColor.white.withAlphaComponent(0.7).cgColor
+                metalLayer.addSublayer(layer)
+                breakLayers.append(layer)
+            }
+            let layer = breakLayers[used]
+            used += 1
+            layer.isHidden = false
+            layer.contentsScale = metalLayer.contentsScale
+            if layer.string as? String != mark.label { layer.string = mark.label }
+            layer.frame = CGRect(x: x - labelWidth / 2, y: (bounds.height - height) / 2, width: labelWidth, height: height)
+        }
+        for layer in breakLayers.dropFirst(used) {
+            layer.isHidden = true
+        }
+        CATransaction.commit()
     }
 
     /// Shapes for everything over the runs. There are few enough of these, and they change

@@ -679,8 +679,8 @@ enum LiveSpikes {
 /// Shows a number as a barcode, so the frame that captured it can be read back.
 final class CounterView: NSView {
     var value = 0
-    private static let bits = 16
-    private static let cell: CGFloat = 40
+    nonisolated private static let bits = 16
+    nonisolated private static let cell: CGFloat = 40
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.black.setFill()

@@ -29,9 +29,24 @@ public final class TimelineController: NSObject, NSDraggingSource {
     /// Where the playhead is. This changes on every scroll event, so it stays out of
     /// the SwiftUI model.
     public private(set) var playhead = Date()
+    /// Where the playhead is on the strip's axis. While scrolling, this can be inside a break,
+    /// when the playhead's moment is the nearer side of it.
+    private var position = Date().timeIntervalSinceReferenceDate
     private var timelineOrigin = Date()
     private var loadedRange: ClosedRange<Date>?
     private var loadedZoom = 0.0
+    /// What the runs on the strip were loaded for, and which load was the last one asked for.
+    private var drawnRange: ClosedRange<Date>?
+    private var stripGeneration = 0
+    /// Where nothing was recorded on this display. These are kept between opens, so the strip
+    /// has the right shape from the start, and refreshed each time.
+    private var gaps: [DateInterval] = []
+    private var axis = StripAxis()
+    /// The last moment with anything to show, once that's known to be a while before now.
+    private var latest: Date?
+    /// Easing the playhead off a break, after scrolling stopped on one.
+    private var settling: (from: Double, to: Double, began: CFTimeInterval)?
+    private var settleTask: Task<Void, Never>?
     private var colors: [String: SIMD4<Float>] = [:]
     private var icons: [String: CGImage] = [:]
     private var needsStripDraw = true
@@ -43,6 +58,9 @@ public final class TimelineController: NSObject, NSDraggingSource {
     /// What the strip is drawing, for working out what the pointer is over.
     private var runs: [TimelineRun] = []
     private var apps: [String?] = []
+    private var palette: [SIMD4<Float>] = []
+    private var images: [CGImage?] = []
+    private var breakMarks: [StripBreak] = []
     private var stars: [StarredFrame] = []
     private var speech: [DateInterval] = []
     private var editor = SliceEditor()
@@ -174,7 +192,11 @@ public final class TimelineController: NSObject, NSDraggingSource {
             if self.shownFrameID == nil { self.model.isEmpty = true }
         }
         loadBounds()
-        playhead = clamped(time)
+        latest = nil
+        model.endOfRecordings = nil
+        settling = nil
+        playhead = landing(for: time)
+        position = axis.position(of: playhead)
         model.playheadMoved(to: playhead)
         reloadStrip()
         startDisplayLink()
@@ -185,6 +207,8 @@ public final class TimelineController: NSObject, NSDraggingSource {
         displayLink?.invalidate()
         displayLink = nil
         interpreter.reset()
+        settleTask?.cancel()
+        settling = nil
         frameView.clear()
         shownFrameID = nil
         shownBuffer = nil
@@ -241,8 +265,15 @@ public final class TimelineController: NSObject, NSDraggingSource {
         scrub = ScrubEngine(core: core, display: newDisplay)
         connectScrub()
         earliest = nil
+        latest = nil
+        model.endOfRecordings = nil
+        gaps = []
+        axis = StripAxis()
         runs = []
         apps = []
+        palette = []
+        images = []
+        breakMarks = []
         stars = []
         speech = []
         shownFrameID = nil
@@ -268,7 +299,35 @@ public final class TimelineController: NSObject, NSDraggingSource {
         Task.detached(priority: .userInitiated) { [weak self] in
             let displays = (try? core.displays()) ?? []
             await self?.setDisplays(displays, for: display)
+            guard let periods = try? core.recordedPeriods(display: display, minimumGap: StripAxis.shortestBreak) else { return }
+            await self?.setRecordedPeriods(periods, for: display)
         }
+    }
+
+    /// Now the strip can leave out the stretches where nothing was recorded.
+    private func setRecordedPeriods(_ periods: [DateInterval], for forDisplay: UUID) {
+        guard forDisplay == display else { return }
+        gaps = StripAxis.gaps(between: periods)
+        // Past the last recording there's nothing to scroll to, however long ago that was.
+        latest = periods.last.flatMap { last in
+            model.now().timeIntervalSince(last.end) >= StripAxis.shortestBreak ? last.end : nil
+        }
+        model.endOfRecordings = latest
+        rebuildAxis()
+        loadedRange = nil
+        // The picture and label wait for this, in case it moves the playhead.
+        if displayLink != nil { move(to: playhead) }
+    }
+
+    /// The axis depends on what's known about the gaps and on the zoom.
+    private func rebuildAxis() {
+        let rebuilt = StripAxis(gaps: gaps, pointsPerSecond: interpreter.pointsPerSecond)
+        guard rebuilt != axis else { return }
+        axis = rebuilt
+        settling = nil
+        position = axis.position(of: playhead)
+        placeStripContents()
+        needsStripDraw = true
     }
 
     private func setDisplays(_ displays: [RecordedDisplay], for forDisplay: UUID) {
@@ -289,18 +348,68 @@ public final class TimelineController: NSObject, NSDraggingSource {
 
     /// Moves the playhead, which updates everything on the next display refresh.
     public func move(to time: Date, velocity: Double = 0) {
-        playhead = clamped(time)
+        settleTask?.cancel()
+        settling = nil
+        playhead = landing(for: time)
+        position = axis.position(of: playhead)
         model.playheadMoved(to: playhead)
         needsStripDraw = true
         scrub.seek(.init(time: playhead, velocity: velocity))
         reloadStripIfNeeded()
     }
 
-    private func clamped(_ time: Date) -> Date {
+    /// The strip's last moment: now, or the last recording if that was a while ago.
+    private var end: Date {
         let now = model.now()
-        var result = min(time, now)
+        return latest.map { min($0, now) } ?? now
+    }
+
+    private func clamped(_ time: Date) -> Date {
+        var result = min(time, end)
         if let earliest { result = max(result, earliest) }
         return result
+    }
+
+    /// Where a request for a moment ends up. Somewhere with nothing recorded lands on the
+    /// nearest moment that has something.
+    private func landing(for time: Date) -> Date {
+        clamped(axis.time(at: axis.position(of: clamped(time))))
+    }
+
+    /// Moves along the strip, which skims over the breaks.
+    private func scroll(by seconds: Double, velocity: Double) {
+        settleTask?.cancel()
+        settling = nil
+        let lower = axis.position(of: earliest ?? .distantPast)
+        let upper = axis.position(of: end)
+        position = min(max(position + seconds, min(lower, upper)), upper)
+        playhead = clamped(axis.time(at: position))
+        model.playheadMoved(to: playhead)
+        needsStripDraw = true
+        scrub.seek(.init(time: playhead, velocity: velocity))
+        reloadStripIfNeeded()
+        if axis.breakInterval(at: position) != nil { settleSoon() }
+    }
+
+    /// When scrolling stops on a break, the playhead eases off it onto the moment already on
+    /// screen. Mouse wheels don't say when they've stopped, so this waits for a quiet moment.
+    private func settleSoon() {
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            self?.settleOntoRecording()
+        }
+    }
+
+    private func settleOntoRecording() {
+        let target = axis.position(of: playhead)
+        guard target != position else { return }
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            position = target
+        } else {
+            settling = (position, target, CACurrentMediaTime())
+        }
+        needsStripDraw = true
     }
 
     private func handle(_ action: OverlayAction) {
@@ -310,7 +419,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
             // In frames per second, since frames are about 2 seconds apart.
             let framesPerSecond = interpreter.velocity / 2
             onUserMoved?()
-            move(to: playhead.addingTimeInterval(seconds), velocity: framesPerSecond)
+            scroll(by: seconds, velocity: framesPerSecond)
         case .scrollEnded:
             interpreter.reset()
         case .zoom(let magnification):
@@ -352,6 +461,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
             TimelineZoom.maximumPointsPerSecond
         )
         model.zoomFraction = TimelineZoom.fraction(for: interpreter.pointsPerSecond)
+        rebuildAxis()
         needsStripDraw = true
         reloadStripIfNeeded()
     }
@@ -359,23 +469,36 @@ public final class TimelineController: NSObject, NSDraggingSource {
     /// Fills the strip with what's selected.
     public func zoomToSlice() {
         guard let slice = model.slice, slice.duration > 0 else { return }
-        setZoom(pointsPerSecond: Double(rootView.bounds.width) * 0.7 / slice.duration)
-        move(to: slice.start.addingTimeInterval(slice.duration / 2))
+        setZoom(pointsPerSecond: StripAxis.pointsPerSecond(
+            toFit: slice,
+            gaps: gaps,
+            width: Double(rootView.bounds.width) * 0.7
+        ))
+        move(to: axis.time(at: (axis.position(of: slice.start) + axis.position(of: slice.end)) / 2))
     }
 
     // MARK: The strip, under the mouse
 
     private var geometry: StripGeometry {
         StripGeometry(
-            center: playhead,
+            centerPosition: position,
             pointsPerSecond: interpreter.pointsPerSecond,
-            width: Double(rootView.bounds.width)
+            width: Double(rootView.bounds.width),
+            axis: axis
         )
     }
 
     private var selectableRange: ClosedRange<Date> {
-        let now = model.now()
-        return min(earliest ?? .distantPast, now)...now
+        let end = self.end
+        return min(earliest ?? .distantPast, end)...end
+    }
+
+    /// Tells the slice bar what's selected, and how much of it was really recorded.
+    private func publishSlice() {
+        model.setSlice(
+            editor.selection,
+            recordedTime: editor.selection.map { StripAxis.recordedTime(in: $0, gaps: gaps) }
+        )
     }
 
     #if DEBUG
@@ -387,6 +510,11 @@ public final class TimelineController: NSObject, NSDraggingSource {
     /// Stops the strip following the real pointer, so screenshots come out the same each time.
     public func ignoreRealPointer() {
         stripInput.isHidden = true
+    }
+
+    /// Scrolls as fingers would, for screenshots, tests, and a run driven from outside.
+    public func simulateScroll(points: Double) {
+        handle(.scroll(ScrollInput(deltaX: 0, deltaY: points)))
     }
     #endif
 
@@ -405,13 +533,14 @@ public final class TimelineController: NSObject, NSDraggingSource {
             editor.mouseDown(x: x, geometry: geometry)
         case .dragged(let x):
             editor.mouseDragged(x: x, geometry: geometry, runs: runs, limits: selectableRange)
-            model.setSlice(editor.selection)
+            publishSlice()
             applyOverlays()
         case .up(let x):
+            let onBreak = axis.breakInterval(at: geometry.position(atX: x)) != nil
             let outcome = editor.mouseUp(x: x, geometry: geometry)
             switch outcome {
             case .clicked(let time):
-                click(at: time)
+                click(at: time, onBreak: onBreak)
             case .selected:
                 sliceChanged()
             case .nothing:
@@ -421,10 +550,11 @@ public final class TimelineController: NSObject, NSDraggingSource {
     }
 
     /// A click goes to that moment, and picks out the run it's in, ready to be managed.
-    private func click(at time: Date) {
+    private func click(at time: Date, onBreak: Bool) {
         onUserMoved?()
         move(to: time)
-        if let run = SliceEditor.run(at: time, in: runs) {
+        // A break isn't part of the run beside it, even though that's where this lands.
+        if !onBreak, let run = SliceEditor.run(at: time, in: runs) {
             let now = model.now()
             editor.select(DateInterval(start: run.start, end: max(min(run.end, now), run.start)))
         } else {
@@ -434,7 +564,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
     }
 
     private func sliceChanged() {
-        model.setSlice(editor.selection)
+        publishSlice()
         applyOverlays()
         guard let slice = editor.selection else { return }
         let core = self.core
@@ -462,6 +592,12 @@ public final class TimelineController: NSObject, NSDraggingSource {
     }
 
     private func updateHover(x: Double) {
+        if let gap = axis.breakInterval(at: geometry.position(atX: x)) {
+            hoverGeneration += 1
+            model.hover = StripHover(x: x, start: gap.start, end: gap.end, bundleID: nil, isBreak: true)
+            applyOverlays()
+            return
+        }
         let time = geometry.time(atX: x)
         guard let run = SliceEditor.run(at: time, in: runs) else {
             hoverGeneration += 1
@@ -502,16 +638,18 @@ public final class TimelineController: NSObject, NSDraggingSource {
     }
 
     private func applyOverlays() {
-        func seconds(_ date: Date) -> Float { Float(date.timeIntervalSince(timelineOrigin)) }
+        let origin = axis.position(of: timelineOrigin)
+        func seconds(_ date: Date) -> Float { Float(axis.position(of: date) - origin) }
         func range(_ start: Date, _ end: Date) -> ClosedRange<Float> {
             let from = seconds(start)
             return from...max(from, seconds(end))
         }
         stripView?.setOverlays(StripOverlays(
-            hovered: model.hover.map { range($0.start, $0.end) },
+            hovered: model.hover.flatMap { $0.isBreak ? nil : range($0.start, $0.end) },
             selection: editor.selection.map { range($0.start, $0.end) },
             stars: stars.map { seconds($0.time) },
-            speech: speech.map { range($0.start, $0.end) }
+            speech: speech.map { range($0.start, $0.end) },
+            breaks: breakMarks
         ))
         needsStripDraw = true
     }
@@ -549,7 +687,8 @@ public final class TimelineController: NSObject, NSDraggingSource {
     }
 
     private func stepRun(forward: Bool) {
-        let end = playhead.addingTimeInterval(forward ? 86_400 : -86_400)
+        // A day of what was recorded, however long ago that reaches.
+        let end = axis.time(at: position + (forward ? 86_400 : -86_400))
         guard let data = try? core.timeline(
             display: display,
             from: min(playhead, end),
@@ -793,6 +932,12 @@ public final class TimelineController: NSObject, NSDraggingSource {
     }
 
     @objc private func tick() {
+        if let settling {
+            let progress = min((CACurrentMediaTime() - settling.began) / 0.14, 1)
+            position = settling.from + (settling.to - settling.from) * (1 - pow(1 - progress, 3))
+            needsStripDraw = true
+            if progress >= 1 { self.settling = nil }
+        }
         guard needsStripDraw, let stripView else { return }
         needsStripDraw = false
         stripView.draw(viewport: currentViewport())
@@ -800,7 +945,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
 
     private func currentViewport() -> StripViewport {
         StripViewport(
-            center: playhead.timeIntervalSince(timelineOrigin),
+            center: position - axis.position(of: timelineOrigin),
             pointsPerSecond: interpreter.pointsPerSecond,
             widthPoints: Double(rootView.bounds.width),
             heightPoints: Double(TimelineMetrics.stripHeight),
@@ -813,8 +958,8 @@ public final class TimelineController: NSObject, NSDraggingSource {
         let needsData: Bool
         if let loadedRange {
             let margin = visible * 0.5
-            needsData = playhead.addingTimeInterval(-margin) < loadedRange.lowerBound
-                || playhead.addingTimeInterval(margin) > loadedRange.upperBound
+            needsData = position - margin < axis.position(of: loadedRange.lowerBound)
+                || position + margin > axis.position(of: loadedRange.upperBound)
                 || abs(interpreter.pointsPerSecond - loadedZoom) / loadedZoom > 0.3
         } else {
             needsData = true
@@ -826,10 +971,13 @@ public final class TimelineController: NSObject, NSDraggingSource {
         let pixels = Double(rootView.bounds.width)
         let pointsPerSecond = interpreter.pointsPerSecond
         let span = pixels / pointsPerSecond
-        let from = playhead.addingTimeInterval(-span * 1.5)
-        let to = playhead.addingTimeInterval(span * 1.5)
+        // Three screens of the strip, however much time that takes in, breaks and all.
+        let from = axis.time(at: position - span * 1.5)
+        let to = max(axis.time(at: position + span * 1.5), from)
         loadedRange = from...to
         loadedZoom = pointsPerSecond
+        stripGeneration += 1
+        let generation = stripGeneration
         let core = self.core
         let display = self.display
         Task.detached(priority: .userInitiated) { [weak self] in
@@ -840,7 +988,7 @@ public final class TimelineController: NSObject, NSDraggingSource {
             let stars = (try? core.stars(display: display, from: from, to: to)) ?? []
             let speech = ((try? core.transcriptSessions(from: from, to: to, limit: 500)) ?? [])
                 .map { DateInterval(start: $0.start, end: max($0.end, $0.start)) }
-            await self?.apply(data, stars: stars, speech: speech, origin: from, for: display)
+            await self?.apply(data, stars: stars, speech: speech, range: from...to, generation: generation, for: display)
         }
     }
 
@@ -848,30 +996,40 @@ public final class TimelineController: NSObject, NSDraggingSource {
         _ data: TimelineData,
         stars: [StarredFrame],
         speech: [DateInterval],
-        origin: Date,
+        range: ClosedRange<Date>,
+        generation: Int,
         for forDisplay: UUID
     ) {
-        guard forDisplay == display else { return }
-        timelineOrigin = origin
+        // Scrolling far can overtake a load, and the older one mustn't replace the newer.
+        guard forDisplay == display, generation == stripGeneration else { return }
+        timelineOrigin = range.lowerBound
+        drawnRange = range
         runs = data.runs
         apps = data.apps
+        palette = data.apps.map(color(for:))
+        images = data.apps.map(icon(for:))
         self.stars = stars
         self.speech = speech
-        let palette = data.apps.map(color(for:))
-        let images = data.apps.map(icon(for:))
-        let stripRuns = data.runs.map { run in
-            StripRun(
-                start: Float(run.start.timeIntervalSince(origin)),
-                end: Float(run.end.timeIntervalSince(origin)),
-                color: palette[run.app]
-            )
+        placeStripContents()
+        needsStripDraw = true
+    }
+
+    /// Puts what's loaded onto the axis. This happens again when the axis changes, as it does
+    /// through a pinch, so it only uses what's already in memory.
+    private func placeStripContents() {
+        let origin = axis.position(of: timelineOrigin)
+        func place(_ date: Date) -> Float { Float(axis.position(of: date) - origin) }
+        let stripRuns = runs.map { run in
+            StripRun(start: place(run.start), end: place(run.end), color: palette[run.app])
         }
-        let icons = zip(stripRuns, data.runs).compactMap { strip, run in
+        let icons = zip(stripRuns, runs).compactMap { strip, run in
             images[run.app].map { StripIcon(start: strip.start, end: strip.end, image: $0) }
+        }
+        breakMarks = (drawnRange.map(axis.breaks(in:)) ?? []).map { gap in
+            StripBreak(start: place(gap.start), end: place(gap.end), label: SliceDescription.shortDuration(gap.duration))
         }
         stripView?.setRuns(stripRuns, icons: icons)
         applyOverlays()
-        needsStripDraw = true
     }
 
     private func icon(for bundleID: String?) -> CGImage? {

@@ -145,13 +145,18 @@ The overlay opens on the display under your pointer. It never activates Remind, 
 - **Scroll or swipe** to move through time. Scrolling moves the strip under a fixed playhead, and it follows your natural scrolling setting. Hold ⌥ to go 8 times faster.
 - **Pinch, or press ⌘+ and ⌘−,** to zoom the strip, from a whole day on screen down to seconds. The magnifier beside **Open** does the same with a slider.
 - **The strip** shows which app was in front at each moment, in colour and with app icons, plus marks for starred moments and for when something was being transcribed. Hover over a run to see its window, when it ran, and how long it lasted, with seconds if it's under 10 minutes.
-- **The time pill** opens Jump to Date & Time. The calendar and hours dim wherever nothing was recorded, or you can type a phrase such as "yesterday 3pm" or "March 4". A phrase with no year or day means the most recent time it happened.
+- **Stretches with nothing recorded** are left out of the strip and of scrolling. Ten hours away takes no more scrolling to cross than ten minutes: it's one short break, labelled with how long it was, such as **10h**, and the same width at every zoom. Hover over it to see exactly when it was. If scrolling stops on a break, the playhead eases onto the moment beside it. Gaps under 30 seconds stay to scale, and anything said counts as recorded, even while the screen stayed still.
+- **The time pill** opens Jump to Date & Time. The calendar and hours dim wherever nothing was recorded, or you can type a phrase such as "yesterday 3pm" or "March 4". A phrase with no year or day means the most recent time it happened. A time with nothing recorded lands on the nearest moment that has something.
 - **Open** goes back to the app you were in, or reopens the page in the same browser.
-- **The arrow at the end of the strip** returns to now.
+- **The arrow at the end of the strip** returns to now, or to your last recording if that was more than 30 seconds ago. That's also where the timeline opens, with the time pill showing when it was.
 - **The display picker** appears when more than one display has recordings. Recording follows your pointer, so each display has its own history, and you can look through any of them from where you are. A recording from a display of another shape sits in the middle, with bars at the sides or above.
 
 <p align="center">
   <img src="docs/images/strip-hover.png" width="500" alt="The strip with one run outlined, and a card above it naming the window, Fixture article, with its start and end times to the second and its length of 1 minute, 14 seconds">
+</p>
+
+<p align="center">
+  <img src="docs/images/strip-break.png" width="500" alt="The strip with two stretches of recording side by side, separated by a short break labelled 10h, under a card reading Nothing recorded, with the dates and times it ran between and its length of 10 hours">
 </p>
 
 ![Jump to Date & Time, with a calendar of the month, a list of hours, and a field for typing a phrase](docs/images/jump-to-date.png)
@@ -180,7 +185,7 @@ The **⋯** menu holds everything else:
 
 ### Working with a stretch of time
 
-The strip is also where you manage your history. Click a run to go to that moment and select the whole run. Drag to select any stretch, and drag either end of a selection to trim it. The ends snap to where an app starts or stops, because a stretch that ends where an app ends takes nothing from the next one. Esc clears the selection.
+The strip is also where you manage your history. Click a run to go to that moment and select the whole run. Drag to select any stretch, and drag either end of a selection to trim it. The ends snap to where an app starts or stops, because a stretch that ends where an app ends takes nothing from the next one. A selection can reach across a break, and its length counts only what was recorded. Esc clears the selection.
 
 <p align="center">
   <img src="docs/images/slice-bar.png" width="640" alt="A selected stretch on the strip, with a handle at each end, under a bar showing how long it is, its times and size, and buttons for Star, Export, Fit, and Delete">

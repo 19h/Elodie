@@ -387,6 +387,7 @@ private final class ScriptedCore: RemindCore, @unchecked Sendable {
     func timeline(display: UUID, from: Date, to: Date, minimumDuration: TimeInterval) throws -> TimelineData {
         TimelineData(apps: [], runs: [])
     }
+    func recordedPeriods(display: UUID, minimumGap: TimeInterval) throws -> [DateInterval] { [] }
     func activePeriods(_ periods: [DateInterval]) throws -> [Bool] { [] }
     func frameContext(of frameID: Int64) throws -> FrameContext? { nil }
     func recordedApps() throws -> [String] { ["com.example.a"] }

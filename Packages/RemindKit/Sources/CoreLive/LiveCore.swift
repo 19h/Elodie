@@ -117,6 +117,12 @@ public final class LiveCore: RemindCore {
         )
     }
 
+    public func recordedPeriods(display: UUID, minimumGap: TimeInterval) throws -> [DateInterval] {
+        try core.recordedPeriods(displayUuid: display.data, minGapMs: Int64(minimumGap * 1000)).map {
+            DateInterval(start: Date(milliseconds: $0.fromMs), end: Date(milliseconds: max($0.fromMs, $0.toMs)))
+        }
+    }
+
     public func frameContext(of frameID: Int64) throws -> CoreAPI.FrameContext? {
         try core.frameContext(frameId: frameID).map {
             CoreAPI.FrameContext(bundleID: $0.bundleId, window: $0.window, url: $0.url)

@@ -582,6 +582,13 @@ impl Core {
         })
     }
 
+    /// The stretches with something recorded for a display, oldest first. Stretches closer
+    /// together than `min_gap_ms` count as one.
+    pub fn recorded_periods(&self, display_uuid: Vec<u8>, min_gap_ms: i64) -> Result<Vec<Period>, CoreError> {
+        let periods = self.engine.recorded_periods(&display_id(&display_uuid)?, min_gap_ms)?;
+        Ok(periods.into_iter().map(|(from_ms, to_ms)| Period { from_ms, to_ms }).collect())
+    }
+
     /// What was on screen for a frame.
     pub fn frame_context(&self, frame_id: i64) -> Result<Option<FrameInfo>, CoreError> {
         Ok(self.engine.frame_context(frame_id)?.map(|context| FrameInfo {

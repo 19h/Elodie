@@ -46,7 +46,8 @@ public enum FixtureVault {
         }
         let box = Box()
         var words: [Set<String>] = []
-        var appended = 0
+        // A vault can already have frames in it, and the core's counts include those.
+        var appended = Int(core.stats().loggedFrames)
         for index in 0..<count {
             let frame = screen.nextFrame()
             words.append(frame.words)

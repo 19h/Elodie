@@ -1,4 +1,6 @@
+import AppKit
 import CoreAPI
+import CoreFake
 import Foundation
 @testable import FeatureTimeline
 @testable import OverlayShell
@@ -376,5 +378,258 @@ import Testing
         let times = text.components(separatedBy: " – ")
         #expect(times.count == 2, "got: \(text)")
         #expect(times.allSatisfy { $0.filter { $0 == ":" }.count == 1 }, "got: \(text)")
+    }
+}
+
+@Suite struct LeavingOutWhatWasntRecorded {
+    private let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+    private let pointsPerSecond = 1.5
+
+    private func at(_ seconds: Double) -> Date { start.addingTimeInterval(seconds) }
+
+    /// An hour of recording, ten hours away, another hour, three days away, and another.
+    private var periods: [DateInterval] {
+        [
+            DateInterval(start: at(0), end: at(3600)),
+            DateInterval(start: at(39_600), end: at(43_200)),
+            DateInterval(start: at(302_400), end: at(306_000)),
+        ]
+    }
+
+    private var gaps: [DateInterval] { StripAxis.gaps(between: periods) }
+    private var axis: StripAxis { StripAxis(gaps: gaps, pointsPerSecond: pointsPerSecond) }
+
+    /// How far apart two moments are on the strip, in points.
+    private func points(_ a: Date, _ b: Date, on axis: StripAxis, zoom: Double) -> Double {
+        (axis.position(of: b) - axis.position(of: a)) * zoom
+    }
+
+    @Test func tenHoursAwayTakesTheSameRoomAsAnyOtherBreak() {
+        #expect(abs(points(at(3600), at(39_600), on: axis, zoom: pointsPerSecond) - StripAxis.breakWidth) < 0.001)
+        #expect(abs(points(at(43_200), at(302_400), on: axis, zoom: pointsPerSecond) - StripAxis.breakWidth) < 0.001)
+    }
+
+    @Test func breaksTakeTheSameRoomAtEveryZoom() {
+        for zoom in [0.1, 1.5, 20] {
+            let axis = StripAxis(gaps: gaps, pointsPerSecond: zoom)
+            #expect(abs(points(at(3600), at(39_600), on: axis, zoom: zoom) - StripAxis.breakWidth) < 0.001)
+        }
+    }
+
+    @Test func whatWasRecordedStaysToScale() {
+        #expect(abs(points(at(0), at(3600), on: axis, zoom: pointsPerSecond) - 3600 * pointsPerSecond) < 0.001)
+        #expect(abs(points(at(39_600), at(43_200), on: axis, zoom: pointsPerSecond) - 3600 * pointsPerSecond) < 0.001)
+    }
+
+    @Test func recordedMomentsConvertBothWays() {
+        for period in periods {
+            for fraction in [0.0, 0.1, 0.5, 0.9, 1.0] {
+                let moment = period.start.addingTimeInterval(period.duration * fraction)
+                let back = axis.time(at: axis.position(of: moment))
+                #expect(abs(back.timeIntervalSince(moment)) < 0.001)
+            }
+        }
+    }
+
+    @Test func positionsOnABreakAreTheNearerSideOfIt() {
+        let before = axis.position(of: at(3600))
+        let length = StripAxis.breakWidth / pointsPerSecond
+        #expect(axis.time(at: before + length * 0.25) == at(3600))
+        #expect(axis.time(at: before + length * 0.75) == at(39_600))
+    }
+
+    @Test func aMomentOnABreakLandsOnTheNearerSide() {
+        #expect(axis.time(at: axis.position(of: at(5000))) == at(3600))
+        #expect(axis.time(at: axis.position(of: at(38_000))) == at(39_600))
+    }
+
+    @Test func scrollingBackAcrossABreakTakesOnlyItsWidth() {
+        // From the start of the later hour to the end of the earlier one.
+        var position = axis.position(of: at(39_600))
+        var scrolled = 0.0
+        while axis.time(at: position) > at(3600) {
+            position -= 1 / pointsPerSecond
+            scrolled += 1
+        }
+        // Halfway across is where the picture changes, so no more than that is needed.
+        #expect(scrolled <= StripAxis.breakWidth / 2 + 1)
+    }
+
+    @Test func movingAlongNeverGoesBackward() {
+        var position = axis.position(of: at(-100))
+        var last = axis.time(at: position)
+        let end = axis.position(of: at(306_100))
+        while position < end {
+            position += 3
+            let moment = axis.time(at: position)
+            #expect(moment >= last)
+            last = moment
+        }
+    }
+
+    @Test func aBreakIsOnlyFoundOnABreak() {
+        let start = axis.position(of: at(3600))
+        let length = StripAxis.breakWidth / pointsPerSecond
+        #expect(axis.breakInterval(at: start + length / 2) == gaps[0])
+        #expect(axis.breakInterval(at: start - 1) == nil)
+        #expect(axis.breakInterval(at: start + length + 1) == nil)
+    }
+
+    @Test func aGapThatAlreadyFitsStaysToScale() {
+        // Wide enough that ten minutes is under the break width: 6 points.
+        let axis = StripAxis(gaps: [DateInterval(start: at(0), end: at(600))], pointsPerSecond: 0.01)
+        #expect(axis.breaks(in: at(-1)...at(601)).isEmpty)
+        #expect(abs((axis.position(of: at(600)) - axis.position(of: at(0))) - 600) < 0.001)
+    }
+
+    @Test func aGapTooShortToBeABreakStaysToScaleEvenCloseUp() {
+        // At the closest zoom, 10 seconds would otherwise be squeezed.
+        let axis = StripAxis(gaps: [DateInterval(start: at(0), end: at(10))], pointsPerSecond: 20)
+        #expect(axis.breaks(in: at(-1)...at(11)).isEmpty)
+    }
+
+    @Test func noGapsAtAnyZoomIsTheSameAxis() {
+        #expect(StripAxis(gaps: [], pointsPerSecond: 1) == StripAxis(gaps: [], pointsPerSecond: 20))
+        #expect(StripAxis(gaps: [], pointsPerSecond: 1) == StripAxis())
+    }
+
+    @Test func breaksInAPeriodAreTheOnesThatOverlapIt() {
+        #expect(axis.breaks(in: at(0)...at(100)).isEmpty)
+        #expect(axis.breaks(in: at(0)...at(5000)) == [gaps[0]])
+        #expect(axis.breaks(in: at(5000)...at(6000)) == [gaps[0]])
+        #expect(axis.breaks(in: at(5000)...at(400_000)) == gaps)
+        #expect(axis.breaks(in: at(303_000)...at(304_000)).isEmpty)
+    }
+
+    @Test func selectingAcrossABreakCountsOnlyWhatWasRecorded() {
+        let selection = DateInterval(start: at(3000), end: at(40_000))
+        #expect(abs(StripAxis.recordedTime(in: selection, gaps: gaps) - 1000) < 0.001)
+    }
+
+    @Test func fittingAStretchAllowsForItsBreaks() {
+        let selection = DateInterval(start: at(0), end: at(43_200))
+        let zoom = StripAxis.pointsPerSecond(toFit: selection, gaps: gaps, width: 1000)
+        let axis = StripAxis(gaps: gaps, pointsPerSecond: zoom)
+        let width = points(selection.start, selection.end, on: axis, zoom: zoom)
+        #expect(abs(width - 1000) < 0.001)
+    }
+
+    @Test func theStripWorksAcrossABreak() {
+        // The playhead just after the break, 1000 points wide.
+        let geometry = StripGeometry(
+            centerPosition: axis.position(of: at(39_610)),
+            pointsPerSecond: pointsPerSecond,
+            width: 1000,
+            axis: axis
+        )
+        // 15 points back is the start of the later hour, and then the break's width.
+        #expect(abs(geometry.x(for: at(39_600)) - 485) < 0.001)
+        #expect(abs(geometry.x(for: at(3600)) - (485 - StripAxis.breakWidth)) < 0.001)
+        #expect(geometry.time(atX: 485 - StripAxis.breakWidth - 15) == at(3590))
+    }
+
+    @Test func labelsAreShort() {
+        #expect(SliceDescription.shortDuration(36_000) == "10h")
+        #expect(SliceDescription.shortDuration(3 * 86_400) == "3d")
+        #expect(SliceDescription.shortDuration(25 * 60) == "25m")
+        #expect(SliceDescription.shortDuration(45) == "45s")
+    }
+
+    @Test func atTheLastRecordingThereIsNowhereFurtherToGo() async {
+        await MainActor.run {
+            let model = TimelineModel()
+            let now = Date()
+            model.now = { now }
+            model.endOfRecordings = now.addingTimeInterval(-36_000)
+            model.playheadMoved(to: now.addingTimeInterval(-36_000))
+            #expect(model.isAtNow)
+            model.playheadMoved(to: now.addingTimeInterval(-36_100))
+            #expect(!model.isAtNow)
+        }
+    }
+}
+
+@MainActor
+@Suite struct ScrollingTheTimelineAcrossABreak {
+    private let display = UUID()
+    private let now = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    private func sample(at time: Date) -> EncodedSample {
+        EncodedSample(
+            displayID: display,
+            width: 16,
+            height: 16,
+            parameterSets: Data(),
+            capturedAt: time,
+            monotonicNanoseconds: 0,
+            isKeyframe: true,
+            context: FrameContext(bundleID: "com.example.app"),
+            data: Data()
+        )
+    }
+
+    /// A minute of frames every 2 seconds, ending at `end`.
+    private func record(into core: FakeCore, endingAt end: Date) throws {
+        for second in stride(from: 60.0, through: 0, by: -2) {
+            _ = try core.append(sample(at: end.addingTimeInterval(-second)))
+        }
+    }
+
+    /// A timeline with the gaps known, as they are moments after opening.
+    private func openTimeline(core: FakeCore, at time: Date) async throws -> TimelineController {
+        let controller = TimelineController(core: core, display: display, frame: NSRect(x: 0, y: 0, width: 1000, height: 600))
+        controller.model.now = { [now] in now }
+        controller.present(at: time)
+        for _ in 0..<100 where controller.model.endOfRecordings == nil && controller.playhead == time {
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        try await Task.sleep(for: .milliseconds(50))
+        return controller
+    }
+
+    @Test func aShortFlickCrossesTenHours() async throws {
+        let core = FakeCore()
+        let earlier = now.addingTimeInterval(-36_000)
+        try record(into: core, endingAt: earlier)
+        try record(into: core, endingAt: now)
+        let controller = try await openTimeline(core: core, at: now.addingTimeInterval(-60))
+        // Half a break's width, and a little more, up is back in time.
+        controller.simulateScroll(points: StripAxis.breakWidth / 2 + 1)
+        #expect(abs(controller.playhead.timeIntervalSince(earlier)) < 1)
+        controller.stop()
+    }
+
+    @Test func openingLongAfterTheLastRecordingShowsItsTime() async throws {
+        let core = FakeCore()
+        let last = now.addingTimeInterval(-36_000)
+        try record(into: core, endingAt: last)
+        let controller = try await openTimeline(core: core, at: now)
+        #expect(controller.playhead == last)
+        #expect(controller.model.endOfRecordings == last)
+        #expect(controller.model.isAtNow)
+        // Nothing lies ahead.
+        controller.simulateScroll(points: -200)
+        #expect(controller.playhead == last)
+        controller.stop()
+    }
+
+    @Test func jumpingIntoABreakLandsBesideIt() async throws {
+        let core = FakeCore()
+        let earlier = now.addingTimeInterval(-36_000)
+        try record(into: core, endingAt: earlier)
+        try record(into: core, endingAt: now)
+        let controller = try await openTimeline(core: core, at: now)
+        controller.move(to: earlier.addingTimeInterval(600))
+        #expect(controller.playhead == earlier)
+        controller.stop()
+    }
+
+    @Test func aRecentRecordingStillGoesUpToNow() async throws {
+        let core = FakeCore()
+        try record(into: core, endingAt: now.addingTimeInterval(-10))
+        let controller = try await openTimeline(core: core, at: now)
+        #expect(controller.model.endOfRecordings == nil)
+        #expect(controller.playhead == now)
+        controller.stop()
     }
 }

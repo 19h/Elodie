@@ -221,6 +221,12 @@ impl Engine {
         Ok(remind_timeline::load(&reader, display_uuid, from_ms, to_ms, min_duration_ms)?)
     }
 
+    /// The stretches with something recorded for a display, oldest first.
+    pub fn recorded_periods(&self, display_uuid: &[u8; 16], min_gap_ms: i64) -> Result<Vec<(i64, i64)>> {
+        let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
+        Ok(remind_timeline::recorded_periods(&reader, display_uuid, min_gap_ms)?)
+    }
+
     /// Summarises what was recorded in a period.
     pub fn recap(&self, from_ms: i64, to_ms: i64, bucket_ms: i64) -> Result<remind_timeline::Recap> {
         let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;

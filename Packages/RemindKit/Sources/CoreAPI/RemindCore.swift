@@ -528,6 +528,9 @@ public protocol RemindCore: Sendable {
     /// Runs for a period, with anything shorter than `minimumDuration` merged. Pass
     /// the time one pixel covers at the current zoom.
     func timeline(display: UUID, from: Date, to: Date, minimumDuration: TimeInterval) throws -> TimelineData
+    /// The stretches with something recorded for a display, oldest first: its screen, and
+    /// anything said. Stretches closer together than `minimumGap` count as one.
+    func recordedPeriods(display: UUID, minimumGap: TimeInterval) throws -> [DateInterval]
     /// Which of the given periods have any recording.
     func activePeriods(_ periods: [DateInterval]) throws -> [Bool]
     /// What was on screen for a frame.

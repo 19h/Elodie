@@ -5,23 +5,35 @@ import Foundation
 /// Converts between times and positions on the strip. Everything about selecting on the
 /// strip works in this, so it can be tested without a window.
 public struct StripGeometry: Equatable, Sendable {
-    /// The moment under the playhead, in the middle of the strip.
-    public var center: Date
+    /// Where the playhead is on the axis, in the middle of the strip.
+    public var centerPosition: Double
     public var pointsPerSecond: Double
     public var width: Double
+    public var axis: StripAxis
 
+    /// A strip with nothing squeezed, with a moment under the playhead.
     public init(center: Date, pointsPerSecond: Double, width: Double) {
-        self.center = center
+        let axis = StripAxis()
+        self.init(centerPosition: axis.position(of: center), pointsPerSecond: pointsPerSecond, width: width, axis: axis)
+    }
+
+    public init(centerPosition: Double, pointsPerSecond: Double, width: Double, axis: StripAxis) {
+        self.centerPosition = centerPosition
         self.pointsPerSecond = pointsPerSecond
         self.width = width
+        self.axis = axis
     }
 
     public func x(for time: Date) -> Double {
-        width / 2 + time.timeIntervalSince(center) * pointsPerSecond
+        width / 2 + (axis.position(of: time) - centerPosition) * pointsPerSecond
+    }
+
+    public func position(atX x: Double) -> Double {
+        centerPosition + (x - width / 2) / pointsPerSecond
     }
 
     public func time(atX x: Double) -> Date {
-        center.addingTimeInterval((x - width / 2) / pointsPerSecond)
+        axis.time(at: position(atX: x))
     }
 }
 
@@ -211,6 +223,15 @@ public enum SliceDescription {
         formatter.allowedUnits = seconds < 60 ? [.second]
             : seconds < 600 ? [.minute, .second]
             : [.day, .hour, .minute]
+        return formatter.string(from: max(seconds, 1)) ?? ""
+    }
+
+    /// As short as it can be, for the strip: "10h", "3d", "25m".
+    public static func shortDuration(_ seconds: TimeInterval) -> String {
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 1
+        formatter.allowedUnits = [.day, .hour, .minute, .second]
         return formatter.string(from: max(seconds, 1)) ?? ""
     }
 

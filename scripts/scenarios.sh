@@ -34,7 +34,7 @@ scenes=(
     onboarding-welcome onboarding-how onboarding-permissions onboarding-ready recovery
     settings-general settings-screen settings-audio settings-meetings settings-storage settings-shortcuts
     timeline coach-marks search-compact search-expanded search-starred search-apps jump-to-date status-menu overflow-menu
-    slice-hover slice-selected slice-range slice-confirm timeline-zoom forget-confirm
+    slice-hover slice-selected slice-range slice-confirm timeline-zoom timeline-break timeline-break-hover timeline-break-crossed timeline-break-range forget-confirm
     meeting-prompt notice-card transcripts transcript recap ask
 )
 for name in $scenes; do

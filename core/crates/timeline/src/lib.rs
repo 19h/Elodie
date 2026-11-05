@@ -105,6 +105,42 @@ pub fn active_periods(
         .collect()
 }
 
+/// Speech isn't tied to a display, so its segments share this reserved ID.
+const AUDIO_DISPLAY: [u8; 16] = [0; 16];
+
+/// The stretches with something recorded for a display, oldest first: its screen, and
+/// anything said, which can go on while the screen stays still. Stretches closer together
+/// than `min_gap_ms` count as one.
+///
+/// This reads every segment's span, so it runs over the index alone and never touches
+/// the rows, which hold window titles and URLs.
+pub fn recorded_periods(
+    conn: &Connection,
+    display_uuid: &[u8; 16],
+    min_gap_ms: i64,
+) -> rusqlite::Result<Vec<(i64, i64)>> {
+    let mut statement = conn.prepare_cached(
+        "SELECT t_start, t_end FROM segment
+         WHERE display_id = (SELECT id FROM display WHERE uuid = ?1)
+         UNION ALL
+         SELECT t_start, t_end FROM segment
+         WHERE display_id = (SELECT id FROM display WHERE uuid = ?2)
+         ORDER BY 1",
+    )?;
+    let rows = statement.query_map(params![display_uuid.as_slice(), AUDIO_DISPLAY.as_slice()], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    let mut periods: Vec<(i64, i64)> = Vec::new();
+    for row in rows {
+        let (start, end) = row?;
+        match periods.last_mut() {
+            Some(last) if start - last.1 < min_gap_ms => last.1 = last.1.max(end),
+            _ => periods.push((start, end)),
+        }
+    }
+    Ok(periods)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -265,6 +301,88 @@ pub fn recap(
         b.milliseconds.cmp(&a.milliseconds).then_with(|| a.bundle_id.cmp(&b.bundle_id))
     });
     Ok(summary)
+}
+
+#[cfg(test)]
+mod period_tests {
+    use super::*;
+    use remind_store::{DbKey, open_writer, schema};
+    use tempfile::TempDir;
+
+    const SCREEN: [u8; 16] = [1; 16];
+    const OTHER_SCREEN: [u8; 16] = [2; 16];
+
+    fn database() -> (TempDir, Connection) {
+        let dir = TempDir::new().unwrap();
+        let mut conn = open_writer(&dir.path().join("vault.db"), &DbKey([1; 32])).unwrap();
+        schema::migrate(&mut conn).unwrap();
+        for (id, uuid) in [(1, SCREEN), (2, OTHER_SCREEN), (3, AUDIO_DISPLAY)] {
+            conn.execute("INSERT INTO display(id, uuid) VALUES (?1, ?2)", params![id, uuid.as_slice()])
+                .unwrap();
+        }
+        (dir, conn)
+    }
+
+    fn segment(conn: &Connection, display: i64, kind: i64, start: i64, end: i64) {
+        conn.execute(
+            "INSERT INTO segment(display_id, type, t_start, t_end) VALUES (?1, ?2, ?3, ?4)",
+            params![display, kind, start, end],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn a_long_gap_splits_what_was_recorded() {
+        let (_dir, conn) = database();
+        segment(&conn, 1, 0, 0, 100);
+        segment(&conn, 1, 0, 40_100, 40_200);
+        assert_eq!(recorded_periods(&conn, &SCREEN, 30).unwrap(), [(0, 100), (40_100, 40_200)]);
+    }
+
+    #[test]
+    fn stretches_close_together_count_as_one() {
+        let (_dir, conn) = database();
+        segment(&conn, 1, 0, 0, 100);
+        segment(&conn, 1, 0, 120, 200);
+        segment(&conn, 1, 0, 200, 300);
+        assert_eq!(recorded_periods(&conn, &SCREEN, 30).unwrap(), [(0, 300)]);
+    }
+
+    #[test]
+    fn another_displays_recordings_dont_fill_a_gap() {
+        let (_dir, conn) = database();
+        segment(&conn, 1, 0, 0, 100);
+        segment(&conn, 2, 0, 200, 900);
+        segment(&conn, 1, 0, 1000, 1100);
+        assert_eq!(recorded_periods(&conn, &SCREEN, 30).unwrap(), [(0, 100), (1000, 1100)]);
+        assert_eq!(recorded_periods(&conn, &OTHER_SCREEN, 30).unwrap(), [(200, 900)]);
+    }
+
+    #[test]
+    fn speech_counts_as_recorded_on_every_display() {
+        let (_dir, conn) = database();
+        segment(&conn, 1, 0, 0, 100);
+        segment(&conn, 3, 1, 90, 950);
+        segment(&conn, 1, 0, 1000, 1100);
+        segment(&conn, 3, 1, 5000, 5100);
+        assert_eq!(recorded_periods(&conn, &SCREEN, 100).unwrap(), [(0, 1100), (5000, 5100)]);
+    }
+
+    #[test]
+    fn a_short_stretch_inside_a_longer_one_doesnt_shorten_it() {
+        let (_dir, conn) = database();
+        segment(&conn, 1, 0, 0, 1000);
+        segment(&conn, 3, 1, 100, 200);
+        segment(&conn, 1, 0, 5000, 5100);
+        assert_eq!(recorded_periods(&conn, &SCREEN, 100).unwrap(), [(0, 1000), (5000, 5100)]);
+    }
+
+    #[test]
+    fn nothing_recorded_gives_nothing() {
+        let (_dir, conn) = database();
+        assert!(recorded_periods(&conn, &SCREEN, 30).unwrap().is_empty());
+        assert!(recorded_periods(&conn, &[9; 16], 30).unwrap().is_empty());
+    }
 }
 
 #[cfg(test)]
