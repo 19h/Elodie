@@ -263,6 +263,8 @@ enum Scenarios {
             defer {
                 finished = true
                 status.closeMenu()
+                // A menu that won't close must not stay open on someone's screen.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { exit(0) }
             }
             try? await Task.sleep(for: .milliseconds(800))
             do {
