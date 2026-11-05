@@ -16,8 +16,12 @@ import VideoToolbox
 public final class SyntheticScreen {
     public struct Frame {
         public let pixelBuffer: CVPixelBuffer
+        /// The same picture before conversion to 4:2:0, for comparing formats.
+        public let fullColorBuffer: CVPixelBuffer
         public let index: Int
         public let scene: String
+        /// Whether the scene changed on this frame, as when switching apps.
+        public let isSceneChange: Bool
         /// Every word drawn in this frame.
         public let words: Set<String>
     }
@@ -116,13 +120,25 @@ public final class SyntheticScreen {
         VTPixelTransferSessionTransferImage(transfer, from: bgra, to: output)
 
         defer { index += 1 }
-        return Frame(pixelBuffer: output, index: index, scene: scene.rawValue, words: words)
+        return Frame(
+            pixelBuffer: output,
+            fullColorBuffer: bgra,
+            index: index,
+            scene: scene.rawValue,
+            isSceneChange: sceneChanged,
+            words: words
+        )
     }
+
+    private var sceneChanged = false
 
     private func advance() {
         ticksUntilSwitch -= 1
+        sceneChanged = false
         if ticksUntilSwitch <= 0 {
-            scene = Scene.allCases.randomElement(using: &rng)!
+            let next = Scene.allCases.randomElement(using: &rng)!
+            sceneChanged = next != scene
+            scene = next
             ticksUntilSwitch = Int.random(in: 20...90, using: &rng)
         }
     }
@@ -181,12 +197,13 @@ public final class SyntheticScreen {
         at point: CGPoint,
         font: CTFont,
         gray: CGFloat,
+        color: CGColor? = nil,
         in context: CGContext,
         words: inout Set<String>
     ) {
         let attributes: [CFString: Any] = [
             kCTFontAttributeName: font,
-            kCTForegroundColorAttributeName: CGColor(gray: gray, alpha: 1),
+            kCTForegroundColorAttributeName: color ?? CGColor(gray: gray, alpha: 1),
         ]
         let attributed = CFAttributedStringCreate(nil, text as CFString, attributes as CFDictionary)!
         let line = CTLineCreateWithAttributedString(attributed)
@@ -218,8 +235,18 @@ public final class SyntheticScreen {
         let columnX: CGFloat = 240
         let lineHeight: CGFloat = 18
         let visible = Int((pointSize.height - 120) / lineHeight)
+        // Syntax colours, some with little contrast in brightness. Storing colour at
+        // half resolution could hurt these most.
+        let colours = [
+            CGColor(red: 0.95, green: 0.45, blue: 0.45, alpha: 1),
+            CGColor(red: 0.45, green: 0.75, blue: 0.95, alpha: 1),
+            CGColor(red: 0.55, green: 0.85, blue: 0.55, alpha: 1),
+            CGColor(red: 0.85, green: 0.65, blue: 0.95, alpha: 1),
+            CGColor(red: 0.9, green: 0.9, blue: 0.9, alpha: 1),
+        ]
         for (row, line) in editorLines.suffix(visible).enumerated() {
-            drawLine(line, at: CGPoint(x: columnX, y: 50 + CGFloat(row) * lineHeight), font: font, gray: 0.85, in: context, words: &words)
+            let colour = colours[row % colours.count]
+            drawLine(line, at: CGPoint(x: columnX, y: 50 + CGFloat(row) * lineHeight), font: font, gray: 0.85, color: colour, in: context, words: &words)
         }
 
         // A static sidebar.

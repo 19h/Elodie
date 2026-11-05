@@ -37,7 +37,6 @@ private func compare(
     }
 }
 
-/// A flat bi-planar frame, optionally with a rectangle of a different luma.
 private func flatFrame(
     width: Int = 640,
     height: Int = 400,
@@ -45,29 +44,7 @@ private func flatFrame(
     rect: (x: Int, y: Int, width: Int, height: Int)? = nil,
     rectLuma: UInt8 = 255
 ) -> CVPixelBuffer {
-    var buffer: CVPixelBuffer?
-    let attributes: [CFString: Any] = [
-        kCVPixelBufferIOSurfacePropertiesKey: [String: Any](),
-        kCVPixelBufferMetalCompatibilityKey: true,
-    ]
-    CVPixelBufferCreate(
-        kCFAllocatorDefault, width, height, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
-        attributes as CFDictionary, &buffer
-    )
-    let frame = buffer!
-    CVPixelBufferLockBaseAddress(frame, [])
-    let y = CVPixelBufferGetBaseAddressOfPlane(frame, 0)!.assumingMemoryBound(to: UInt8.self)
-    let yStride = CVPixelBufferGetBytesPerRowOfPlane(frame, 0)
-    memset(y, Int32(luma), yStride * height)
-    let c = CVPixelBufferGetBaseAddressOfPlane(frame, 1)!
-    memset(c, 128, CVPixelBufferGetBytesPerRowOfPlane(frame, 1) * height / 2)
-    if let rect {
-        for row in rect.y..<(rect.y + rect.height) {
-            memset(y + row * yStride + rect.x, Int32(rectLuma), rect.width)
-        }
-    }
-    CVPixelBufferUnlockBaseAddress(frame, [])
-    return frame
+    TestFrames.flat(width: width, height: height, luma: luma, rect: rect, rectLuma: rectLuma)
 }
 
 @Suite struct Differ {
@@ -273,6 +250,7 @@ private func flatFrame(
             image = try decoder.decode(sample.data)
         }
         let barcodeY = SyntheticScreen(width: small.width, height: small.height).barcodeY
-        #expect(FrameBarcode.read(from: try #require(image), originY: barcodeY) == sources[17].index)
+        let decoded = try #require(image)
+        #expect(FrameBarcode.read(from: decoded, originY: barcodeY) == sources[17].index)
     }
 }

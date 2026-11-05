@@ -16,6 +16,9 @@ pub struct FrameContext {
     pub window: Option<String>,
     pub url: Option<String>,
     pub profile: Option<String>,
+    /// The front window as x, y, width, height, each scaled so 65535 is the full
+    /// display. Text inside it ranks higher.
+    pub front_rect: Option<[u16; 4]>,
 }
 
 /// The parts of a segment the rules depend on.
@@ -75,6 +78,8 @@ pub fn decide(segment: Option<&OpenSegment>, t: i64, context: &FrameContext) -> 
                 window: fill(&segment.context.window, &context.window),
                 url: fill(&segment.context.url, &context.url),
                 profile: fill(&segment.context.profile, &context.profile),
+                // This describes one frame, and segments don't keep it.
+                front_rect: None,
             },
         }
     } else {
@@ -92,6 +97,11 @@ pub fn encode_context(context: &FrameContext) -> Vec<u8> {
                 out.extend_from_slice(&(value.len() as u32).to_le_bytes());
                 out.extend_from_slice(value.as_bytes());
             }
+        }
+    }
+    if let Some(rect) = context.front_rect {
+        for value in rect {
+            out.extend_from_slice(&value.to_le_bytes());
         }
     }
     out
@@ -112,7 +122,18 @@ pub fn decode_context(mut bytes: &[u8]) -> Option<FrameContext> {
         bytes = rest;
     }
     let [bundle_id, window, url, profile] = fields;
-    Some(FrameContext { bundle_id, window, url, profile })
+    let front_rect = match bytes.len() {
+        0 => None,
+        8 => {
+            let mut rect = [0u16; 4];
+            for (value, pair) in rect.iter_mut().zip(bytes.chunks_exact(2)) {
+                *value = u16::from_le_bytes([pair[0], pair[1]]);
+            }
+            Some(rect)
+        }
+        _ => return None,
+    };
+    Some(FrameContext { bundle_id, window, url, profile, front_rect })
 }
 
 #[cfg(test)]
@@ -125,6 +146,7 @@ mod tests {
             window: window.map(str::to_owned),
             url: url.map(str::to_owned),
             profile: None,
+            front_rect: None,
         }
     }
 
@@ -220,6 +242,7 @@ mod tests {
             window: None,
             url: Some(String::new()),
             profile: Some("Wörk 東京".to_owned()),
+            front_rect: Some([1, 2, 65534, 65535]),
         };
         assert_eq!(decode_context(&encode_context(&context)), Some(context));
     }

@@ -9,4 +9,11 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+rayon.workspace = true
+remind-text.workspace = true
+rusqlite.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+remind-store.workspace = true
+tempfile.workspace = true

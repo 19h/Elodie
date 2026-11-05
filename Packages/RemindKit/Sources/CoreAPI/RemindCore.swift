@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// What the running core was built with.
@@ -19,12 +20,21 @@ public struct FrameContext: Sendable, Equatable {
     public var window: String?
     public var url: String?
     public var profile: String?
+    /// The front window as a fraction of the display, with the origin at the top left.
+    public var frontRect: CGRect?
 
-    public init(bundleID: String? = nil, window: String? = nil, url: String? = nil, profile: String? = nil) {
+    public init(
+        bundleID: String? = nil,
+        window: String? = nil,
+        url: String? = nil,
+        profile: String? = nil,
+        frontRect: CGRect? = nil
+    ) {
         self.bundleID = bundleID
         self.window = window
         self.url = url
         self.profile = profile
+        self.frontRect = frontRect
     }
 }
 
@@ -134,6 +144,115 @@ public struct CoreStats: Sendable, Equatable {
     }
 }
 
+/// A frame waiting for OCR.
+public struct OCRJob: Sendable, Equatable {
+    public var frameID: Int64
+    public var capturedAt: Date
+    public var attempt: Int
+
+    public init(frameID: Int64, capturedAt: Date, attempt: Int) {
+        self.frameID = frameID
+        self.capturedAt = capturedAt
+        self.attempt = attempt
+    }
+}
+
+/// A piece of text found in a frame.
+public struct RecognizedLine: Sendable, Equatable {
+    public var text: String
+    /// As a fraction of the frame, with the origin at the top left.
+    public var rect: CGRect
+
+    public init(text: String, rect: CGRect) {
+        self.text = text
+        self.rect = rect
+    }
+}
+
+/// What OCR found in a frame.
+public struct OCRResult: Sendable, Equatable {
+    public var frameID: Int64
+    public var lines: [RecognizedLine]
+
+    public init(frameID: Int64, lines: [RecognizedLine]) {
+        self.frameID = frameID
+        self.lines = lines
+    }
+}
+
+public enum SearchOrder: Sendable, Equatable {
+    case relevance
+    case newest
+}
+
+/// Limits on what's searched.
+public struct SearchFacets: Sendable, Equatable {
+    public var bundleIDs: [String]
+    public var from: Date?
+    public var to: Date?
+    public var starredOnly: Bool
+
+    public init(bundleIDs: [String] = [], from: Date? = nil, to: Date? = nil, starredOnly: Bool = false) {
+        self.bundleIDs = bundleIDs
+        self.from = from
+        self.to = to
+        self.starredOnly = starredOnly
+    }
+}
+
+/// A moment that matched a search.
+public struct SearchHit: Sendable, Equatable, Identifiable {
+    public var frameID: Int64
+    public var runID: Int64
+    public var capturedAt: Date
+    public var bundleID: String?
+    public var window: String?
+    public var url: String?
+    /// Where the matches are, as fractions of the frame.
+    public var rects: [CGRect]
+    public var snippet: String
+
+    public var id: Int64 { frameID }
+
+    public init(
+        frameID: Int64,
+        runID: Int64,
+        capturedAt: Date,
+        bundleID: String?,
+        window: String?,
+        url: String?,
+        rects: [CGRect],
+        snippet: String
+    ) {
+        self.frameID = frameID
+        self.runID = runID
+        self.capturedAt = capturedAt
+        self.bundleID = bundleID
+        self.window = window
+        self.url = url
+        self.rects = rects
+        self.snippet = snippet
+    }
+}
+
+public struct SearchPage: Sendable, Equatable {
+    public var hits: [SearchHit]
+    public var hasMore: Bool
+
+    public init(hits: [SearchHit], hasMore: Bool) {
+        self.hits = hits
+        self.hasMore = hasMore
+    }
+}
+
+/// A search in progress.
+public protocol SearchSession: Sendable {
+    /// Fetches the next page. This blocks, so don't call it on the main thread.
+    func nextPage() throws -> SearchPage
+    /// Stops a query that's running, from any thread.
+    func cancel()
+}
+
 /// The app's view of the Rust core.
 ///
 /// Feature code depends on this protocol and never on the generated bindings,
@@ -145,4 +264,9 @@ public protocol RemindCore: Sendable {
     func sealAll() throws
     func lookup(display: UUID, at time: Date) throws -> FrameRef?
     func readGroup(containing frameID: Int64) throws -> GroupOfPictures
+    func nextOCRBatch(max: Int, now: Date, includeDeferred: Bool) throws -> [OCRJob]
+    func submitOCR(_ results: [OCRResult]) throws
+    func failOCR(frameID: Int64) throws
+    /// Starts a search. Returns `nil` if the text has nothing searchable in it.
+    func search(_ text: String, facets: SearchFacets, order: SearchOrder) throws -> (any SearchSession)?
 }

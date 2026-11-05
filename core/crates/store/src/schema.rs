@@ -73,6 +73,35 @@ const MIGRATIONS: &[&str] = &[
          t_to INTEGER NOT NULL,
          done INTEGER NOT NULL DEFAULT 0
      );",
+    // Version 2: text.
+    "ALTER TABLE frame ADD COLUMN front_rect BLOB;
+
+     -- A run is consecutive frames in one segment that show nearly the same text.
+     -- The rowid is shared with run_fts.
+     CREATE TABLE text_run (
+         id INTEGER PRIMARY KEY,
+         segment_id INTEGER REFERENCES segment(id),
+         display_id INTEGER NOT NULL REFERENCES display(id),
+         t_first INTEGER NOT NULL,
+         t_last INTEGER NOT NULL,
+         -- Compressed lines, in the order first seen. A frame's line numbers index this.
+         lines_z BLOB NOT NULL
+     );
+     CREATE INDEX text_run_time ON text_run(t_first);
+
+     -- Which of its run's lines a frame shows, and where.
+     CREATE TABLE frame_text (
+         frame_id INTEGER PRIMARY KEY REFERENCES frame(id) ON DELETE CASCADE,
+         run_id INTEGER NOT NULL REFERENCES text_run(id) ON DELETE CASCADE,
+         lines_z BLOB NOT NULL
+     ) WITHOUT ROWID;
+     CREATE INDEX frame_text_run ON frame_text(run_id, frame_id);
+
+     CREATE VIRTUAL TABLE run_fts USING fts5(
+         text, other, title,
+         content='', contentless_delete=1,
+         tokenize='remind', prefix='2 3'
+     );",
 ];
 
 /// Brings the database up to the current schema.

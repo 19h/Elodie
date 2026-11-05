@@ -26,7 +26,7 @@ let package = Package(
         .target(name: "CoreFake", dependencies: ["CoreAPI"]),
         .target(name: "DesignSystem"),
         .target(name: "Capture"),
-        .target(name: "Ingest", dependencies: ["CoreAPI", "Capture"]),
+        .target(name: "Ingest", dependencies: ["CoreAPI", "Capture", "FrameEngine"]),
         .target(name: "FrameEngine", dependencies: ["CoreAPI"]),
         .target(name: "TestKit", dependencies: ["CoreAPI"]),
         // Measurements that don't need any permissions.
@@ -36,6 +36,6 @@ let package = Package(
         ),
         .testTarget(name: "CoreLiveTests", dependencies: ["CoreLive", "CoreAPI", "CoreFake"]),
         .testTarget(name: "CaptureTests", dependencies: ["Capture"]),
-        .testTarget(name: "IngestTests", dependencies: ["Ingest", "FrameEngine", "TestKit", "CoreAPI", "CoreLive"]),
+        .testTarget(name: "IngestTests", dependencies: ["Ingest", "Capture", "FrameEngine", "TestKit", "CoreAPI", "CoreLive", "CoreFake"]),
     ]
 )

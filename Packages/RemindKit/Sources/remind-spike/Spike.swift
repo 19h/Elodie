@@ -15,8 +15,12 @@ struct Spike {
             try holdback()
         case "storage":
             try await storage(frames: arguments.dropFirst().first.flatMap(Int.init) ?? 450)
+        case "worst-case":
+            try await worstCase(frames: arguments.dropFirst().first.flatMap(Int.init) ?? 450)
+        case "ocr":
+            try await ocrPaths(frames: arguments.dropFirst().first.flatMap(Int.init) ?? 2000)
         default:
-            print("usage: remind-spike holdback | storage [frames]")
+            print("usage: remind-spike holdback | storage [frames] | worst-case [frames] | ocr [frames]")
         }
     }
 }
@@ -217,4 +221,131 @@ func measure(_ point: GridPoint, width: Int, height: Int, count: Int) async thro
         ocrRecall: Double(decodedHits) / Double(max(truth, 1)),
         sourceRecall: Double(sourceHits) / Double(max(truth, 1))
     )
+}
+
+/// How do rate modes treat the frames that matter most when scrubbing: the ones
+/// right after switching apps? Averages hide those.
+func worstCase(frames count: Int) async throws {
+    let width = 3024, height = 1964
+    print("Picture quality at \(width)×\(height), keyframe every 30, \(count) frames.")
+    print("PSNR is measured on every frame.\n")
+    print("rate                     avg KB  GB/8h  mean dB  p5 dB  worst dB  after-switch dB")
+    for rate: EncoderRate in [.bitsPerPixel(0.06375), .quality(0.65), .quality(0.75), .quality(0.8)] {
+        let screen = SyntheticScreen(width: width, height: height)
+        let encoder = try HEVCEncoder(settings: EncoderSettings(
+            width: width, height: height, keyframeInterval: 30, rate: rate
+        ))
+        let output = Output()
+        var decoder: HEVCDecoder?
+        var all: [Double] = []
+        var afterSwitch: [Double] = []
+        var bytes = 0
+
+        for index in 0..<count {
+            let frame = screen.nextFrame()
+            encoder.encode(frame.pixelBuffer) { output.add($0) }
+            try encoder.finish()
+            let encoded = output.all[index]
+            bytes += encoded.data.count
+            if decoder == nil {
+                decoder = try HEVCDecoder(parameterSets: encoded.parameterSets, width: width, height: height)
+            }
+            let image = try decoder!.decode(encoded.data)
+            let quality = ImageQuality.lumaPSNR(frame.pixelBuffer, image)
+            all.append(quality)
+            if frame.isSceneChange {
+                afterSwitch.append(quality)
+            }
+        }
+        let average = Double(bytes) / Double(count)
+        let label = rate.description.padding(toLength: 24, withPad: " ", startingAt: 0)
+        print(
+            label,
+            String(format: "%6.1f %6.2f %8.1f %6.1f %9.1f %16.1f",
+                   average / 1000, average * 14_400 / 1e9,
+                   all.reduce(0, +) / Double(count),
+                   percentile(all, 5),
+                   all.min() ?? 0,
+                   afterSwitch.isEmpty ? 0 : afterSwitch.reduce(0, +) / Double(afterSwitch.count))
+        )
+    }
+}
+
+/// Spike 4: is OCR from stored video as good as OCR from the live frame, and is a
+/// full-colour frame any better than 4:2:0?
+func ocrPaths(frames count: Int) async throws {
+    let width = 3024, height = 1964
+    let screen = SyntheticScreen(width: width, height: height)
+    let encoder = try HEVCEncoder(settings: EncoderSettings(
+        width: width, height: height, keyframeInterval: 30, rate: .quality(0.75)
+    ))
+    let output = Output()
+    var decoder: HEVCDecoder?
+
+    var truth = 0, fullColorHits = 0, liveHits = 0, decodedHits = 0, decodedOfLive = 0, liveTotal = 0
+    var times: [Double] = []
+    let clock = ContinuousClock()
+    let cpuStart = ProcessInfo.processInfo.systemUptime
+    var ocrSeconds = 0.0
+
+    for index in 0..<count {
+        let frame = screen.nextFrame()
+        encoder.encode(frame.pixelBuffer) { output.add($0) }
+        try encoder.finish()
+        let encoded = output.all[index]
+        if decoder == nil {
+            decoder = try HEVCDecoder(parameterSets: encoded.parameterSets, width: width, height: height)
+        }
+        let decoded = try decoder!.decode(encoded.data)
+
+        let started = clock.now
+        let decodedWords = try await TextRecognizer.words(in: decoded)
+        let elapsed = milliseconds(clock.now - started)
+        times.append(elapsed)
+        ocrSeconds += elapsed / 1000
+
+        let liveWords = try await TextRecognizer.words(in: frame.pixelBuffer)
+        truth += frame.words.count
+        liveHits += frame.words.intersection(liveWords).count
+        decodedHits += frame.words.intersection(decodedWords).count
+        // The gate: of what the live frame could read, how much survives storage?
+        let readableLive = frame.words.intersection(liveWords)
+        liveTotal += readableLive.count
+        decodedOfLive += readableLive.intersection(decodedWords).count
+
+        // The full-colour comparison is slower, and a sample is enough.
+        if index % 10 == 0 {
+            let fullColorWords = try await TextRecognizer.words(in: frame.fullColorBuffer)
+            fullColorHits += frame.words.intersection(fullColorWords).count
+        }
+        if index % 200 == 199 {
+            print("  \(index + 1) of \(count) frames")
+        }
+    }
+    _ = cpuStart
+
+    let pct = { (hits: Int, total: Int) in String(format: "%.2f%%", 100 * Double(hits) / Double(max(total, 1))) }
+    print("\nSpike 4, \(count) frames at \(width)×\(height):")
+    print("  of the words drawn, OCR read:")
+    print("    live 4:2:0                  \(pct(liveHits, truth))")
+    print("    from stored video           \(pct(decodedHits, truth))")
+    print("  of the words the live frame read, stored video also read: \(pct(decodedOfLive, liveTotal))")
+    print("  OCR on a stored frame         p50 \(String(format: "%.0f", percentile(times, 50))) ms, p95 \(String(format: "%.0f", percentile(times, 95))) ms")
+
+    // Full colour was measured on every 10th frame, so compare on those only.
+    let screen2 = SyntheticScreen(width: width, height: height)
+    var sampleTruth = 0, sampleLive = 0, sampleFull = 0
+    for index in 0..<min(count, 600) {
+        let frame = screen2.nextFrame()
+        guard index % 20 == 0 else { continue }
+        sampleTruth += frame.words.count
+        let live = try await TextRecognizer.words(in: frame.pixelBuffer)
+        let full = try await TextRecognizer.words(in: frame.fullColorBuffer)
+        sampleLive += frame.words.intersection(live).count
+        sampleFull += frame.words.intersection(full).count
+    }
+    print("  on a sample of frames, including coloured text:")
+    print("    4:2:0                       \(pct(sampleLive, sampleTruth))")
+    print("    full colour                 \(pct(sampleFull, sampleTruth))")
+    _ = fullColorHits
 }

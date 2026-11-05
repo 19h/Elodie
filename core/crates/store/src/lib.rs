@@ -5,6 +5,7 @@ pub mod fts5;
 pub mod project;
 pub mod schema;
 pub mod segment;
+pub mod text;
 
 pub use connection::{DbKey, open_reader, open_writer};
 pub use project::{ChunkInfo, LoggedFrame};

@@ -5,6 +5,8 @@ import Foundation
 public final class FakeCore: RemindCore, @unchecked Sendable {
     private let lock = NSLock()
     private var samples: [EncodedSample] = []
+    private var finishedOCR: Set<Int64> = []
+    private var recognized: [Int64: [RecognizedLine]] = [:]
 
     public init() {}
 
@@ -59,4 +61,58 @@ public final class FakeCore: RemindCore, @unchecked Sendable {
             )
         }
     }
+
+    public func nextOCRBatch(max: Int, now: Date, includeDeferred: Bool) throws -> [OCRJob] {
+        lock.withLock {
+            let waiting = samples.indices.filter { !finishedOCR.contains(Int64($0)) }.prefix(max)
+            return waiting.map {
+                OCRJob(frameID: Int64($0), capturedAt: samples[$0].capturedAt, attempt: 1)
+            }
+        }
+    }
+
+    public func submitOCR(_ results: [OCRResult]) throws {
+        lock.withLock {
+            for result in results {
+                finishedOCR.insert(result.frameID)
+                recognized[result.frameID] = result.lines
+            }
+        }
+    }
+
+    public func failOCR(frameID: Int64) throws {
+        lock.withLock { _ = finishedOCR.insert(frameID) }
+    }
+
+    /// A simple substring search, because previews and tests don't need ranking.
+    public func search(_ text: String, facets: SearchFacets, order: SearchOrder) throws -> (any SearchSession)? {
+        let needle = text.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !needle.isEmpty else { return nil }
+        let hits = lock.withLock { () -> [SearchHit] in
+            recognized.keys.sorted(by: >).compactMap { frameID in
+                let lines = recognized[frameID] ?? []
+                guard let line = lines.first(where: { $0.text.lowercased().contains(needle) }) else {
+                    return nil
+                }
+                let sample = samples[Int(frameID)]
+                return SearchHit(
+                    frameID: frameID,
+                    runID: frameID,
+                    capturedAt: sample.capturedAt,
+                    bundleID: sample.context.bundleID,
+                    window: sample.context.window,
+                    url: sample.context.url,
+                    rects: [line.rect],
+                    snippet: line.text
+                )
+            }
+        }
+        return FakeSearchSession(page: SearchPage(hits: hits, hasMore: false))
+    }
+}
+
+private struct FakeSearchSession: SearchSession {
+    let page: SearchPage
+    func nextPage() throws -> SearchPage { page }
+    func cancel() {}
 }

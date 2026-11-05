@@ -70,6 +70,7 @@ fn latest_segment(
                         window: r.get(4)?,
                         url: r.get(5)?,
                         profile: r.get(6)?,
+                        front_rect: None,
                     },
                 },
             ))
@@ -121,6 +122,22 @@ fn assign_segment(
     }
 }
 
+fn encode_front_rect(rect: [u16; 4]) -> Vec<u8> {
+    rect.iter().flat_map(|value| value.to_le_bytes()).collect()
+}
+
+/// Decodes a stored front window rectangle.
+pub fn decode_front_rect(bytes: &[u8]) -> Option<[u16; 4]> {
+    if bytes.len() != 8 {
+        return None;
+    }
+    let mut rect = [0u16; 4];
+    for (value, pair) in rect.iter_mut().zip(bytes.chunks_exact(2)) {
+        *value = u16::from_le_bytes([pair[0], pair[1]]);
+    }
+    Some(rect)
+}
+
 /// Applies one logged frame. Applying it again has no effect.
 pub fn apply_one(tx: &Transaction<'_>, frame: &LoggedFrame) -> rusqlite::Result<()> {
     let chunk_id = ensure_chunk(tx, &frame.chunk)?;
@@ -139,8 +156,8 @@ pub fn apply_one(tx: &Transaction<'_>, frame: &LoggedFrame) -> rusqlite::Result<
     let segment_id = assign_segment(tx, display, frame.t_ms, &frame.context)?;
     tx.execute(
         "INSERT OR IGNORE INTO frame
-             (t_ms, display_id, chunk_id, seq, offset, len, is_sync, segment_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (t_ms, display_id, chunk_id, seq, offset, len, is_sync, segment_id, front_rect)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             frame.t_ms,
             display,
@@ -149,7 +166,8 @@ pub fn apply_one(tx: &Transaction<'_>, frame: &LoggedFrame) -> rusqlite::Result<
             frame.offset as i64,
             frame.len,
             frame.is_sync,
-            segment_id
+            segment_id,
+            frame.context.front_rect.map(encode_front_rect)
         ],
     )?;
     tx.execute(

@@ -9,8 +9,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+zstd.workspace = true
 thiserror.workspace = true
-unicode-segmentation.workspace = true
 unicode-normalization.workspace = true
 rust-stemmers.workspace = true
 

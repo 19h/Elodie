@@ -5,15 +5,29 @@ use std::sync::atomic::Ordering;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use crossbeam_channel::{Receiver, RecvTimeoutError};
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use remind_store::{LoggedFrame, project};
 use rusqlite::{Connection, params};
 
-use crate::{EngineConfig, Shared};
+use crate::ocr::{self, OcrBatchOptions, OcrJob, PreparedResult, RunTracker};
+use crate::{EngineConfig, EngineError, Shared};
 
 pub(crate) enum WriterMessage {
     Frame(LoggedFrame),
     Sealed([u8; 16]),
+    /// Fetches frames waiting for OCR. Runs in the write transaction, because
+    /// fetching also records the attempt.
+    NextOcrBatch(OcrBatchOptions, Sender<Result<Vec<OcrJob>, EngineError>>),
+    /// Stores OCR results in order, replying once they're committed.
+    OcrResults(Vec<PreparedResult>, Sender<Result<(), EngineError>>),
+    OcrFailed(i64, Sender<Result<(), EngineError>>),
+}
+
+impl WriterMessage {
+    /// Whether someone is waiting for this, so it shouldn't sit in a batch.
+    fn is_urgent(&self) -> bool {
+        !matches!(self, WriterMessage::Frame(_) | WriterMessage::Sealed(_))
+    }
 }
 
 /// How long to wait before retrying a failed commit, such as on a full disk.
@@ -39,6 +53,7 @@ fn run(
 ) {
     // Messages are applied in order, so a seal never overtakes its chunk's frames.
     let mut pending: Vec<WriterMessage> = Vec::new();
+    let mut tracker = RunTracker::new(config.run_policy);
     let mut open = true;
 
     while open || !pending.is_empty() {
@@ -50,7 +65,7 @@ fn run(
         }
 
         let deadline = Instant::now() + config.batch_interval;
-        while open {
+        while open && !pending.last().is_some_and(WriterMessage::is_urgent) {
             let wait = deadline.saturating_duration_since(Instant::now());
             match messages.recv_timeout(wait) {
                 Ok(message) => pending.push(message),
@@ -59,7 +74,7 @@ fn run(
             }
         }
 
-        match commit(&mut conn, &pending) {
+        match commit(&mut conn, &pending, &mut tracker) {
             Ok(frames) => {
                 shared.indexed_frames.fetch_add(frames, Ordering::Relaxed);
                 pending.clear();
@@ -67,14 +82,31 @@ fn run(
             // Anything still pending is replayed from the log at next launch, so
             // on shutdown it's safe to give up.
             Err(_) if !open => return,
-            Err(_) => std::thread::sleep(RETRY_DELAY),
+            Err(_) => {
+                // A run in memory may be ahead of what failed to commit.
+                tracker = RunTracker::new(config.run_policy);
+                std::thread::sleep(RETRY_DELAY);
+            }
         }
     }
 }
 
-fn commit(conn: &mut Connection, messages: &[WriterMessage]) -> rusqlite::Result<u64> {
+/// Replies are sent only after the transaction commits, so whoever is waiting never
+/// sees a success that didn't reach the database.
+enum Reply {
+    Batch(Sender<Result<Vec<OcrJob>, EngineError>>, Vec<OcrJob>),
+    Done(Sender<Result<(), EngineError>>),
+}
+
+fn commit(
+    conn: &mut Connection,
+    messages: &[WriterMessage],
+    tracker: &mut RunTracker,
+) -> rusqlite::Result<u64> {
     let tx = conn.transaction()?;
     let mut frames = 0;
+    let mut replies = Vec::new();
+
     for message in messages {
         match message {
             WriterMessage::Frame(frame) => {
@@ -84,8 +116,32 @@ fn commit(conn: &mut Connection, messages: &[WriterMessage]) -> rusqlite::Result
             WriterMessage::Sealed(uuid) => {
                 tx.execute("UPDATE chunk SET sealed = 1 WHERE uuid = ?1", params![uuid.as_slice()])?;
             }
+            WriterMessage::NextOcrBatch(options, reply) => {
+                replies.push(Reply::Batch(reply.clone(), ocr::next_batch(&tx, *options)?));
+            }
+            WriterMessage::OcrResults(results, reply) => {
+                for result in results {
+                    ocr::store_result(&tx, tracker, result)?;
+                }
+                replies.push(Reply::Done(reply.clone()));
+            }
+            WriterMessage::OcrFailed(frame_id, reply) => {
+                ocr::mark_failed(&tx, *frame_id)?;
+                replies.push(Reply::Done(reply.clone()));
+            }
         }
     }
     tx.commit()?;
+
+    for reply in replies {
+        match reply {
+            Reply::Batch(sender, jobs) => {
+                let _ = sender.send(Ok(jobs));
+            }
+            Reply::Done(sender) => {
+                let _ = sender.send(Ok(()));
+            }
+        }
+    }
     Ok(frames)
 }

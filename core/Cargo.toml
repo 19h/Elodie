@@ -13,9 +13,11 @@ remind-vault = { path = "crates/vault" }
 remind-engine = { path = "crates/engine" }
 remind-store = { path = "crates/store" }
 remind-text = { path = "crates/text" }
+remind-search = { path = "crates/search" }
 
 rusqlite = { version = "0.41", features = ["bundled-sqlcipher"] }
 uniffi = "0.32"
+zstd = "0.14"
 rayon = "1.12"
 crossbeam-channel = "0.5"
 chacha20poly1305 = "0.11"
@@ -26,6 +28,7 @@ rust-stemmers = "1.2"
 thiserror = "2"
 tempfile = "3"
 proptest = "1"
+roaring = "0.12"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

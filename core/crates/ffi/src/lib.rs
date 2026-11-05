@@ -3,7 +3,11 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use remind_engine::{Engine, EngineConfig, EngineError, FrameContext, Sample};
+use remind_engine::{
+    Engine, EngineConfig, EngineError, FrameContext, OcrBatchOptions, OcrLine, OcrResult, Rect,
+    Sample, SearchSession,
+};
+use remind_search::{Facets, Order, Query};
 use remind_vault::MasterKey;
 
 uniffi::setup_scaffolding!();
@@ -64,6 +68,126 @@ pub struct RecoveryInfo {
     pub duration_ms: u64,
 }
 
+/// A rectangle as fractions of the frame, with the origin at the top left.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct NormalizedRect {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl From<Rect> for NormalizedRect {
+    fn from(rect: Rect) -> Self {
+        Self { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }
+}
+
+impl From<NormalizedRect> for Rect {
+    fn from(rect: NormalizedRect) -> Self {
+        Self { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+    }
+}
+
+fn scaled(value: f32) -> u16 {
+    (value.clamp(0.0, 1.0) * f32::from(u16::MAX)).round() as u16
+}
+
+/// A frame waiting for OCR.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct OcrJob {
+    pub frame_id: i64,
+    pub t_ms: i64,
+    pub attempt: u32,
+}
+
+/// A piece of text OCR found.
+#[derive(Debug, uniffi::Record)]
+pub struct OcrLineInput {
+    pub text: String,
+    pub rect: NormalizedRect,
+}
+
+/// What OCR found in a frame.
+#[derive(Debug, uniffi::Record)]
+pub struct OcrResultInput {
+    pub frame_id: i64,
+    pub lines: Vec<OcrLineInput>,
+}
+
+/// The order of search results.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum SearchOrder {
+    Relevance,
+    Newest,
+}
+
+/// Limits on what's searched.
+#[derive(Debug, uniffi::Record)]
+pub struct SearchFacets {
+    pub bundle_ids: Vec<String>,
+    pub from_ms: Option<i64>,
+    pub to_ms: Option<i64>,
+    pub starred_only: bool,
+}
+
+/// A moment that matched a search.
+#[derive(Debug, uniffi::Record)]
+pub struct SearchHit {
+    pub frame_id: i64,
+    pub run_id: i64,
+    pub t_ms: i64,
+    pub bundle_id: Option<String>,
+    pub window: Option<String>,
+    pub url: Option<String>,
+    pub rects: Vec<NormalizedRect>,
+    pub snippet: String,
+}
+
+/// A page of search results.
+#[derive(Debug, uniffi::Record)]
+pub struct SearchPage {
+    pub hits: Vec<SearchHit>,
+    pub has_more: bool,
+}
+
+/// A search in progress.
+#[derive(uniffi::Object)]
+pub struct SearchHandle {
+    session: SearchSession,
+}
+
+#[uniffi::export]
+impl SearchHandle {
+    /// Fetches the next page. This can take a moment, so don't call it on the main thread.
+    pub fn next_page(&self) -> Result<SearchPage, CoreError> {
+        let page = self.session.next_page()?;
+        Ok(SearchPage {
+            has_more: page.has_more,
+            hits: page
+                .hits
+                .into_iter()
+                .map(|hit| SearchHit {
+                    frame_id: hit.frame_id,
+                    run_id: hit.run_id,
+                    t_ms: hit.t_ms,
+                    bundle_id: hit.bundle_id,
+                    window: hit.window,
+                    url: hit.url,
+                    rects: hit.rects.into_iter().map(Into::into).collect(),
+                    snippet: hit.snippet,
+                })
+                .collect(),
+        })
+    }
+
+    /// Stops a query that's running, from any thread. Call this when the search text
+    /// changes, so an old query doesn't hold up the new one.
+    pub fn cancel(&self) {
+        self.session.cancel();
+    }
+}
+
 /// An encoded video sample and what was on screen for it.
 #[derive(Debug, uniffi::Record)]
 pub struct SampleInput {
@@ -78,6 +202,8 @@ pub struct SampleInput {
     pub window: Option<String>,
     pub url: Option<String>,
     pub profile: Option<String>,
+    /// The front window, as a fraction of the display.
+    pub front_rect: Option<NormalizedRect>,
     pub data: Vec<u8>,
 }
 
@@ -198,6 +324,9 @@ impl Core {
                 window: sample.window.filter(|w| !w.is_empty()),
                 url: sample.url.filter(|u| !u.is_empty()),
                 profile: sample.profile.filter(|p| !p.is_empty()),
+                front_rect: sample.front_rect.map(|r| {
+                    [scaled(r.x), scaled(r.y), scaled(r.width), scaled(r.height)]
+                }),
             },
             data: sample.data,
         })?;
@@ -238,6 +367,68 @@ impl Core {
                 })
                 .collect(),
         })
+    }
+
+    /// Fetches frames waiting for OCR, recording the attempt.
+    pub fn next_ocr_batch(
+        &self,
+        max: u32,
+        now_ms: i64,
+        include_deferred: bool,
+    ) -> Result<Vec<OcrJob>, CoreError> {
+        let jobs = self.engine.next_ocr_batch(OcrBatchOptions { max, now_ms, include_deferred })?;
+        Ok(jobs
+            .into_iter()
+            .map(|job| OcrJob { frame_id: job.frame_id, t_ms: job.t_ms, attempt: job.attempt })
+            .collect())
+    }
+
+    /// Stores OCR results and waits until they're committed.
+    pub fn submit_ocr(&self, results: Vec<OcrResultInput>) -> Result<(), CoreError> {
+        Ok(self.engine.submit_ocr(
+            results
+                .into_iter()
+                .map(|result| OcrResult {
+                    frame_id: result.frame_id,
+                    lines: result
+                        .lines
+                        .into_iter()
+                        .map(|line| OcrLine { text: line.text, rect: line.rect.into() })
+                        .collect(),
+                })
+                .collect(),
+        )?)
+    }
+
+    /// Records that OCR couldn't process a frame.
+    pub fn fail_ocr(&self, frame_id: i64) -> Result<(), CoreError> {
+        Ok(self.engine.fail_ocr(frame_id)?)
+    }
+
+    /// Starts a search. Returns nothing if the text has nothing searchable in it.
+    pub fn search(
+        &self,
+        text: String,
+        facets: SearchFacets,
+        order: SearchOrder,
+    ) -> Result<Option<Arc<SearchHandle>>, CoreError> {
+        let Some(query) = Query::parse(&text) else {
+            return Ok(None);
+        };
+        let session = self.engine.search(
+            query,
+            Facets {
+                bundle_ids: facets.bundle_ids,
+                from_ms: facets.from_ms,
+                to_ms: facets.to_ms,
+                starred_only: facets.starred_only,
+            },
+            match order {
+                SearchOrder::Relevance => Order::Relevance,
+                SearchOrder::Newest => Order::Newest,
+            },
+        )?;
+        Ok(Some(Arc::new(SearchHandle { session })))
     }
 
     pub fn stats(&self) -> CoreStats {

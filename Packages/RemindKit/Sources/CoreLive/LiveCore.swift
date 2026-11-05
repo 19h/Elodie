@@ -1,5 +1,6 @@
 import CoreABI
 import CoreAPI
+import CoreGraphics
 import Foundation
 
 /// `RemindCore` backed by the Rust library.
@@ -44,6 +45,7 @@ public final class LiveCore: RemindCore {
             window: sample.context.window,
             url: sample.context.url,
             profile: sample.context.profile,
+            frontRect: sample.context.frontRect.map(NormalizedRect.init),
             data: sample.data
         ))
         switch outcome {
@@ -79,6 +81,84 @@ public final class LiveCore: RemindCore {
             },
             target: Int(gop.target)
         )
+    }
+}
+
+extension LiveCore {
+    public func nextOCRBatch(max: Int, now: Date, includeDeferred: Bool) throws -> [CoreAPI.OCRJob] {
+        try core.nextOcrBatch(max: UInt32(max), nowMs: now.milliseconds, includeDeferred: includeDeferred).map {
+            CoreAPI.OCRJob(frameID: $0.frameId, capturedAt: Date(milliseconds: $0.tMs), attempt: Int($0.attempt))
+        }
+    }
+
+    public func submitOCR(_ results: [CoreAPI.OCRResult]) throws {
+        try core.submitOcr(results: results.map { result in
+            OcrResultInput(
+                frameId: result.frameID,
+                lines: result.lines.map { OcrLineInput(text: $0.text, rect: NormalizedRect($0.rect)) }
+            )
+        })
+    }
+
+    public func failOCR(frameID: Int64) throws {
+        try core.failOcr(frameId: frameID)
+    }
+
+    public func search(
+        _ text: String,
+        facets: CoreAPI.SearchFacets,
+        order: CoreAPI.SearchOrder
+    ) throws -> (any CoreAPI.SearchSession)? {
+        let handle = try core.search(
+            text: text,
+            facets: CoreABI.SearchFacets(
+                bundleIds: facets.bundleIDs,
+                fromMs: facets.from?.milliseconds,
+                toMs: facets.to?.milliseconds,
+                starredOnly: facets.starredOnly
+            ),
+            order: order == .relevance ? .relevance : .newest
+        )
+        return handle.map(LiveSearchSession.init)
+    }
+}
+
+private struct LiveSearchSession: CoreAPI.SearchSession {
+    let handle: SearchHandle
+
+    func nextPage() throws -> CoreAPI.SearchPage {
+        let page = try handle.nextPage()
+        return CoreAPI.SearchPage(
+            hits: page.hits.map { hit in
+                CoreAPI.SearchHit(
+                    frameID: hit.frameId,
+                    runID: hit.runId,
+                    capturedAt: Date(milliseconds: hit.tMs),
+                    bundleID: hit.bundleId,
+                    window: hit.window,
+                    url: hit.url,
+                    rects: hit.rects.map(CGRect.init),
+                    snippet: hit.snippet
+                )
+            },
+            hasMore: page.hasMore
+        )
+    }
+
+    func cancel() {
+        handle.cancel()
+    }
+}
+
+extension NormalizedRect {
+    init(_ rect: CGRect) {
+        self.init(x: Float(rect.minX), y: Float(rect.minY), width: Float(rect.width), height: Float(rect.height))
+    }
+}
+
+extension CGRect {
+    init(_ rect: NormalizedRect) {
+        self.init(x: CGFloat(rect.x), y: CGFloat(rect.y), width: CGFloat(rect.width), height: CGFloat(rect.height))
     }
 }
 

@@ -115,8 +115,13 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         return configuration
     }
 
-    public func start(filter: SCContentFilter) async throws {
+    /// Starts capture with the given windows left out, and returns when that
+    /// filter took effect, in mach time.
+    @discardableResult
+    public func start(excluding windows: Set<CGWindowID>, interval: TimeInterval = captureInterval) async throws -> UInt64 {
+        let filter = try await ScreenContent.filter(displayID: displayID, excluding: windows)
         let configuration = Self.configuration(for: displayID)
+        configuration.minimumFrameInterval = CMTime(seconds: interval, preferredTimescale: 600)
         let pointWidth = max(CGDisplayPixelsWide(displayID), 1)
         let scale = CGFloat(configuration.width) / CGFloat(pointWidth)
         menuBarRows = Int((Self.menuBarPoints * scale).rounded(.up))
@@ -125,10 +130,16 @@ public final class DisplayStream: NSObject, SCStreamOutput, SCStreamDelegate, @u
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
         try await stream.startCapture()
         self.stream = stream
+        return mach_absolute_time()
     }
 
-    public func update(filter: SCContentFilter) async throws {
+    /// Changes which windows are left out, and returns when the new filter took
+    /// effect, in mach time.
+    @discardableResult
+    public func update(excluding windows: Set<CGWindowID>) async throws -> UInt64 {
+        let filter = try await ScreenContent.filter(displayID: displayID, excluding: windows)
         try await stream?.updateContentFilter(filter)
+        return mach_absolute_time()
     }
 
     public func stop() async {

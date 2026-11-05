@@ -11,8 +11,10 @@
 //! anything lost from it is replayed from the log on the next launch.
 
 mod appender;
+mod ocr;
 mod read;
 mod recovery;
+mod search;
 mod writer;
 
 use std::collections::HashMap;
@@ -27,9 +29,12 @@ use remind_store::{DbKey, schema};
 use remind_vault::{MasterKey, VaultError};
 use rusqlite::Connection;
 
+pub use ocr::{OcrBatchOptions, OcrJob, OcrResult};
 pub use read::{FrameRef, Gop, GopSample};
 pub use recovery::RecoveryReport;
+pub use search::SearchSession;
 pub use remind_store::FrameContext;
+pub use remind_text::{OcrLine, Rect, RunPolicy};
 
 use appender::AppendRequest;
 
@@ -66,6 +71,8 @@ pub struct EngineConfig {
     pub batch_interval: Duration,
     /// Samples waiting for the appender. When full, samples are dropped.
     pub sample_queue: usize,
+    /// How frames are grouped into text runs.
+    pub run_policy: RunPolicy,
 }
 
 impl Default for EngineConfig {
@@ -76,6 +83,7 @@ impl Default for EngineConfig {
             sync_interval: Duration::from_secs(5),
             batch_interval: Duration::from_secs(1),
             sample_queue: 8,
+            run_policy: RunPolicy::default(),
         }
     }
 }
@@ -153,6 +161,7 @@ pub struct Engine {
     db_key: [u8; 32],
     shared: Arc<Shared>,
     samples: Option<Sender<AppendRequest>>,
+    writes: Option<Sender<writer::WriterMessage>>,
     appender: Option<JoinHandle<()>>,
     writer: Option<JoinHandle<()>>,
     reader: Mutex<Connection>,
@@ -188,7 +197,7 @@ impl Engine {
             config.clone(),
             Arc::clone(&shared),
             sample_rx,
-            logged_tx,
+            logged_tx.clone(),
         )?;
         let writer = writer::spawn(writer_conn, config, Arc::clone(&shared), logged_rx)?;
 
@@ -199,6 +208,7 @@ impl Engine {
                 db_key,
                 shared,
                 samples: Some(sample_tx),
+                writes: Some(logged_tx),
                 appender: Some(appender),
                 writer: Some(writer),
                 reader: Mutex::new(reader),
@@ -274,6 +284,7 @@ impl Engine {
 
     fn shut_down(&mut self) -> Result<()> {
         self.samples.take();
+        self.writes.take();
         for handle in [self.appender.take(), self.writer.take()].into_iter().flatten() {
             handle.join().map_err(|_| EngineError::Stopped)?;
         }
