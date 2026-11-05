@@ -1542,7 +1542,7 @@ extension AppController {
             state["pipeline"] = "received \(stats.received), busy \(stats.busy), unchanged \(stats.unchanged), black \(stats.black), excluded \(stats.excluded), stored \(stats.stored)"
         }
         if let microphone = audio?.debugMicrophone {
-            state["microphoneAudio"] = "\(microphone.buffers) buffers, peak \(microphone.peak)"
+            state["microphoneAudio"] = microphone
         }
         state["accessibility"] = "\(AXIsProcessTrusted())"
         state["screenRecording"] = "\(CGPreflightScreenCaptureAccess())"

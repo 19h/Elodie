@@ -37,7 +37,7 @@ enum LiveSpikes {
 
         let name = value(after: "--spike") ?? "capture"
         // These only capture the harness's own windows, which needs no permission.
-        let needsPermission = !["capture", "endtoend", "login-item"].contains(name)
+        let needsPermission = !["capture", "endtoend", "login-item", "sharing-hold"].contains(name)
         guard !needsPermission || CGPreflightScreenCaptureAccess() else {
             report.line("Screen Recording isn't granted.")
             let granted = CGRequestScreenCaptureAccess()
@@ -63,6 +63,7 @@ enum LiveSpikes {
                     }
                     report.line("login item status: \(agent.status.rawValue) (0 not registered, 1 enabled, 2 needs approval, 3 not found)")
                     report.line("accessibility \(AXIsProcessTrusted()), screen recording \(CGPreflightScreenCaptureAccess()), microphone \(AVCaptureDevice.authorizationStatus(for: .audio).rawValue) (0 not asked, 2 denied, 3 allowed)")
+                case "sharing-hold": try await Self.sharingHold()
                 case "sharing": try await Self.sharingCheck()
                 case "sharing-capture":
                     let seen = try await SharingCheck.look(
@@ -158,6 +159,28 @@ enum LiveSpikes {
             panel.orderOut(nil)
             report.line("\(label): \(result)")
             try await Task.sleep(for: .milliseconds(300))
+        }
+    }
+
+    /// Holds up a magenta panel on every display, first ordinary and then with the overlay's
+    /// setting, for something outside this app to try capturing. It says when each started.
+    @MainActor
+    private static func sharingHold() async throws {
+        for (sharing, label) in [(NSWindow.SharingType.readOnly, "ordinary"), (.none, "overlay")] {
+            let panels = NSScreen.screens.map { screen in
+                let panel = OverlayPanel(screen: screen)
+                panel.sharingType = sharing
+                panel.backgroundColor = NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)
+                panel.ignoresMouseEvents = true
+                panel.setFrame(NSRect(x: screen.frame.midX - 240, y: screen.frame.midY - 160, width: 480, height: 320), display: true)
+                panel.orderFrontRegardless()
+                return panel
+            }
+            report.line("\(label) from \(Date().timeIntervalSince1970)")
+            try await Task.sleep(for: .seconds(8))
+            panels.forEach { $0.orderOut(nil) }
+            report.line("\(label) until \(Date().timeIntervalSince1970)")
+            try await Task.sleep(for: .seconds(2))
         }
     }
 

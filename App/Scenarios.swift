@@ -114,6 +114,8 @@ enum Scenarios {
             try await captureContrast(String(name.dropFirst("contrast-".count)), to: output)
         case "status-menu":
             try await captureStatusMenu(to: output)
+        case "overflow-menu":
+            try await captureOverflowMenu(to: output)
         default:
             throw ScenarioError.unknown(name)
         }
@@ -320,6 +322,36 @@ enum Scenarios {
             try await Task.sleep(for: .milliseconds(50))
         }
         withExtendedLifetime(status) {}
+        if let failure { throw failure }
+    }
+
+    /// The timeline's … menu, opened as a click opens it, and photographed while it tracks.
+    @MainActor
+    private static func captureOverflowMenu(to output: URL) async throws {
+        var actions = OverflowActions()
+        actions.isCapturing = { true }
+        actions.isListening = { false }
+        let menu = OverflowMenu.makeMenu(actions: actions, confirmForget: {})
+        var failure: (any Error)?
+        var finished = false
+        DispatchQueue.global().asyncAfter(deadline: .now() + 6) { exit(0) }
+        Task { @MainActor in
+            defer {
+                finished = true
+                menu.cancelTracking()
+            }
+            try? await Task.sleep(for: .milliseconds(800))
+            do {
+                try await ScreenContent.saveScreenshotOfLargestOwnWindow(to: output)
+            } catch {
+                failure = error
+            }
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        while !finished {
+            try await Task.sleep(for: .milliseconds(50))
+        }
         if let failure { throw failure }
     }
 

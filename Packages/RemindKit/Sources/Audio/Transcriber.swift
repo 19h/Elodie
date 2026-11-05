@@ -88,9 +88,38 @@ public final class Transcriber: @unchecked Sendable {
         let offset = max(0, time.timeIntervalSince(startedAt))
         let position = Self.position(forArrivalAt: offset, next: nextSample, sampleRate: format.sampleRate)
         nextSample = position + Int64(converted.frameLength)
+        #if DEBUG
+        noteFed(converted)
+        #endif
         let start = CMTime(value: position, timescale: CMTimeScale(format.sampleRate))
         input?.yield(AnalyzerInput(buffer: converted, bufferStartTime: start))
     }
+
+    #if DEBUG
+    private let debugLock = NSLock()
+    private var fedFrames = 0
+    private var fedPeak: Float = 0
+    private var fedFormat = "none"
+
+    /// What's reached speech recognition so far, for checking a real run.
+    public var debugFed: (frames: Int, peak: Float, format: String) {
+        debugLock.withLock { (fedFrames, fedPeak, fedFormat) }
+    }
+
+    private func noteFed(_ buffer: AVAudioPCMBuffer) {
+        var peak: Float = 0
+        if let samples = buffer.int16ChannelData?[0] {
+            for index in 0..<Int(buffer.frameLength) { peak = max(peak, abs(Float(samples[index]) / 32768)) }
+        } else if let samples = buffer.floatChannelData?[0] {
+            for index in 0..<Int(buffer.frameLength) { peak = max(peak, abs(samples[index])) }
+        }
+        debugLock.withLock {
+            fedFrames += Int(buffer.frameLength)
+            fedPeak = max(fedPeak, peak)
+            fedFormat = "\(buffer.format)"
+        }
+    }
+    #endif
 
     /// Audio turning up this much later than expected is a real gap. Anything less is just how
     /// unevenly buffers arrive.

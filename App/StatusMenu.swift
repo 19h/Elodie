@@ -269,19 +269,23 @@ final class StatusMenu: NSObject, NSMenuDelegate {
 final class SwitchRowView: NSView {
     init(title: String, symbol: String, isOn: Bool, onChange: @escaping (Bool) -> Void) {
         super.init(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
+        // The menu makes this as wide as its widest row, and the switch stays at the right.
+        autoresizingMask = [.width]
 
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
         icon.contentTintColor = .labelColor
-        icon.frame = NSRect(x: 12, y: 5, width: 18, height: 18)
+        // In line with the icons and titles of ordinary rows, which macOS places itself.
+        icon.frame = NSRect(x: 13.5, y: 5, width: 18, height: 18)
         addSubview(icon)
 
         let label = NSTextField(labelWithString: title)
         label.font = .menuFont(ofSize: 0)
-        label.frame = NSRect(x: 35, y: 5, width: 170, height: 18)
+        label.frame = NSRect(x: 36, y: 5, width: 170, height: 18)
         addSubview(label)
 
         let control = AccentSwitch(title: title, isOn: isOn, onChange: onChange)
-        control.frame.origin = NSPoint(x: 280 - control.frame.width - 14, y: (28 - control.frame.height) / 2)
+        control.autoresizingMask = [.minXMargin]
+        control.frame.origin = NSPoint(x: 280 - control.frame.width - 18, y: (28 - control.frame.height) / 2)
         addSubview(control)
     }
 

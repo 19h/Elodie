@@ -980,6 +980,11 @@ struct OverflowMenu: View {
 
     /// A plain menu, which shows above the overlay and works without activating the app.
     private func showMenu() {
+        Self.makeMenu(actions: actions, confirmForget: { [model] in model.isConfirmingForget = true })
+            .popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+    }
+
+    static func makeMenu(actions: OverflowActions, confirmForget: @escaping () -> Void) -> NSMenu {
         let menu = NSMenu()
         func add(
             _ title: String,
@@ -1026,9 +1031,9 @@ struct OverflowMenu: View {
         menu.addItem(audio)
         menu.addItem(.separator())
         add(String(localized: "Exclude this app from recording"), "eye.slash", actions.exclude)
-        add(String(localized: "Forget the last 5 minutes…"), "clock.arrow.circlepath") { [model] in model.isConfirmingForget = true }
+        add(String(localized: "Forget the last 5 minutes…"), "clock.arrow.circlepath", confirmForget)
         add(String(localized: "Settings…"), "gearshape", actions.settings)
-        menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
+        return menu
     }
 }
 

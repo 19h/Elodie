@@ -95,10 +95,10 @@ import Testing
         var all: [SpokenWord] = []
     }
 
-    private func speak(_ text: String, to url: URL) throws {
+    private func speak(_ text: String, to url: URL, format: String = "LEI16@16000") throws {
         let process = Process()
         process.executableURL = URL(filePath: "/usr/bin/say")
-        process.arguments = ["-v", "Samantha", "-o", url.path, "--data-format=LEI16@16000", text]
+        process.arguments = ["-v", "Samantha", "-o", url.path, "--data-format=\(format)", text]
         try process.run()
         process.waitUntilExit()
         try #require(process.terminationStatus == 0)
@@ -164,6 +164,46 @@ import Testing
         let text = collected.lock.withLock { collected.all }.map { $0.text.lowercased() }.joined(separator: " ")
         #expect(text.contains("budget"), "got: \(text)")
         #expect(text.contains("tuesday"), "got: \(text)")
+    }
+
+    /// What a real microphone delivers on this Mac, measured in a real run: 44.1 kHz mono
+    /// float, in buffers of about 540 frames, whatever rate was asked for. Speech in exactly
+    /// that shape has to become words, and they have to count as the person's own.
+    @Test func speechInTheMicrophonesRealFormatBecomesYourWords() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "remind-audio-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: "speech.wav")
+        try speak("The quarterly budget review is scheduled for next Tuesday morning.", to: file, format: "LEF32@44100")
+
+        let collected = Words()
+        let started = Date(timeIntervalSince1970: 1_800_000_000)
+        let locale = try await Transcriber.prepare(locale: Locale(identifier: "en_US"))
+        let transcriber = Transcriber(locale: locale, isMe: true, startedAt: started) { words in
+            collected.lock.withLock { collected.all.append(contentsOf: words) }
+        }
+        try await transcriber.start()
+
+        let audio = try AVAudioFile(forReading: file)
+        #expect(audio.processingFormat.sampleRate == 44_100)
+        #expect(audio.processingFormat.commonFormat == .pcmFormatFloat32)
+        var position = 0.0
+        while audio.framePosition < audio.length {
+            let buffer = try #require(AVAudioPCMBuffer(pcmFormat: audio.processingFormat, frameCapacity: 540))
+            try audio.read(into: buffer, frameCount: 540)
+            transcriber.append(buffer, at: started.addingTimeInterval(position))
+            position += Double(buffer.frameLength) / 44_100
+        }
+        try await transcriber.finish()
+
+        let words = collected.lock.withLock { collected.all }
+        let text = words.map { $0.text.lowercased() }.joined(separator: " ")
+        #expect(text.contains("budget"), "got: \(text)")
+        #expect(text.contains("tuesday"), "got: \(text)")
+        #expect(!words.isEmpty && words.allSatisfy(\.isMe))
+        // Conversion mustn't stretch time: it took about as long as it was said.
+        #expect(abs((words.last?.time.timeIntervalSince(started) ?? 0) - position) < 2)
     }
 
     @Test func spokenWordsComeBackWithRealTimesAndConfidence() async throws {

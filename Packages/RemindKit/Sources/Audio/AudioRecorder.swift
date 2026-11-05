@@ -237,10 +237,15 @@ public final class AudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @u
     #if DEBUG
     private var microphoneBuffers = 0
     private var microphonePeak: Float = 0
+    private var microphoneFormat = "none"
 
-    /// How many microphone buffers have arrived, and the loudest sample, for checking a real run.
-    public var debugMicrophone: (buffers: Int, peak: Float) {
-        lock.withLock { (microphoneBuffers, microphonePeak) }
+    /// What's arrived from the microphone and how much reached speech recognition, for
+    /// checking a real run.
+    public var debugMicrophone: String {
+        let fed = microphone?.debugFed
+        return lock.withLock {
+            "\(microphoneBuffers) buffers, peak \(microphonePeak), format \(microphoneFormat), recognition got \(fed?.frames ?? 0) frames at \(fed?.format ?? "none"), peak \(fed?.peak ?? 0)"
+        }
     }
 
     private func noteMicrophone(_ buffer: AVAudioPCMBuffer) {
@@ -250,6 +255,7 @@ public final class AudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @u
         lock.withLock {
             microphoneBuffers += 1
             microphonePeak = max(microphonePeak, peak)
+            microphoneFormat = "\(buffer.format)"
         }
     }
     #endif
