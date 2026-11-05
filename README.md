@@ -234,7 +234,7 @@ Press ⌘⇧- (the key to the right of 0, which is `ß` on a German keyboard) an
 
 1. **Planning.** Your question becomes search terms, with no model involved. Filler words are dropped in English and German, quoted phrases stay whole, and "yesterday", "today", "last week", "last month", or a date limits when to look.
 2. **Finding.** It searches for all the words together, then each alone, and collects up to 16 moments. A question with nothing specific to look for, like "What did I do today?", takes moments spread evenly through what happened in that time instead, or today if it doesn't say when.
-3. **Answering.** As many excerpts as fit go to Apple's on-device model, which is told to answer only from them and to cite each fact.
+3. **Answering.** As many excerpts as fit go to Apple's on-device model, which is told to answer only from them and to cite each fact. A question about a whole period has no single answer to find, so the model is also told that the excerpts are samples of that time and asked to describe them.
 4. **Citing.** Citations such as [2] link to the moment they came from. Only sources that exist become links, because a model can invent a number.
 
 <p align="center">
@@ -697,8 +697,9 @@ A `--sandbox` run can also be driven from outside, without taking your keyboard 
 
 - **The timeline:** `open`, `open search`, `dismiss`, `esc`, `back <seconds>`, `star`, `click <x>`, `clickPlayhead`, `deleteSelection`, `exportSelection <path>`
 - **Search:** `search <words>`, `choose`, `filterStarred`, `hits`
+- **The key:** `recoveryKey`, `restore <recovery key>`, `startOver`
 - **Everything else:** `listen`, `pause`, `recap`, `ask`, `transcripts`, `settings`, `quit`
-- **Checking:** `state`, `apps`, `lookup <time>`, `recoveryKey`, `shootPanel <path>`, `shootWindow <path>`
+- **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote
 
 ### Working rules
 
