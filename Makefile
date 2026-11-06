@@ -5,7 +5,7 @@ APP := $(DERIVED)/Build/Products/Debug/Elodie.app
 # Where crash tests keep their vaults. Everything is removed afterward.
 TORTURE_DIR ?= build/torture
 
-.PHONY: core project app test test-rust test-swift self-check torture check-privacy scenarios bench interaction-test release distribute app-store app-store-screenshots clean
+.PHONY: core project app filming-app test test-rust test-swift self-check torture check-privacy scenarios bench interaction-test release distribute app-store app-store-screenshots clean
 
 core:
 	scripts/build-core.sh debug
@@ -15,6 +15,11 @@ project: core
 
 app: project
 	xcodebuild -project Elodie.xcodeproj -scheme Elodie -configuration Debug \
+		-derivedDataPath $(DERIVED) -quiet build
+
+# A development build whose timeline other apps can capture, for filming Elodie.
+filming-app: project
+	xcodebuild -project Elodie.xcodeproj -scheme "Elodie Filming" -configuration FilmingDebug \
 		-derivedDataPath $(DERIVED) -quiet build
 
 test: test-rust test-swift check-privacy

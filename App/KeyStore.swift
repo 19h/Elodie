@@ -24,6 +24,8 @@ enum KeyStore {
     /// Each edition has its own, so one never asks for the other's key on a Mac with both.
     #if ELODIE_APP_STORE
     nonisolated(unsafe) static var service = "com.kenansulayman.elodie.appstore.vault"
+    #elseif ELODIE_FILMING
+    nonisolated(unsafe) static var service = "com.kenansulayman.elodie.filming.vault"
     #else
     nonisolated(unsafe) static var service = "com.kenansulayman.elodie.vault"
     #endif

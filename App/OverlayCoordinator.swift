@@ -12,6 +12,10 @@ import OverlayShell
 import QuartzCore
 import SwiftUI
 
+#if ELODIE_FILMING && !DEBUG
+#error("Only a development build can let other apps capture the timeline.")
+#endif
+
 /// Opens and closes the overlay, and connects the search panel to the timeline.
 ///
 /// Each display keeps a panel ready, so opening only has to show it. Nothing is created
@@ -105,6 +109,10 @@ final class OverlayCoordinator {
             panel.sharingType = .readOnly
             panel.ignoresMouseEvents = true
         }
+        #endif
+        #if ELODIE_FILMING
+        // `make filming-app`, so that a screen recording of Elodie can show the timeline.
+        panel.sharingType = .readOnly
         #endif
         let controller = TimelineController(
             core: core,

@@ -687,6 +687,7 @@ Power cuts are simulated by damaging files the way a lost write cache could. Thi
 | Command | What it does |
 |---|---|
 | `make app` | Builds the debug app into `build/Elodie`. |
+| `make filming-app` | Builds a development app whose timeline other apps can capture, for filming Elodie. |
 | `make core` | Builds the Rust core, its bindings, and its framework. |
 | `make project` | Builds the core and generates `Elodie.xcodeproj`. |
 | `make test` | Runs the Rust tests, the Swift tests, and the privacy checks. |
@@ -704,6 +705,12 @@ Power cuts are simulated by damaging files the way a lost write cache could. Thi
 | `make clean` | Removes build products and everything generated. |
 
 Development builds optimise the Rust core. Reading recordings means decrypting them, and unoptimised, a group of frames took 240 ms to read instead of 8 ms, which made scrubbing feel broken and benchmarks meaningless. Set `ELODIE_APP` to point `make scenarios` and `make interaction-test` at a build from somewhere else.
+
+### Filming Elodie
+
+Every other build hides the timeline from screen capture, so it can't reach a call or a recording. To film it, `make filming-app` builds `build/Elodie/Build/Products/FilmingDebug/Elodie.app`, where QuickTime and other capture apps can see it. A compile check stops this reaching a release build.
+
+It's `com.kenansulayman.elodie.filming`, with its own vault, key, settings, and permissions, so it starts with no history, and a video shows only what that copy has recorded. Quit your everyday copy first, because only one copy can hold the shortcuts. Control Center's button doesn't work in this build, because every build shares its channel and this one stays off it. For stills, `make scenarios` needs no permission and shows only fixture data.
 
 ### Tests
 
@@ -759,7 +766,7 @@ A `--sandbox` run can also be driven from outside, without taking your keyboard 
 - **Everything else:** `listen`, `pause`, `recap`, `ask`, `transcripts`, `settings`, `quit`
 - **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, `vaultPath`, `coreDisplays`, `coreSearch <words>` and `coreTranscript`, which need no overlay on anyone's screen, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote. `state` also says which permissions the app has, whether the event tap is running, what the Control Center switch would read, what has arrived from the microphone, and what has reached speech recognition
 
-A run started beside a copy that's already running leaves the shortcuts, the swipe, and Control Center to that copy. Four more flags help with testing beside someone who's using the Mac:
+A run started beside a copy that's already running leaves the shortcuts and the swipe to that copy, and no `--sandbox` run touches Control Center, because every build shares its channel. Four more flags help with testing beside someone who's using the Mac:
 
 - `--overlay-away` opens the overlay on the display the pointer isn't on, and it doesn't close when another app comes to the front.
 - `--save-to <folder>` starts save panels in that folder, under a name that doesn't change.

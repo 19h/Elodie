@@ -78,8 +78,8 @@ enum RecordingProblem: Equatable {
 enum AppEnvironment {
     nonisolated(unsafe) static var sandbox: URL?
 
-    /// A throwaway test run next to someone's own copy leaves the shortcuts, the swipe, and
-    /// Control Center to that copy, so they carry on working as usual.
+    /// A throwaway test run next to someone's own copy leaves the shortcuts and the swipe to
+    /// that copy, so they carry on working as usual.
     static let isGuestBesideRealCopy: Bool = {
         #if DEBUG
         guard sandbox != nil, let identifier = Bundle.main.bundleIdentifier else { return false }
@@ -89,8 +89,16 @@ enum AppEnvironment {
         #endif
     }()
 
-    /// Whether this run stays off Control Center's channel. A test of it can ask to use it.
-    static let leavesControlCenterAlone = isGuestBesideRealCopy && !CommandLine.arguments.contains("--control-channel")
+    /// Whether this run stays off Control Center's channel. Every build shares that channel,
+    /// whatever its identifier, so anything else could tell someone's button the wrong state or
+    /// pause along with it. A test of the channel can ask to use it.
+    static let leavesControlCenterAlone: Bool = {
+        #if ELODIE_FILMING
+        return true
+        #else
+        return sandbox != nil && !CommandLine.arguments.contains("--control-channel")
+        #endif
+    }()
 
     #if DEBUG
     /// Starts a driven run's save panels somewhere harmless, under a name that doesn't change.

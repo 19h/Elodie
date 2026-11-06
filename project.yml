@@ -6,6 +6,8 @@ configs:
   Release: release
   AppStore: release
   AppStoreDebug: debug
+  # For filming Elodie: other apps can capture the timeline. See App/OverlayCoordinator.swift.
+  FilmingDebug: debug
 options:
   deploymentTarget:
     macOS: "26.0"
@@ -33,6 +35,8 @@ settings:
       ELODIE_BUNDLE_ID: com.kenansulayman.elodie.dev
     AppStoreDebug:
       ELODIE_BUNDLE_ID: com.kenansulayman.elodie.dev
+    FilmingDebug:
+      ELODIE_BUNDLE_ID: com.kenansulayman.elodie.filming
 packages:
   ElodieKit:
     path: Packages/ElodieKit
@@ -71,6 +75,8 @@ targets:
           CODE_SIGN_ENTITLEMENTS: App/ElodieAppStore.entitlements
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ELODIE_APP_STORE
           EXCLUDED_SOURCE_FILE_NAMES: com.kenansulayman.elodie.agent.plist
+        FilmingDebug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ELODIE_FILMING
     dependencies:
       - package: ElodieKit
         product: CoreAPI
@@ -153,3 +159,11 @@ schemes:
       config: AppStoreDebug
     archive:
       config: AppStore
+  Elodie Filming:
+    build:
+      targets:
+        Elodie: all
+    run:
+      config: FilmingDebug
+    archive:
+      config: FilmingDebug
