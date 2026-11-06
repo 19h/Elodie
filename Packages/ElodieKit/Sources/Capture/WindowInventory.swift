@@ -13,6 +13,11 @@ public final class WindowInventory: @unchecked Sendable {
         windows(options: [.optionOnScreenOnly, .excludeDesktopElements])
     }
 
+    /// The same, with the desktop behind them, which is everything a picture of the screen shows.
+    public func onScreenWindowsAndDesktop() -> [WindowInfo] {
+        windows(options: [.optionOnScreenOnly])
+    }
+
     private func windows(options: CGWindowListOption) -> [WindowInfo] {
         guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[CFString: Any]] else {
             return []
@@ -38,19 +43,6 @@ public final class WindowInventory: @unchecked Sendable {
     /// Every window, including those on other Spaces and minimized ones.
     public func allWindows() -> [WindowInfo] {
         windows(options: [.optionAll, .excludeDesktopElements])
-    }
-
-    /// Just the IDs of the windows on screen, front to back, which is far cheaper than
-    /// reading their details. It lists the same windows as `onScreenWindows`, so the two can
-    /// be compared.
-    public func onScreenWindowIDs() -> [CGWindowID] {
-        guard let list = windowListCreate([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)?.takeRetainedValue() else {
-            return []
-        }
-        // The array holds window IDs directly, not objects.
-        return (0..<CFArrayGetCount(list)).map { index in
-            CGWindowID(truncatingIfNeeded: Int(bitPattern: CFArrayGetValueAtIndex(list, index)))
-        }
     }
 
     /// Identifies a process, caching the answer because reading a bundle is slow.
@@ -84,7 +76,3 @@ public final class WindowInventory: @unchecked Sendable {
         lock.withLock { _ = identities.removeValue(forKey: pid) }
     }
 }
-
-/// `CGWindowListCreate` is public API that the SDK hides from Swift, with nothing to replace it.
-@_silgen_name("CGWindowListCreate")
-private func windowListCreate(_ option: CGWindowListOption, _ relativeTo: CGWindowID) -> Unmanaged<CFArray>?

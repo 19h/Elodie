@@ -31,6 +31,9 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
       A `--sandbox` run on one Mac covered the permission rows and resuming at the same step. See
       docs/spikes.md. The prompts on a clean account, and Quit & Reopen, are still to do.
 - [ ] macOS asking to confirm screen recording again: recording pauses, the gap shows, and it resumes in one click.
+- [ ] Streaming video while recording: it keeps playing, with no screen sharing indicator in the menu bar,
+      and it's black in the recording. Try a film on a real service, and transcribing at the same time,
+      which still uses a capture stream.
 - [ ] **Screen sharing: does anyone on a call see the overlay?** If `sharingType = .none` doesn't
       hold, opening the timeline during a share would expose your history. Spike 7. **Don't ship until this is known.**
       `--spike sharing` now captures the display from a separate process and finds nothing of the overlay,

@@ -36,8 +36,8 @@ public struct PipelineSettings: Sendable {
 /// Turns one display's frames into encoded samples in the vault.
 ///
 /// Everything runs on one serial queue, and nothing blocks it: the GPU and encoder
-/// call back when they're done. Each frame is one of the capture stream's few
-/// buffers, so it's held only until the encoder has it.
+/// call back when they're done. Each frame is one of capture's few buffers, so it's
+/// held only until the encoder has it.
 public final class DisplayPipeline: @unchecked Sendable {
     /// Frames allowed inside the encoder at once. More than this means the machine
     /// can't keep up, so it's better to drop before encoding.

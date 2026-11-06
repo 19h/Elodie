@@ -14,8 +14,7 @@ private func capture(_ buffer: CVPixelBuffer, at seconds: TimeInterval = 0) -> C
         pixelBuffer: buffer,
         displayID: 1,
         capturedAt: Date(timeIntervalSince1970: 1_800_000_000 + seconds),
-        displayTime: mach_absolute_time(),
-        dirtyRects: [],
+        windows: [],
         menuBarRows: 0
     )
 }

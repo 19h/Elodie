@@ -863,7 +863,7 @@ final class AppController: NSObject {
             do {
                 try await recording.start()
             } catch {
-                recordingStopped(StreamStop(error))
+                recordingStopped(CaptureStop(error))
             }
         }
     }
@@ -883,10 +883,8 @@ final class AppController: NSObject {
         menu?.refresh()
     }
 
-    private func recordingStopped(_ reason: StreamStop) {
+    private func recordingStopped(_ reason: CaptureStop) {
         switch reason {
-        case .stoppedByUser:
-            setPaused(true)
         case .displayGone:
             startRecording()
         case .encoderFailed:
@@ -894,12 +892,14 @@ final class AppController: NSObject {
         case .permissionMissing:
             show(problem: .permissionMissing)
         case .stoppedBySystem:
-            // macOS stops capture for several reasons, and permission is only one of them.
+            // Pictures can stop coming for several reasons, and permission is only one of them.
             if CGPreflightScreenCaptureAccess() {
                 show(problem: .other(String(localized: "macOS stopped the recording. Elodie will try again shortly.")))
             } else {
                 show(problem: .permissionMissing)
             }
+        case .unsupported:
+            show(problem: .other(String(localized: "This version of macOS can't take the pictures Elodie records. Everything already recorded is still here.")))
         case .other(let code):
             show(problem: .other(String(localized: "Recording stopped unexpectedly (\(code)). Elodie will try again shortly.")))
         }

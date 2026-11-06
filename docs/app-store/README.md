@@ -51,6 +51,9 @@ through the microphone, how the swipe feels on real fingers with ⌘⇧ (the tes
 another copy was holding those), pressing Open on a chosen app, whose list can't be reached by
 automation, and opening at login across a restart.
 
+These ran on the capture stream Elodie used before. Since it moved to separate pictures, `--spike endtoend`
+has been run again in the sandboxed edition, on a harness window, and passed. The rest haven't been repeated.
+
 ## Identifiers
 
 Both editions are `com.kenansulayman.elodie`, with `com.kenansulayman.elodie.controls` for the Control
@@ -102,8 +105,7 @@ indication while recording, which Elodie has. It's worth asking first, for examp
 > Elodie is a Mac app that records the user's screen every few seconds, reads the text on it, and lets
 > them search and scroll back through it. Everything stays encrypted on the Mac, and the app has no
 > network access at all. Recording starts only after the user turns it on in a first-run window, a menu
-> bar icon always shows whether it's recording, and macOS shows its own indicator as well. Users can
-> pause, exclude apps, and delete anything. Is continuous screen recording of this kind, with that
+> bar icon always shows whether it's recording. Users can pause, exclude apps, and delete anything. Is continuous screen recording of this kind, with that
 > consent, acceptable under guidelines 2.5.14 and 5.1.1?
 
 ## The listing
@@ -159,6 +161,10 @@ content of its own.
 
 - **macOS's repeated screen recording confirmation stays.** The one entitlement that might remove it,
   Persistent Content Capture, is documented for remote-desktop apps, and it's unknown whether Apple would grant it here.
+- **An obsolete call takes the pictures.** `CGWindowListCreateImageFromArray` is in the SDK's public list
+  of symbols, but the headers mark it obsolete since macOS 15, so Elodie looks it up by name. App Review
+  could question that, and a later macOS could remove it. The alternative, ScreenCaptureKit, is what
+  showed the indicator and darkened streaming video.
 - **An undocumented dictionary key.** Elodie reads `CGSSessionScreenIsLocked` from the public
   `CGSessionCopyCurrentDictionary()` and listens for `com.apple.screenIsLocked`, because there's no
   public way to ask whether the screen is locked. They aren't private symbols, and they're how Elodie

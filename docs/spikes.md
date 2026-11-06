@@ -199,48 +199,81 @@ server's list and refuses anything else, so harness captures stay limited to har
 | Live transcription stopped within seconds | Uneven buffers looked like they overlapped, which the analyzer refuses. Audio now follows on from what came before, unless it's more than 0.5 s late |
 | Highlights and text selection were off on a display of another shape | They were placed against the screen rather than the picture, which only fills the screen at the same shape |
 
+### Moving from a stream to separate pictures
+
+The capture results in this file were first measured on a ScreenCaptureKit stream. A stream shows macOS's screen sharing indicator for as long as it runs, and on this Mac it made
+streaming video go dark on screen. So frames now come from `CGWindowListCreateImageFromArray`, one
+picture at a time, and End to end and Spikes 1 and 2 were run again. In a build targeting macOS 26:
+
+| Question | Result, on harness windows with no permission |
+|---|---|
+| Does the obsolete call work? | Yes, and it returns the display's native 3456×2234 |
+| Does a picture hold only the windows it names? | Yes. A window left out had 0 pixels in it |
+| Is a window with `sharingType = .none` left out, even when it's named? | Yes, 0 pixels |
+| Are colours right? | sRGB magenta comes back through 4:2:0 as P3 (.917, .199, .972), which is correct. `--spike colours` shows a captured frame the way the timeline does and photographs it: 6 test colours differ by at most 1 of 255 |
+| Does it work in the sandbox? | Yes. End to end passed in the sandboxed edition |
+| Does it need anything bound by hand? | It's in the SDK's `CoreGraphics.tbd`, but hidden from Swift, so it's looked up with `dlsym`. Linking to it directly makes launch fail on a macOS without it, which was tried with a symbol that doesn't exist |
+
+**Not checked yet, because they need Screen Recording and a real service:** that the indicator is gone,
+that streaming video keeps playing, and that it's black in the recording. 
+
+**Cost, in a Debug build on harness windows at 3456×2234, one picture every 2 seconds:** about 12 ms of CPU a
+second, against 4.5 ms with no capture. Memory swings between about 260 and 450 MB, against 248 MB with no
+capture, nearly all of it GPU memory held by Core Image. An 8-bit working format didn't change that, and neither did
+clearing Core Image's caches after every picture, so neither was kept. A real display will cost more,
+and WindowServer's share isn't in these figures. Rendering a whole display needs Screen Recording.
+
 ### End to end (passed)
 
-`--spike endtoend` puts a random word in a harness window and takes it through ScreenCaptureKit, the
-Metal comparison, HEVC, the encrypted log, OCR, and search. The word was found 0.4 s after OCR started,
-and the highlight landed inside the window where the word was. Of 14 frames received, 13 were dropped
-as unchanged and 1 was stored.
+`--spike endtoend` puts a random word in a harness window and takes it through one-off capture, the
+Metal comparison, HEVC, the encrypted log, OCR, and search. The word was found, with the highlight
+inside the window where it was. Of 14 frames received, 13 were dropped as unchanged and 1 was stored.
+It took 30.8 s from when OCR started, nearly all of it text recognition getting ready for its first use.
+On the stream, with recognition ready, it took 0.4 s.
 
-### Spike 1: change detection (passed, on a harness window)
+### Spike 1: change detection (on a harness window)
 
-1,000 of 1,000 scripted changes seen, 0 missed, at 3456×2234. The stream delivered 228 frames in 5 idle
-seconds at a 20 ms interval, so frame status alone doesn't keep it quiet in this mode. That supports
-comparing against the last stored frame. **Energy isn't measured.** That needs `sudo powermetrics`,
-and a stream of a whole display.
+With a stream the test asked whether frames could be missed by a stream going quiet, and it passed at
+1,000 of 1,000 changes. Pictures don't go quiet, so what matters now is whether a picture shows what's on
+screen when it's taken. It changes a window every 120 ms and takes pictures as fast as it can:
 
-### Spike 2: the exclusion race (passed, after two fixes)
-
-`--spike privacy` opens private windows at random moments, and checks that none reaches a frame the
-gate allows through.
-
-| What it caught | What changed |
+| Measure | Result |
 |---|---|
-| Frames composed 1 to 5 ms after a filter update returned, with the window still in them | A new filter is only trusted after 0.25 s |
-| The window watcher ran 349 ms late on a busy Mac, and one frame reached the encoder | More than 0.25 s between looks now makes the frames from that time unsafe, and so does a window closing between the two reads of the list. The watcher runs on a strict timer at a higher priority, and App Nap can't slow it |
+| Pictures showing an older value than the one before | 0 of 3,432 |
+| Pictures that couldn't be read | 0 |
+| Time between pictures | median 25 ms, p99 182 ms, longest 385 ms |
+| Changes seen | 959 of 1,000 |
+| Missed changes inside a wait over 120 ms | 41 of 41 |
 
-Results on the final gate, on an M4 Max at 3456×2234. Each language opens about 500 windows that stay
-open for 250 to 700 ms, while an ordinary window keeps changing behind them. Each run also shows the
-marker with the gate off first, to prove the check would see a leak.
+Every miss was the test outrunning the pictures, not a stale picture. Recording takes one picture every
+2 seconds, so stalls that size go unnoticed.
 
-| Run | Control saw the marker | Allowed frames | Frames with the marker |
-|---|---|---|---|
-| 1, English | **No, so this one doesn't count** | 4,435 | 0 |
-| 1, German | Yes, 16 frames | 4,626 | 0 |
-| 2, English | Yes, 17 frames | 4,304 | 0 |
-| 2, German | Yes, 13 frames | 4,631 | 0 |
-| 3, English | Yes, 15 frames | 4,651 | 0 |
-| 3, German | Yes, 15 frames | 4,685 | 0 |
+**Energy isn't measured** with `sudo powermetrics`.
 
-That's 0 in 22,897 frames across the runs that count. The run before these fixes leaked 1 frame in 4,254,
-which is what led to the second fix. **Windows open under 120 ms remain a limit:** the marker reached the
-encoder in 3 of 49 and 2 of 57 allowed frames in the last two runs. A window that brief can open and close between two
-looks. About half of all frames are dropped here, because a private window is opening or closing almost
-constantly, far more than in real use.
+### Spike 2: the exclusion race
+
+`--spike privacy` opens private windows at random moments, and checks that none reaches a frame that would
+be kept. It no longer needs permission, because only the harness's own windows are in its pictures.
+
+Results at 3456×2234. Each language opens about 500 windows that stay open for 250 to 700 ms. An ordinary
+window stays up behind them, so pictures keep coming while markers open and close, and another keeps
+appearing in front. Each run shows the marker with hiding off first, to prove the check would see a leak.
+
+| Run | Control saw the marker | Allowed frames | Frames with the marker | Dropped |
+|---|---|---|---|---|
+| About 100 windows, open under 120 ms | Yes, in 166 of 208 frames | 208 | 0 | 0 |
+| English | Yes, 60 frames | 5,414 | 0 | 0 |
+| German | Yes, 69 frames | 5,240 | 0 | 0 |
+
+An earlier version of this test only took pictures while an ordinary window happened to be up, so it hardly
+raced at all. It also found 0, in 1,057 frames, but it isn't counted here.
+
+**With a stream,** this took two fixes and still left a gap. A filter update returned 1 to 5 ms before frames
+stopped showing what it hid, so a new filter was only trusted after 0.25 s. A watcher looking at the window
+list ran 349 ms late on a busy Mac, which leaked 1 frame in 4,254, so a late look came to make frames unsafe.
+That reached 0 of 22,897 frames for windows open 250 to 700 ms, but windows open under 120 ms could open and
+close between looks, and reached the encoder in 3 of 49 and 2 of 57 allowed frames. About half of all frames
+were dropped. All of that machinery is gone now, because a picture only holds the windows it names.
 
 ### Spike 7: overlay behaviour (partly answered)
 
@@ -418,9 +451,10 @@ Accessibility hasn't been tried either, because it needs someone to switch that 
 
 ## Open items
 
-- **One test crash, not reproduced.** The test helper exited abnormally once while the 25-test
-  Ingest suite was running under heavy load. The error line got cut off, and every full run since
-  has passed all suites. Keep watching for this.
+- **The one test crash is explained.** The Ingest suite crashed twice under load, a day apart, with the
+  same stack: a comparison's textures were released on the GPU's thread after the differ, and with it the
+  texture cache they need, had gone. Stopping a recording could have hit it too. The comparison now
+  holds the cache as well.
 - **Two flaky tests were the tests' fault.** One checked before settling had been scheduled, and a
   shared fixture stopped waiting for indexing after 5 seconds without saying so, while commits can
   be 5 seconds apart. The fixture now waits longer and fails loudly. Six later runs of that suite passed.
@@ -429,5 +463,7 @@ Accessibility hasn't been tried either, because it needs someone to switch that 
   seconds, failing 10 tests at once. It didn't come back in 11,520 opens on 48 threads, or in the full runs
   since. It isn't mistaken for a wrong key, and opening now tries again a few times.
 - **Still needs a real call:** screen sharing with an actual call app. See spike 7.
+- **Still needs a real service:** whether streaming video keeps playing with no indicator, and is black in
+  the recording.
 - **Still needs someone speaking:** words from the microphone, as opposed to its audio arriving.
 - **Hotkey to first pixel isn't measured.** It takes over the screen, so it isn't part of `make bench`.

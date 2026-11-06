@@ -9,7 +9,7 @@ import Foundation
 public enum RecordingState: Sendable, Equatable {
     case stopped
     case recording(displayID: CGDirectDisplayID)
-    case interrupted(StreamStop)
+    case interrupted(CaptureStop)
 }
 
 /// Why private windows might not be spotted right now.
@@ -50,17 +50,17 @@ public struct DisplayFollower: Sendable {
 
 /// Runs capture for the display the pointer is on.
 ///
-/// It decides what's safe to keep, by asking which windows must be hidden and
-/// whether the filter in effect covers them. See `ExclusionGate`.
+/// It decides what's safe to keep: which windows each picture may show, and whether the
+/// picture is still safe once it exists. See `WindowChooser`.
 public final class RecordingController: @unchecked Sendable {
     private let core: any ElodieCore
     private let settings: PipelineSettings
     private let inventory = WindowInventory()
-    private let monitor: ExclusionMonitor
+    private let chooser: WindowChooser
     private let readFrontWindow: FrontWindowReader
     private let lock = NSLock()
 
-    private var stream: DisplayStream?
+    private var capture: DisplayCapture?
     private var pipeline: DisplayPipeline?
     private var state = RecordingState.stopped
     private var trouble: PrivacyCheckTrouble?
@@ -84,7 +84,7 @@ public final class RecordingController: @unchecked Sendable {
         self.core = core
         self.settings = settings
         self.readFrontWindow = readFrontWindow
-        monitor = ExclusionMonitor(policy: policy, inventory: inventory)
+        chooser = WindowChooser(policy: policy, inventory: inventory)
     }
 
     deinit {
@@ -108,7 +108,7 @@ public final class RecordingController: @unchecked Sendable {
     }
 
     public var framesDroppedForPrivacy: Int {
-        monitor.framesDropped
+        chooser.framesDropped
     }
 
     /// The last frame kept, for showing immediately when the timeline opens.
@@ -122,7 +122,7 @@ public final class RecordingController: @unchecked Sendable {
     }
 
     public func update(policy: ExclusionPolicy) {
-        monitor.update(policy: policy)
+        chooser.update(policy: policy)
     }
 
     /// The display under the pointer, or the main display.
@@ -166,45 +166,55 @@ public final class RecordingController: @unchecked Sendable {
     }
 
     private func performStart(displayID: CGDirectDisplayID) async throws {
-        await stopStream()
+        await stopCapture()
         guard let uuid = ScreenContent.stableID(of: displayID) else {
-            throw DisplayStreamError.displayNotFound(displayID)
+            throw DisplayCaptureError.displayNotFound(displayID)
         }
         let pipeline = try DisplayPipeline(core: core, displayUUID: uuid, settings: settings) { [weak self] frame in
             self?.decide(for: frame) ?? .drop(reason: "stopped")
         }
-        let stream = DisplayStream(
+        let capture = DisplayCapture(
             displayID: displayID,
             queue: pipeline.queue,
             onFrame: { [weak pipeline] frame in pipeline?.ingest(frame) },
-            onStop: { [weak self] reason in self?.streamStopped(reason, displayID: displayID) }
+            onStop: { [weak self] reason in self?.captureStopped(reason, displayID: displayID) }
         )
         pipeline.onEncoderFailure = { [weak self] in self?.encoderKeptFailing() }
         let interval = ProcessInfo.processInfo.isLowPowerModeEnabled
-            ? DisplayStream.lowPowerInterval
-            : DisplayStream.captureInterval
-        try await monitor.start(stream, interval: interval)
-        setState(.recording(displayID: displayID)) {
-            self.stream = stream
+            ? DisplayCapture.lowPowerInterval
+            : DisplayCapture.captureInterval
+        // In place first, because a stop reported straight away has to be recognised as this one.
+        lock.withLock {
+            self.capture = capture
             self.pipeline = pipeline
         }
+        do {
+            try capture.start(interval: interval) { [chooser] in chooser.windowsToCapture() }
+        } catch {
+            lock.withLock {
+                self.capture = nil
+                self.pipeline = nil
+            }
+            throw error
+        }
+        guard lock.withLock({ self.capture === capture }) else { return }
+        setState(.recording(displayID: displayID)) {}
         beginFollowing()
     }
 
     private func performStop() async {
         endFollowing()
-        monitor.stop()
-        await stopStream()
+        await stopCapture()
     }
 
-    private func stopStream() async {
-        let stream = lock.withLock { () -> DisplayStream? in
-            let stream = self.stream
-            self.stream = nil
+    private func stopCapture() async {
+        let capture = lock.withLock { () -> DisplayCapture? in
+            let capture = self.capture
+            self.capture = nil
             self.pipeline = nil
-            return stream
+            return capture
         }
-        await stream?.stop()
+        await capture?.stop()
         setState(.stopped) {}
     }
 
@@ -217,15 +227,14 @@ public final class RecordingController: @unchecked Sendable {
         callback?(new)
     }
 
-    /// A stream that has already been replaced can still report stopping. That says nothing
-    /// about the one running now.
-    private func streamStopped(_ reason: StreamStop, displayID: CGDirectDisplayID) {
-        let isCurrent = lock.withLock { stream?.displayID == displayID }
+    /// Capture that has already been replaced can still report stopping. That says nothing
+    /// about what's running now.
+    private func captureStopped(_ reason: CaptureStop, displayID: CGDirectDisplayID) {
+        let isCurrent = lock.withLock { capture?.displayID == displayID }
         guard isCurrent else { return }
         endFollowing()
-        monitor.stop()
         setState(.interrupted(reason)) {
-            stream = nil
+            capture = nil
             pipeline = nil
         }
     }
@@ -291,7 +300,7 @@ public final class RecordingController: @unchecked Sendable {
             do {
                 try await self.start(displayID: display)
             } catch {
-                self.setState(.interrupted(StreamStop(error))) {}
+                self.setState(.interrupted(CaptureStop(error))) {}
             }
             self.lock.withLock { self.isMoving = false }
         }
@@ -301,9 +310,9 @@ public final class RecordingController: @unchecked Sendable {
 
     /// Runs on the pipeline's queue, just before a frame would be encoded.
     private func decide(for frame: CapturedFrame) -> FrameDecision {
-        let check = monitor.check(frameDisplayTime: frame.displayTime)
-        guard check.verdict == .allow else {
-            return .drop(reason: "\(check.verdict)")
+        let check = chooser.check(captured: frame.windows)
+        guard check.isSafe else {
+            return .drop(reason: "a window in the picture has to be hidden")
         }
         return context(from: check.windows, displayBounds: CGDisplayBounds(frame.displayID), excluding: check.required)
     }

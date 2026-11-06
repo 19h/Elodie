@@ -166,137 +166,92 @@ import Testing
     }
 }
 
-@Suite struct Gate {
-    @Test func nothingIsAllowedBeforeTheFirstFilter() {
-        var gate = ExclusionGate()
-        #expect(gate.check(required: [], frameDisplayTime: 100, now: 100) == .dropNoFilter)
+/// A picture holds only the windows it asked for, so what matters is what gets asked for, and
+/// whether anything changed by the time the picture exists.
+@Suite struct ChoosingWindows {
+    private final class Screen: @unchecked Sendable {
+        var windows: [WindowInfo]
+        init(_ windows: [WindowInfo]) { self.windows = windows }
     }
 
-    @Test func aFrameAfterTheFilterIsAllowed() {
-        var gate = ExclusionGate()
-        gate.commit([1, 2], at: 100)
-        #expect(gate.check(required: [1], frameDisplayTime: 101, now: 210) == .allow)
-        #expect(gate.check(required: [], frameDisplayTime: 101, now: 210) == .allow)
+    private let apps: [pid_t: AppIdentity] = [
+        1: AppIdentity(bundleID: "com.brave.Browser", family: .chromium),
+        2: AppIdentity(bundleID: "com.apple.Notes", family: nil),
+        3: AppIdentity(bundleID: "com.example.secret", family: nil),
+    ]
+
+    private func window(_ id: CGWindowID, pid: pid_t, title: String?) -> WindowInfo {
+        WindowInfo(id: id, ownerPID: pid, title: title, layer: 0, bounds: CGRect(x: 0, y: 0, width: 800, height: 600))
     }
 
-    /// The window opened, and the filter hasn't caught up. This is the race the
-    /// gate exists for.
-    @Test func aNewPrivateWindowDropsFramesUntilTheFilterCoversIt() {
-        var gate = ExclusionGate()
-        gate.commit([], at: 100)
-        #expect(gate.check(required: [7], frameDisplayTime: 200, now: 210) == .dropNeedsFilter([7]))
-        gate.commit([7], at: 300)
-        // Composed before the new filter applied, so it may still show the window.
-        #expect(gate.check(required: [7], frameDisplayTime: 250, now: 310) == .dropFrameTooOld)
-        #expect(gate.check(required: [7], frameDisplayTime: 300, now: 310) == .dropFrameTooOld)
-        #expect(gate.check(required: [7], frameDisplayTime: 301, now: 310) == .allow)
+    private func chooser(_ screen: Screen, excluding: Set<String> = []) -> WindowChooser {
+        WindowChooser(
+            policy: ExclusionPolicy(excludedBundleIDs: excluding),
+            identify: { [apps] in apps[$0] ?? AppIdentity(bundleID: nil, family: nil) },
+            readWindows: { screen.windows }
+        )
     }
 
-    @Test func ordinaryWindowsCostNoFrames() {
-        // Required is what must be hidden, so an ordinary window never appears in it.
-        var gate = ExclusionGate()
-        gate.commit([7], at: 100)
-        #expect(gate.check(required: [7], frameDisplayTime: 200, now: 210) == .allow)
+    @Test func privateWindowsAndExcludedAppsAreLeftOutOfThePicture() {
+        let screen = Screen([
+            window(10, pid: 1, title: "Plans - Brave (Private)"),
+            window(11, pid: 2, title: "Notes"),
+            window(12, pid: 3, title: "Secret"),
+            window(13, pid: 1, title: "Plans - Brave"),
+        ])
+        #expect(chooser(screen, excluding: ["com.example.secret"]).windowsToCapture() == [11, 13])
     }
 
-    /// The race spike 2 caught in real use. The window was seen, and it closed before the
-    /// filter caught up, so by the time a frame showing it is checked, it's no longer
-    /// on screen to warn anyone.
-    @Test func aWindowThatClosesBeforeTheFilterCoversItCantLeak() {
-        var gate = ExclusionGate()
-        gate.commit([], at: 100)
-        #expect(gate.check(required: [7], frameDisplayTime: 200, now: 210) == .dropNeedsFilter([7]))
-        // Now it's gone, and this frame was composed while it was still open.
-        #expect(gate.check(required: [], frameDisplayTime: 220, now: 230) == .dropFrameTooOld)
-        // Composed before anyone noticed it had gone, so it can't be trusted either.
-        #expect(gate.check(required: [], frameDisplayTime: 229, now: 240) == .dropFrameTooOld)
-        // Composed after that, when the window was certainly gone.
-        #expect(gate.check(required: [], frameDisplayTime: 231, now: 250) == .allow)
+    /// The order is how the windows stack in the picture.
+    @Test func windowsStayInFrontToBackOrder() {
+        let screen = Screen([window(30, pid: 2, title: "a"), window(10, pid: 2, title: "b"), window(20, pid: 2, title: "c")])
+        #expect(chooser(screen).windowsToCapture() == [30, 10, 20])
     }
 
-    @Test func theWatcherSeeingAWindowProtectsLaterFrames() {
-        var gate = ExclusionGate()
-        gate.commit([], at: 100)
-        // Seen between frames.
-        #expect(gate.observe(required: [7], now: 150) == [7])
-        // Closed between frames, before any frame was checked.
-        #expect(gate.observe(required: [], now: 180).isEmpty)
-        // A frame composed while it was open.
-        #expect(gate.check(required: [], frameDisplayTime: 160, now: 200) == .dropFrameTooOld)
-        #expect(gate.check(required: [], frameDisplayTime: 181, now: 200) == .allow)
+    @Test func thisAppsOwnWindowsAreAlwaysLeftOut() {
+        let own = ProcessInfo.processInfo.processIdentifier
+        let screen = Screen([window(40, pid: own, title: "Timeline"), window(41, pid: 2, title: "Notes")])
+        #expect(chooser(screen).windowsToCapture() == [41])
     }
 
-    @Test func aCoveredWindowClosingCostsNothing() {
-        var gate = ExclusionGate()
-        gate.commit([], at: 100)
-        _ = gate.check(required: [7], frameDisplayTime: 200, now: 210)
-        gate.commit([7], at: 300)
-        #expect(gate.check(required: [7], frameDisplayTime: 301, now: 310) == .allow)
-        // The filter hid it the whole time, so its closing tells us nothing about frames.
-        #expect(gate.check(required: [], frameDisplayTime: 305, now: 320) == .allow)
+    @Test func aTestCanAskForOneProcesssWindows() {
+        let screen = Screen([window(50, pid: 2, title: "Notes"), window(51, pid: 3, title: "Other")])
+        #expect(chooser(screen).windowsToCapture(ownedBy: 3) == [51])
     }
 
-    @Test func windowsThatClosedDoNotBlockAnything() {
-        var gate = ExclusionGate()
-        gate.commit([7, 8], at: 100)
-        #expect(gate.check(required: [8], frameDisplayTime: 200, now: 210) == .allow)
-    }
-}
-
-/// A window can only be caught by looking while it's open, so frames from a stretch with no
-/// looks can't be vouched for. Spike 2 caught a private window reaching the encoder when the
-/// watcher ran 349 ms late on a busy Mac.
-@Suite struct LooksThatComeLate {
-    /// About a second, far longer than the longest gap allowed, on any Mac's clock.
-    private let long: UInt64 = {
-        var base = mach_timebase_info()
-        mach_timebase_info(&base)
-        return 1_000_000_000 * UInt64(base.denom) / UInt64(base.numer)
-    }()
-
-    private func gate(firstLook: UInt64) -> ExclusionGate {
-        var gate = ExclusionGate()
-        gate.commit([], at: 1)
-        gate.noteLook(at: firstLook)
-        return gate
+    /// Opened after the windows were chosen, so it isn't in the picture, and no frame is lost.
+    @Test func aWindowOpeningAfterThePictureCostsNothing() {
+        let screen = Screen([window(60, pid: 2, title: "Notes")])
+        let chooser = chooser(screen)
+        let captured = Set(chooser.windowsToCapture())
+        screen.windows.insert(window(61, pid: 1, title: "New - Brave (Private)"), at: 0)
+        #expect(chooser.check(captured: captured).isSafe)
+        #expect(chooser.framesDropped == 0)
+        #expect(chooser.windowsToCapture() == [60])
     }
 
-    @Test func looksOnTimeAllowFrames() {
-        var gate = gate(firstLook: 100)
-        gate.noteLook(at: 100 + long / 5)
-        let frame = 100 + long / 5 + 10
-        #expect(gate.check(required: [], frameDisplayTime: frame, now: frame + 5) == .allow)
+    /// The one case left: chosen as ordinary, then its title gave it away.
+    @Test func aWindowThatTurnsOutPrivateDropsThePicture() {
+        let screen = Screen([window(70, pid: 1, title: "New Tab - Brave")])
+        let chooser = chooser(screen)
+        let captured = Set(chooser.windowsToCapture())
+        #expect(captured == [70])
+        screen.windows = [window(70, pid: 1, title: "New Tab - Brave (Private)")]
+        #expect(!chooser.check(captured: captured).isSafe)
+        #expect(chooser.framesDropped == 1)
     }
 
-    @Test func framesFromALateLooksGapAreDropped() {
-        var gate = gate(firstLook: 100)
-        // The watcher finally runs, a second after the last look.
-        gate.noteLook(at: 100 + long)
-        // Composed during the gap, so it could show something nobody looked for.
-        #expect(gate.check(required: [], frameDisplayTime: 100 + long / 2, now: 100 + long + 5) == .dropFrameTooOld)
-        // Once looks are back on time, frames are fine again.
-        #expect(gate.check(required: [], frameDisplayTime: 100 + long + 10, now: 100 + long + 15) == .allow)
+    @Test func excludingAnAppAppliesFromTheNextPicture() {
+        let screen = Screen([window(80, pid: 2, title: "Notes")])
+        let chooser = chooser(screen)
+        let captured = Set(chooser.windowsToCapture())
+        chooser.update(policy: ExclusionPolicy(excludedBundleIDs: ["com.apple.Notes"]))
+        #expect(!chooser.check(captured: captured).isSafe)
+        #expect(chooser.windowsToCapture().isEmpty)
     }
 
-    /// The frame's own check counts as a look, so it can close the gap by itself.
-    @Test func aFrameArrivingAtTheEndOfAGapIsDropped() {
-        var gate = gate(firstLook: 100)
-        let frame = 100 + long
-        #expect(gate.check(required: [], frameDisplayTime: frame, now: frame + 5) == .dropFrameTooOld)
-    }
-
-    /// A window seen in the list that closed before its details could be read.
-    @Test func framesFromBeforeAWindowVanishedAreDropped() {
-        var gate = gate(firstLook: 100)
-        gate.markUnsafe(until: 200)
-        #expect(gate.check(required: [], frameDisplayTime: 150, now: 210) == .dropFrameTooOld)
-        #expect(gate.check(required: [], frameDisplayTime: 205, now: 210) == .allow)
-    }
-
-    @Test func aClockThatSeemsToGoBackwardsChangesNothing() {
-        var gate = gate(firstLook: 1_000)
-        gate.noteLook(at: 500)
-        #expect(gate.lastLook == 1_000)
-        #expect(gate.unsafeUntil == 0)
+    @Test func aWindowWithNoTitleYetIsTreatedAsPrivate() {
+        let screen = Screen([window(90, pid: 1, title: nil), window(91, pid: 2, title: nil)])
+        #expect(chooser(screen).windowsToCapture() == [91])
     }
 }

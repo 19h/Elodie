@@ -12,8 +12,8 @@ import OverlayShell
 import ServiceManagement
 import TestKit
 
-/// Live capture checks. Spike 2 and the energy measurement need the Screen Recording
-/// permission, and the others only capture this app's own windows, which doesn't.
+/// Live capture checks. Nearly all of them only capture this app's own windows, which needs no
+/// permission. The energy measurement photographs the whole display if it has the permission.
 ///
 /// Frames are examined in memory and thrown away, so nothing gets stored. The
 /// windows these draw are the only thing they look for.
@@ -37,7 +37,7 @@ enum LiveSpikes {
 
         let name = value(after: "--spike") ?? "capture"
         // These only capture the harness's own windows, which needs no permission.
-        let needsPermission = !["capture", "endtoend", "login-item", "sharing-hold"].contains(name)
+        let needsPermission = !["capture", "privacy", "energy", "colours", "endtoend", "login-item", "sharing-hold"].contains(name)
         guard !needsPermission || CGPreflightScreenCaptureAccess() else {
             report.line("Screen Recording isn't granted.")
             let granted = CGRequestScreenCaptureAccess()
@@ -54,6 +54,7 @@ enum LiveSpikes {
                 case "energy": try await Self.energy(seconds: Int(value(after: "--seconds") ?? "") ?? 60)
                 case "browsers": try await Self.browserTitles()
                 case "endtoend": try await Self.endToEnd()
+                case "colours": try await Self.colours()
                 case "login-item":
                     let agent = Edition.loginItem
                     switch value(after: "--action") {
@@ -277,13 +278,13 @@ enum LiveSpikes {
         let pipeline = try DisplayPipeline(core: core, displayUUID: uuid) { _ in
             .keep(FrameContext(bundleID: "com.kenansulayman.elodie.endtoend", window: "End to end"))
         }
-        let stream = DisplayStream(
+        let capture = DisplayCapture(
             displayID: displayID,
             queue: pipeline.queue,
             onFrame: { [weak pipeline] frame in pipeline?.ingest(frame) },
-            onStop: { reason in report.line("  the stream stopped: \(reason)") }
+            onStop: { reason in report.line("  capture stopped: \(reason)") }
         )
-        try await stream.start(including: window.windowNumber, interval: 0.25)
+        try capture.start(including: window.windowNumber, interval: 0.25)
         // Long enough for several frames, with a change so they aren't all dropped as the same.
         for tick in 0..<8 {
             window.contentView?.layer?.backgroundColor = NSColor(white: tick.isMultiple(of: 2) ? 1 : 0.97, alpha: 1).cgColor
@@ -291,7 +292,7 @@ enum LiveSpikes {
             try await Task.sleep(for: .milliseconds(400))
         }
         report.line("  the newest frame is ready to show at once: \(pipeline.latestFrame != nil)")
-        await stream.stop()
+        await capture.stop()
         window.orderOut(nil)
         try core.sealAll()
         report.line("  stored \(core.stats().loggedFrames) frames, stats \(pipeline.stats)")
@@ -324,21 +325,132 @@ enum LiveSpikes {
         report.line("  \(lands ? "PASS" : "FAIL"): the highlight is where the word was on screen (match \(rect), window \(expected))")
     }
 
-    /// Does the stream show every change, and stay quiet when nothing changes?
+    /// Does a frame look right when the timeline shows it, straight from capture? Captures
+    /// patches of known colour, shows that frame the way the timeline does, photographs that,
+    /// and compares the two.
+    @MainActor
+    private static func colours() async throws {
+        report.line("Colours: a captured frame, shown the way the timeline shows it")
+        let displayID = CGMainDisplayID()
+        guard let screen = NSScreen.screens.first?.frame else { return }
+
+        final class Latest: @unchecked Sendable {
+            let lock = NSLock()
+            var buffer: CVPixelBuffer?
+        }
+        @MainActor func picture(of window: NSWindow) async throws -> CVPixelBuffer? {
+            let latest = Latest()
+            let capture = DisplayCapture(
+                displayID: displayID,
+                queue: DispatchQueue(label: "spike.colours", qos: .userInitiated),
+                onFrame: { frame in latest.lock.withLock { latest.buffer = frame.pixelBuffer } },
+                onStop: { reason in report.line("  capture stopped: \(reason)") }
+            )
+            try capture.start(including: window.windowNumber, interval: 0.1)
+            try await Task.sleep(for: .milliseconds(600))
+            await capture.stop()
+            return latest.lock.withLock { latest.buffer }
+        }
+        // Luma and chroma at a place given as a fraction of the display, from the top left.
+        func sample(_ buffer: CVPixelBuffer, at point: CGPoint) -> [Int] {
+            CVPixelBufferLockBaseAddress(buffer, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+            let x = Int(point.x * CGFloat(CVPixelBufferGetWidth(buffer)))
+            let y = Int(point.y * CGFloat(CVPixelBufferGetHeight(buffer)))
+            let luma = CVPixelBufferGetBaseAddressOfPlane(buffer, 0)!.assumingMemoryBound(to: UInt8.self)
+            let chroma = CVPixelBufferGetBaseAddressOfPlane(buffer, 1)!.assumingMemoryBound(to: UInt8.self)
+            let lumaRow = CVPixelBufferGetBytesPerRowOfPlane(buffer, 0)
+            let chromaRow = CVPixelBufferGetBytesPerRowOfPlane(buffer, 1)
+            return [
+                Int(luma[y * lumaRow + x]),
+                Int(chroma[y / 2 * chromaRow + x / 2 * 2]),
+                Int(chroma[y / 2 * chromaRow + x / 2 * 2 + 1]),
+            ]
+        }
+
+        let patches: [(String, NSColor)] = [
+            ("red", NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1)),
+            ("green", NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1)),
+            ("blue", NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1)),
+            ("magenta", NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1)),
+            ("grey", NSColor(srgbRed: 0.5, green: 0.5, blue: 0.5, alpha: 1)),
+            ("skin", NSColor(srgbRed: 0.87, green: 0.67, blue: 0.53, alpha: 1)),
+        ]
+        let side: CGFloat = 120
+        let origin = CGPoint(x: 40, y: 200)
+        let source = NSWindow(
+            contentRect: NSRect(x: origin.x, y: origin.y, width: side * CGFloat(patches.count), height: side),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        source.level = .floating
+        for (index, patch) in patches.enumerated() {
+            let view = NSView(frame: NSRect(x: side * CGFloat(index), y: 0, width: side, height: side))
+            view.wantsLayer = true
+            view.layer?.backgroundColor = patch.1.cgColor
+            source.contentView?.addSubview(view)
+        }
+        source.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(300))
+        guard let captured = try await picture(of: source) else {
+            report.line("  FAIL: no picture of the patches")
+            return
+        }
+        source.orderOut(nil)
+
+        // The whole frame, shown small in a window of the display's shape.
+        let shownSize = NSSize(width: screen.width / 2, height: screen.height / 2)
+        let shownOrigin = CGPoint(x: 40, y: 200)
+        let shown = NSWindow(contentRect: NSRect(origin: shownOrigin, size: shownSize), styleMask: [.borderless], backing: .buffered, defer: false)
+        shown.level = .floating
+        let frameView = FrameLayerView(frame: NSRect(origin: .zero, size: shownSize))
+        shown.contentView = frameView
+        frameView.show(captured)
+        shown.orderFrontRegardless()
+        try await Task.sleep(for: .milliseconds(300))
+        guard let photographed = try await picture(of: shown) else {
+            report.line("  FAIL: no picture of the frame")
+            return
+        }
+        shown.orderOut(nil)
+
+        var worst = 0
+        for index in patches.indices {
+            let inFrame = CGPoint(
+                x: (origin.x + side * (CGFloat(index) + 0.5)) / screen.width,
+                y: (screen.height - origin.y - side / 2) / screen.height
+            )
+            let inPhoto = CGPoint(
+                x: (shownOrigin.x + inFrame.x * shownSize.width) / screen.width,
+                y: (screen.height - shownOrigin.y - shownSize.height + inFrame.y * shownSize.height) / screen.height
+            )
+            let before = sample(captured, at: inFrame)
+            let after = sample(photographed, at: inPhoto)
+            let difference = zip(before, after).map { abs($0 - $1) }.max() ?? 0
+            worst = max(worst, difference)
+            report.line("  \(patches[index].0): captured \(before), shown \(after)")
+        }
+        report.line("  \(worst <= 4 ? "PASS" : "FAIL"): largest difference \(worst) of 255")
+    }
+
+    /// Do the pictures show every change?
     @MainActor
     private static func captureChecks(iterations: Int) async throws {
         report.line("Spike 1: change detection, \(iterations) scripted changes")
         let displayID = CGMainDisplayID()
-        guard let size = DisplayStream.pixelSize(of: displayID) else { return }
+        guard let size = DisplayCapture.pixelSize(of: displayID) else { return }
         report.line("  display \(displayID): \(size.width)×\(size.height)")
 
         final class Tally: @unchecked Sendable {
             let lock = NSLock()
             var frames = 0
             var seen = Set<Int>()
-            var dirty = 0
             var format: OSType = 0
             var size = (0, 0)
+            var unreadable = 0
+            var wentBack = 0
+            var newest = 0
+            var lastPicture: Date?
+            var gaps: [(after: Int, seconds: TimeInterval)] = []
         }
         let tally = Tally()
         let queue = DispatchQueue(label: "spike.capture", qos: .userInitiated)
@@ -355,23 +467,33 @@ enum LiveSpikes {
         let barcodeX = Int(origin.x * scale)
         let barcodeY = Int((screen.height - origin.y - 64) * scale)
 
-        let stream = DisplayStream(
+        let capture = DisplayCapture(
             displayID: displayID,
             queue: queue,
             onFrame: { frame in
                 let value = CounterView.read(frame.pixelBuffer, x: barcodeX, y: barcodeY, scale: scale)
                 tally.lock.withLock {
                     tally.frames += 1
-                    tally.dirty += frame.dirtyRects.count
                     tally.format = CVPixelBufferGetPixelFormatType(frame.pixelBuffer)
                     tally.size = (CVPixelBufferGetWidth(frame.pixelBuffer), CVPixelBufferGetHeight(frame.pixelBuffer))
-                    if let value { tally.seen.insert(value) }
+                    if let last = tally.lastPicture {
+                        tally.gaps.append((tally.newest, frame.capturedAt.timeIntervalSince(last)))
+                    }
+                    tally.lastPicture = frame.capturedAt
+                    guard let value else {
+                        tally.unreadable += 1
+                        return
+                    }
+                    tally.seen.insert(value)
+                    // A picture showing an older value than the one before would mean a stale buffer.
+                    if value < tally.newest { tally.wentBack += 1 }
+                    tally.newest = max(tally.newest, value)
                 }
             },
-            onStop: { reason in report.line("  the stream stopped: \(reason)") }
+            onStop: { reason in report.line("  capture stopped: \(reason)") }
         )
         // Only this window, so nothing else on screen is looked at.
-        try await stream.start(including: window.windowNumber, interval: 0.02)
+        try capture.start(including: window.windowNumber, interval: 0.02)
 
         for value in 1...iterations {
             view.value = value
@@ -383,26 +505,33 @@ enum LiveSpikes {
         }
         try await Task.sleep(for: .milliseconds(300))
 
-        let (seen, frames, format, frameSize, dirty) = tally.lock.withLock {
-            (tally.seen, tally.frames, tally.format, tally.size, tally.dirty)
+        let (seen, frames, format, frameSize) = tally.lock.withLock {
+            (tally.seen, tally.frames, tally.format, tally.size)
         }
         let missed = (1...iterations).filter { !seen.contains($0) }
-        report.line("  frames delivered \(frames), pixel format \(fourCC(format)), size \(frameSize.0)×\(frameSize.1), dirty rects \(dirty)")
+        report.line("  frames delivered \(frames), pixel format \(fourCC(format)), size \(frameSize.0)×\(frameSize.1)")
         report.line("  changes seen \(iterations - missed.count) of \(iterations), missed \(missed.count)\(missed.isEmpty ? "" : " \(missed.prefix(10))")")
+        // Each change shows for 120 ms, so a longer wait between pictures has to lose one.
+        let (gaps, unreadable, wentBack) = tally.lock.withLock { (tally.gaps, tally.unreadable, tally.wentBack) }
+        let sorted = gaps.map(\.seconds).sorted()
+        let long = gaps.filter { $0.seconds > 0.12 }
+        let explained = missed.filter { value in long.contains { $0.after + 1 <= value && value <= $0.after + 1 + Int($0.seconds / 0.12) } }
+        if let longest = sorted.last {
+            report.line(String(format: "  time between pictures: median %.0f ms, p99 %.0f ms, longest %.0f ms, over 120 ms: %d",
+                               sorted[sorted.count / 2] * 1000, sorted[sorted.count * 99 / 100] * 1000, longest * 1000, long.count))
+        }
+        report.line("  missed changes that fall inside such a wait: \(explained.count) of \(missed.count)")
+        report.line("  pictures showing an older value than the one before: \(wentBack), unreadable: \(unreadable)")
 
-        // Now nothing changes, and an idle screen should deliver nothing.
-        let before = tally.lock.withLock { tally.frames }
-        try await Task.sleep(for: .seconds(5))
-        let after = tally.lock.withLock { tally.frames }
-        report.line("  frames delivered in 5 idle seconds: \(after - before)")
-        await stream.stop()
+        await capture.stop()
         window.orderOut(nil)
     }
 
     // MARK: Spike 2: the privacy race
 
-    /// Opens private windows at random moments, and checks that none reaches a frame
-    /// the gate allows through.
+    /// Opens private windows at random moments, and checks that none reaches a frame that
+    /// would be kept. Only this app's own windows are ever in the pictures, so this needs no
+    /// permission and sees nothing else.
     @MainActor
     private static func privacyRace(iterations: Int) async throws {
         report.line("Spike 2: exclusion race, \(iterations) private windows")
@@ -411,10 +540,10 @@ enum LiveSpikes {
         let ownPID = ProcessInfo.processInfo.processIdentifier
 
         // Treat this app as a Chromium browser, so its windows go through the real
-        // title rules.
-        func makeMonitor() -> ExclusionMonitor {
-            ExclusionMonitor(
-                policy: ExclusionPolicy(excludedBundleIDs: []),
+        // title rules. With `enforce` off, nothing is hidden, which is the control.
+        func makeChooser(enforce: Bool) -> WindowChooser {
+            WindowChooser(
+                policy: ExclusionPolicy(excludedBundleIDs: [], excludesPrivateWindows: enforce),
                 hideOwnWindows: false,
                 identify: { pid in
                     pid == ownPID ? AppIdentity(bundleID: "test.browser", family: .chromium)
@@ -423,14 +552,13 @@ enum LiveSpikes {
             )
         }
 
-        // Saturated markers, as chroma, for sRGB colours captured in Display P3 with the
-        // BT.709 matrix in 4:2:0 full range.
-        let magenta: (cb: UInt8, cr: UInt8) = (196, 211)
-        let green: (cb: UInt8, cr: UInt8) = (56, 69)
+        // Saturated markers, as chroma, for sRGB colours in Display P3 with the BT.709 matrix
+        // in 4:2:0 full range.
+        let magenta: (cb: UInt8, cr: UInt8) = (206, 210)
+        let green: (cb: UInt8, cr: UInt8) = (55, 68)
 
         let results = RaceResults()
         let queue = DispatchQueue(label: "spike.privacy", qos: .userInitiated)
-        var lastWindowCheck: Duration = .zero
         let events = RaceEvents()
 
         func runRace(
@@ -440,16 +568,15 @@ enum LiveSpikes {
             privateTitle: String,
             lifetimes: ClosedRange<Int> = 250...700
         ) async throws -> RaceResults.Snapshot {
-            let monitor = makeMonitor()
+            let chooser = makeChooser(enforce: enforce)
             results.reset()
             let area = corner()
             let topLeftArea = CGRect(x: area.minX, y: display.height - area.maxY, width: area.width, height: area.height)
-            let stream = DisplayStream(
+            let capture = DisplayCapture(
                 displayID: displayID,
                 queue: queue,
                 onFrame: { frame in
-                    let check = monitor.check(frameDisplayTime: frame.displayTime)
-                    guard !enforce || check.verdict == .allow else {
+                    guard !enforce || chooser.check(captured: frame.windows).isSafe else {
                         results.drop()
                         return
                     }
@@ -459,8 +586,7 @@ enum LiveSpikes {
                         green: count(chroma: green, in: frame, rect: topLeftArea, display: display)
                     )
                     if enforce, marked > 200 {
-                        // Explain the leak: when this frame was composed, compared with what happened.
-                        let gate = monitor.gateState
+                        // Explain the leak: what the picture asked for, compared with what happened.
                         let times = events.snapshot()
                         func ms(_ later: UInt64, _ earlier: UInt64) -> String {
                             var base = mach_timebase_info()
@@ -468,21 +594,26 @@ enum LiveSpikes {
                             let delta = Double(Int64(later) - Int64(earlier)) * Double(base.numer) / Double(base.denom) / 1e6
                             return String(format: "%.0f", delta)
                         }
-                        report.line("    LEAK \(name): pixels \(marked), composed \(ms(frame.displayTime, times.opened)) ms after open, \(ms(frame.displayTime, times.closed)) ms after close, \(ms(frame.displayTime, gate.committedAt ?? 0)) ms after commit, checked \(ms(mach_absolute_time(), frame.displayTime)) ms later, filter covers \(gate.committed.count), current window in filter: \(times.windowID.map { gate.committed.contains($0) } ?? false), required now \(check.required.count)")
+                        let now = mach_absolute_time()
+                        report.line("    LEAK \(name): pixels \(marked), checked \(ms(now, times.opened)) ms after open, \(ms(now, times.closed)) ms after close, marker window listed: \(times.windowID.map { frame.windows.contains($0) } ?? false)")
                     }
                 },
-                onStop: { reason in report.line("  the stream stopped: \(reason)") }
+                onStop: { reason in report.line("  capture stopped: \(reason)") }
             )
-            try await monitor.start(stream, interval: 0.033)
+            // Something ordinary stays up throughout, or there'd be no picture to race with
+            // while a marker is open.
+            let backdrop = makeWindow(title: "Backdrop - Brave", frame: area.insetBy(dx: -30, dy: -30), color: NSColor(srgbRed: 0.2, green: 0.2, blue: 0.8, alpha: 1))
+            backdrop.orderFrontRegardless()
+            defer { backdrop.orderOut(nil) }
+            try await Task.sleep(for: .milliseconds(100))
+            try capture.start(interval: 0.033, needsPermission: false) {
+                chooser.windowsToCapture(ownedBy: ownPID)
+            }
 
-            var checks = [Duration]()
-            let clock = ContinuousClock()
             for index in 0..<opens {
-                let started = clock.now
                 let onScreen = makeWindow(title: "Marker \(index) - \(privateTitle)", frame: area, color: NSColor(srgbRed: 1, green: 0, blue: 1, alpha: 1))
                 onScreen.orderFrontRegardless()
                 events.noteOpen(CGWindowID(onScreen.windowNumber))
-                checks.append(clock.now - started)
                 try await Task.sleep(for: .milliseconds(Int.random(in: lifetimes)))
                 onScreen.orderOut(nil)
                 events.noteClose()
@@ -499,21 +630,18 @@ enum LiveSpikes {
                     report.line("  \(name): \(index + 1) windows opened")
                 }
             }
-            await stream.stop()
-            monitor.stop()
-            lastWindowCheck = monitor.averageWindowCheck
+            await capture.stop()
             return results.snapshot()
         }
 
         // The detector has to be able to see a leak, or zero leaks means nothing.
         let control = try await runRace(name: "control", enforce: false, opens: 30, privateTitle: "Brave (Private)")
-        report.line("  control, with the gate off: \(control.framesWithMagenta) frames with the marker, of \(control.allowedFrames)")
+        report.line("  control, with hiding off: \(control.framesWithMagenta) frames with the marker, of \(control.allowedFrames)")
         if control.framesWithMagenta == 0 {
             report.line("  CONTROL FAILED: the detector never saw the marker, so the results below prove nothing")
         }
 
-        // Too short for the watcher to be sure of seeing, so this shows the limit of the
-        // guarantee. A window open this briefly can barely draw anything.
+        // Windows that barely exist, which used to be able to slip between two looks at the list.
         let brief = try await runRace(name: "brief", enforce: true, opens: max(iterations / 10, 10), privateTitle: "Brave (Private)", lifetimes: 20...120)
         report.line("  windows open under 120 ms: marker reached the encoder in \(brief.framesWithMagenta) of \(brief.allowedFrames) allowed frames")
 
@@ -524,20 +652,20 @@ enum LiveSpikes {
             let result = try await runRace(name: language, enforce: true, opens: iterations / 2, privateTitle: title)
             let total = result.allowedFrames + result.droppedFrames
             report.line("  \(language): marker reached the encoder in \(result.framesWithMagenta) of \(result.allowedFrames) allowed frames")
-            report.line("    the watcher took \(lastWindowCheck) per look")
             report.line("    ordinary window seen in \(result.framesWithGreen) frames, dropped \(result.droppedFrames) of \(total) (\(String(format: "%.1f", 100 * Double(result.droppedFrames) / Double(max(total, 1))))%)")
         }
     }
 
     // MARK: Spike 1: energy
 
-    /// Compares capture approaches by what this process and the capture daemon use.
+    /// What capture costs this process and the capture daemon, against not capturing at all.
+    /// With the permission on, it photographs the whole display, as recording does. Every
+    /// picture is thrown away.
     @MainActor
     private static func energy(seconds: Int) async throws {
         report.line("Spike 1: energy, \(seconds) seconds per mode, at a 2 second interval")
         report.line("  Figures cover Elodie and replayd only. WindowServer's share needs powermetrics.")
         let displayID = CGMainDisplayID()
-        let queue = DispatchQueue(label: "spike.energy", qos: .utility)
         let view = CounterView(frame: NSRect(x: 0, y: 0, width: 640, height: 64))
         let window = NSWindow(contentRect: NSRect(x: 40, y: 200, width: 640, height: 64), styleMask: [.borderless], backing: .buffered, defer: false)
         window.level = .floating
@@ -564,34 +692,25 @@ enum LiveSpikes {
 
         final class Counter: @unchecked Sendable { var frames = 0 }
 
-        let streamCount = Counter()
-        let stream = DisplayStream(
+        let count = Counter()
+        let capture = DisplayCapture(
             displayID: displayID,
-            queue: queue,
-            onFrame: { _ in streamCount.frames += 1 },
+            queue: DispatchQueue(label: "spike.energy", qos: .utility),
+            onFrame: { _ in count.frames += 1 },
             onStop: { _ in }
         )
-        try await stream.start(excluding: [], interval: 2)
-        let streamTask = changing()
-        let streaming = try await measure(seconds: seconds)
-        streamTask.cancel()
-        await stream.stop()
-        report.line("  SCStream           \(streaming.description), frames \(streamCount.frames)")
-
-        let shotCount = Counter()
-        let shotTask = changing()
-        let shots = Task.detached {
-            while !Task.isCancelled {
-                if (try? await ScreenContent.screenshot(displayID: displayID)) != nil {
-                    shotCount.frames += 1
-                }
-                try? await Task.sleep(for: .seconds(2))
-            }
+        let hasPermission = CGPreflightScreenCaptureAccess()
+        if hasPermission {
+            let chooser = WindowChooser(policy: ExclusionPolicy(excludedBundleIDs: []))
+            try capture.start(interval: 2) { chooser.windowsToCapture() }
+        } else {
+            try capture.start(including: window.windowNumber, interval: 2)
         }
-        let shooting = try await measure(seconds: seconds)
-        shots.cancel()
-        shotTask.cancel()
-        report.line("  SCScreenshotManager \(shooting.description), frames \(shotCount.frames)")
+        let task = changing()
+        let measured = try await measure(seconds: seconds)
+        task.cancel()
+        await capture.stop()
+        report.line("  one-off pictures, \(hasPermission ? "whole display" : "one window")  \(measured.description), frames \(count.frames)")
         window.orderOut(nil)
     }
 

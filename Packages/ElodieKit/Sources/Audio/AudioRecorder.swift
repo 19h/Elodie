@@ -141,7 +141,7 @@ public final class AudioRecorder: NSObject, SCStreamOutput, SCStreamDelegate, @u
 
             let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
             guard let display = content.displays.first else {
-                throw DisplayStreamError.displayNotFound(0)
+                throw DisplayCaptureError.displayNotFound(0)
             }
             let excludedApps = content.applications.filter { excludedBundleIDs.contains($0.bundleIdentifier) }
             let filter = SCContentFilter(display: display, excludingApplications: excludedApps, exceptingWindows: [])

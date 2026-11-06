@@ -27,7 +27,7 @@ public enum DifferError: Error {
 /// on every tick would never be stored at all.
 ///
 /// It works at half resolution to reduce GPU work, on a copy it owns, so it never
-/// pins one of the capture stream's few buffers.
+/// pins one of capture's few buffers.
 public final class FrameDiffer {
     private let device: any MTLDevice
     private let queue: any MTLCommandQueue
@@ -180,14 +180,16 @@ public final class FrameDiffer {
 
             let isFirst = !hasReference
             // Holding the CVMetalTextures keeps the frame's memory alive until
-            // the GPU has finished with it.
-            let keepAlive = UncheckedBox((luma, chroma, changed, notBlack))
+            // the GPU has finished with it. They need their cache when they're
+            // released, and this differ may be gone by then, so it's held too, last
+            // so that it outlives them.
+            let keepAlive = UncheckedBox((luma, chroma, changed, notBlack, textureCache))
             commands.addCompletedHandler { buffer in
                 if let error = buffer.error {
                     completion(.failure(DifferError.gpuFailed(error.localizedDescription)))
                     return
                 }
-                let (_, _, changed, notBlack) = keepAlive.value
+                let (_, _, changed, notBlack, _) = keepAlive.value
                 let changedCount = changed.contents().load(as: UInt32.self)
                 let notBlackCount = notBlack.contents().load(as: UInt32.self)
                 completion(.success(FrameDifference(

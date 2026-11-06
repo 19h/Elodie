@@ -2,18 +2,15 @@
 
 ## The path a frame takes
 
-1. **Capture.** A low-rate ScreenCaptureKit stream delivers frames from the display under the
-   pointer, every 2 seconds at most. An unchanged screen delivers nothing.
+1. **Capture.** Every 2 seconds, Elodie reads the window list, leaves out what must be hidden, and
+   takes one picture of exactly the remaining windows on the display under the pointer. It's
+   converted to 4:2:0 in display P3. An unchanged screen still costs a picture.
 2. **Change check.** A Metal shader compares the frame with the last *stored* frame at half
    resolution. Too little change means it's dropped. Comparing with what's stored means slow
    changes add up until they count.
-3. **Exclusion check.** It works out which windows must be hidden, and drops the frame unless
-   the filter in effect already covered them when the frame was composed. It also looks at the
-   window list every 0.2 seconds between frames, trusts a new filter only after 0.25 seconds, and
-   remembers any uncovered window it saw, so a window that closes first still makes earlier frames unsafe.
-   More than 0.25 seconds between looks makes the frames from that time unsafe as well, and so does a
-   window closing between the two reads of the list. The watcher runs on a strict timer at a higher
-   priority, and App Nap can't slow it.
+3. **Exclusion check.** It reads the window list again now the picture exists, and drops the frame
+   if a window in it has turned out to need hiding, as when a title changes. A window that opened
+   after the list was read can't be in the picture, so it costs nothing.
 4. **Encoding.** Hardware HEVC at constant quality 0.75, with a keyframe at least every 30 frames
    and whenever the front app changes.
 5. **The log.** Rust encrypts the sample and appends it to a chunk file. This is the source of
@@ -23,6 +20,27 @@
    pixels in memory while it's behind, and it picks up where it left off after a crash.
 7. **Text runs.** Consecutive frames with nearly the same text share one search document. Each
    frame records only which lines it shows and where.
+
+## Why separate pictures, and not a stream
+
+For as long as a ScreenCaptureKit stream of the display runs, macOS shows its screen sharing
+indicator, and on this Mac streaming video went dark on the screen itself. That made Elodie impossible
+to leave running while watching anything. So screen capture uses `CGWindowListCreateImageFromArray`
+for one picture at a time, and protected video is left to come out black in the recording.
+
+It costs three things:
+
+- The call is marked obsolete in the SDK and could go in any macOS release. It's looked up when
+  needed, so without it Elodie still opens with its history and says it can't record.
+- A stream goes quiet when nothing changes. Pictures don't, so an unchanged screen costs a picture
+  and a comparison every 2 seconds.
+- Each picture gets converted with Core Image, where a stream delivered the format directly.
+
+There's one thing it makes simpler. A picture holds only the windows named in its request, so the
+filter updates, settle time, and constant watching of the window list that a stream needs are gone,
+and so is the gap they left for very brief private windows.
+
+System audio still comes from a stream, in `AudioRecorder`, while transcribing.
 
 ## Why it's split this way
 

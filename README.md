@@ -474,11 +474,9 @@ If recordings exist but their key doesn't, Elodie asks for it. Enter the key or 
 
 Browsers offer no API for this, so Elodie recognises private windows from their titles, in 16 languages. Arc also marks them in a way that doesn't depend on language. A browser is recognised by how it's built rather than from a fixed list, so new and renamed Chromium browsers are covered.
 
-**When in doubt, a frame is dropped.** A frame is kept only if the capture filter in effect when it was composed already hid every window that must be hidden. While a new private window is on its way into the filter, frames are thrown away. A browser window with no title yet counts as private until it has one. If a browser doesn't answer within 50 ms or gives an error, that frame is dropped too, and Settings tells you if it keeps happening.
+**A picture holds only the windows it asks for.** Just before each picture, Elodie reads the window list, works out which windows must be hidden, and asks macOS for a picture of the rest. A private window that opens after that can't be in it, however briefly it was open. A browser window with no title yet counts as private until it has one.
 
-**Elodie also watches between frames.** Frames only arrive every couple of seconds, which leaves time for a private window to open and close unseen. So it looks at the window list every 0.2 seconds, and usually has the filter updated before the next frame is composed. It does this on a strict timer at a higher priority, and App Nap can't slow it. A new filter is only trusted after 0.25 seconds, because updating one returns a few milliseconds before frames stop showing what it hides. If a window that must be hidden closes before any filter covered it, everything composed up to that moment counts as unsafe.
-
-**A late look makes frames unsafe too.** A busy Mac can't always keep to that timer. If more than 0.25 seconds pass between looks, nothing composed in that time can be vouched for, so those frames are dropped. The same happens if a window closes between the two reads of the list, because then there's no telling what it was. A busy Mac may lose a few frames this way. A private window open for less than 0.25 seconds may still go unseen and reach a recording, and [Measurements](#measurements) has what testing found.
+**When in doubt, a frame is dropped.** Once the picture exists, Elodie reads the list again, and drops the frame if a window in it now has to be hidden, as when a title changes and gives a private window away. If a browser doesn't answer within 50 ms or gives an error, that frame is dropped too, and Settings tells you if it keeps happening.
 
 ### What it can't protect you from
 
@@ -511,7 +509,7 @@ Swift owns every Apple framework. Rust owns data and computation, and it never c
    ├── Feature*        Timeline, Search, Ask, Recap, Meetings, Onboarding, Settings
    ├── OverlayShell    the panel and its input            StripRenderer  the Metal strip
    ├── FrameEngine     scrubbing, decoding, MP4 export    DesignSystem   colours, chrome
-   ├── Ingest          change check, encoder, OCR         Capture        streams, exclusions
+   ├── Ingest          change check, encoder, OCR         Capture        pictures, exclusions
    ├── Audio           transcription, meeting detection
    │
    └── CoreAPI         the ElodieCore protocol
@@ -534,9 +532,9 @@ Swift owns every Apple framework. Rust owns data and computation, and it never c
 
 ### The path a frame takes
 
-1. **Capture.** A low-rate ScreenCaptureKit stream delivers frames at most every 2 seconds. An unchanged screen delivers nothing, and the cursor isn't captured.
+1. **Capture.** Every 2 seconds, Elodie works out which windows may be seen and takes one picture of exactly those. The cursor isn't in it. An unchanged screen still costs a picture, which the next step throws away.
 2. **Change check.** A Metal shader compares the frame with the last *stored* frame at half resolution. It takes about 1,000 changed pixels to keep a frame. Comparing with what's stored, rather than the previous capture, means slow changes add up until they count. Black frames are skipped.
-3. **Exclusion check.** It works out which windows must be hidden, and drops the frame unless the filter in effect already covered them. It also drops frames from any stretch when the window list wasn't read on time.
+3. **Exclusion check.** It reads the window list again now the picture exists, and drops the frame if a window in it has turned out to need hiding.
 4. **Encoding.** Hardware HEVC at constant quality 0.75, with a keyframe at least every 30 frames and whenever the front app changes. The encoder holds nothing back, so a crash can't lose frames inside it.
 5. **The log.** Rust encrypts the sample and appends it to a chunk file. This is the source of truth. A database row follows within a second or so, and the log never waits for it, so a stalled database can't delay a frame.
 6. **OCR.** A background task reads frames back from the log with Apple's Vision framework. It holds no pixels in memory while it's behind, and it picks up where it left off after a crash. When it's more than a minute behind, frames that stayed on screen for at least 4 seconds go first, because that's what you were likely reading.
@@ -648,16 +646,16 @@ A clean first run spent 31 s compiling Vision's models, and a slower Mac will ta
 | Dense black-on-white marks | 4.46:1 | 12.03:1 |
 | Black | 17.43:1 | 20.21:1 |
 
-**End to end.** A random word in a harness window went through ScreenCaptureKit, the Metal comparison, HEVC, the encrypted log, OCR, and search. It was found 0.4 s after OCR started, with the highlight inside the window where the word was. Change detection saw 1,000 of 1,000 scripted changes at 3456×2234.
+**End to end.** A random word in a harness window went through one-off capture, the Metal comparison, HEVC, the encrypted log, OCR, and search, with the highlight inside the window where the word was. At a scripted change every 120 ms at 3456×2234, pictures came a median of 25 ms apart, and none showed anything older than the one before. The 41 changes of 1,000 they missed all fell in waits between pictures longer than 120 ms, which doesn't matter at one picture every 2 seconds.
 
-**Private windows.** Spike 2 opens about 500 private windows per language at 3456×2234, while an ordinary window keeps changing behind them. Each run first shows a marker with the exclusion check off, to prove the test would see a leak:
+**Private windows.** Spike 2 opens about 500 private windows per language at 3456×2234, while an ordinary window keeps changing behind them. Each run first shows a marker with hiding off, to prove the test would see a leak:
 
 | How long each window stayed open | Allowed frames showing it |
 |---|---|
-| 250 to 700 ms | 0 of 22,897 |
-| Under 120 ms | 3 of 49, then 2 of 57 |
+| 250 to 700 ms | 0 of 10,654 |
+| Under 120 ms | 0 of 208 |
 
-The first row leaves out one English run, where the control never saw the marker. The run before the last fix leaked 1 frame in 4,254. About half of all frames are dropped in this test, because a private window is opening or closing almost constantly, far more than in real use.
+Each run's control saw the marker. No frames were dropped, because a window that opens after the list is read isn't in the picture. On the capture stream Elodie used before, the same test dropped about half of all frames, and windows open under 120 ms reached the encoder in 5 of 106 allowed frames.
 
 **Search.** 800,000 frames in 4.1 GB, which is about 56 days of the worst case or more like 4 months of real use. This isn't a 3-year test, because that would break the 5 GB limit on test vaults. The slowest query is bounded by the ranking window rather than the size of the vault, so it should hold up, but that's reasoning and hasn't been measured.
 
@@ -753,7 +751,7 @@ open -n $APP --args --sandbox /path/to/folder
 ```
 
 - **Scenarios:** `timeline`, `timeline-zoom`, `timeline-break`, `timeline-break-hover`, `timeline-break-crossed`, `timeline-break-range`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `overflow-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`. Timeline and search scenarios also take `--window <width>x<height>`, which is how the App Store screenshots get the shape they need.
-- **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it, including with the system's `screencapture` tool. It counts only marker-coloured pixels where the panel sits. It examines frames in memory, except that the tool's picture goes in a temporary file that's deleted straight away. `login-item` needs no permission and captures nothing. It reports the login item's status and which permissions the app has, and `--action on` or `--action off` registers or unregisters the login item for real, which starts the real app rather than a sandbox. `sharing-hold` also needs no permission. It holds up a marker panel on every display, ordinary and then with the overlay's setting, for 8 seconds each, so that something outside the app can try capturing them.
+- **Spikes:** `capture`, `privacy`, `colours`, and `endtoend` need no permission, and work only on windows the harness draws. `energy` photographs the whole display if it has Screen Recording, and only its own window if not. `browsers` and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it, including with the system's `screencapture` tool. It counts only marker-coloured pixels where the panel sits. It examines frames in memory, except that the tool's picture goes in a temporary file that's deleted straight away. `login-item` needs no permission and captures nothing. It reports the login item's status and which permissions the app has, and `--action on` or `--action off` registers or unregisters the login item for real, which starts the real app rather than a sandbox. `sharing-hold` also needs no permission. It holds up a marker panel on every display, ordinary and then with the overlay's setting, for 8 seconds each, so that something outside the app can try capturing them.
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
 
@@ -834,7 +832,9 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 - **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and neither does the system's `screencapture` tool. Chrome's real `getDisplayMedia`, which web call apps use, doesn't see it either: 0 in 28 frames. An ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
 - **A real first run has only happened on one Mac, with other apps excluded.** It recorded two real displays into a scratch vault, and [docs/spikes.md](docs/spikes.md) has what it covered. Normal daily use, and energy use, haven't been measured.
-- **Very brief private windows can reach a recording.** Spike 2 found no marker in 22,897 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 2 to 3 of about 50 allowed frames. Elodie only promises to catch windows open for at least 0.25 seconds.
+- **Streaming video and macOS's recording indicator haven't been checked on a real service.** Elodie takes separate pictures rather than running a capture stream, so that macOS shows no screen sharing indicator and streaming video keeps playing. Protected video should be black in the recording. That all needs Screen Recording and a real service to confirm. If it holds, Elodie's menu bar icon is the only sign that it's recording.
+- **The call that takes the pictures could disappear.** `CGWindowListCreateImageFromArray` is marked obsolete in the SDK, though macOS 27.2 still has it. If a later macOS removes it, Elodie still opens with everything already recorded, but can't record until it has been changed.
+- **Transcribing still uses a capture stream,** because that's how Elodie gets system audio. While it runs, macOS can show its indicator again and streaming video can go dark.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
 **Known gaps:**
@@ -864,7 +864,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 **Languages:** Swift 6 and Rust.
 
-**Apple frameworks:** ScreenCaptureKit, VideoToolbox, Metal, Vision, Speech, FoundationModels, AVFoundation, EventKit, App Intents, WidgetKit, and Swift Charts.
+**Apple frameworks:** Core Graphics, Core Image, ScreenCaptureKit, VideoToolbox, Metal, Vision, Speech, FoundationModels, AVFoundation, EventKit, App Intents, WidgetKit, and Swift Charts.
 
 **Third-party:** SQLCipher, rusqlite, UniFFI, RustCrypto's `chacha20poly1305`, BLAKE3, zstd, rust-stemmers, rayon, crossbeam, and KeyboardShortcuts. [docs/third-party-notices.md](docs/third-party-notices.md) has the details. Its licence table hasn't been verified against each package yet.
 
