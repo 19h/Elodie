@@ -128,7 +128,7 @@ private struct GeneralTab: View {
                         .controlSize(.small)
                 }
             }
-            Toggle("Remind me when recording is paused", isOn: $model.remindWhenPaused)
+            Toggle("Alert me when recording is paused", isOn: $model.alertWhenPaused)
             Toggle("Show in Dock", isOn: Binding(
                 get: { model.showInDock },
                 set: { actions.setShowInDock($0) }

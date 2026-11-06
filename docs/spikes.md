@@ -381,6 +381,12 @@ bundle ID that already held them. All other apps were excluded from recording.
 | Frames from a browser, recognised by how it's built | Kept, where a build with Accessibility code would drop them |
 | Encoding, the vault, and decoding: first new frame | 26.4 ms median and 41.3 ms at p95, against 25.7 and 40.7 outside the sandbox |
 | Exporting 11 frames to MP4 | Worked, with nothing left in the temporary folder |
+| The overlay on a real display | Opened with the recorded picture, search found 30 hits, and choosing one showed 2 highlights on the word |
+| Star, select a run, delete it | Worked: search went from 30 hits to 0, and recording carried on |
+| Real save panels, pressed by an Accessibility tool, saving outside the sandbox | Image, video, and recovery key all saved. Replacing a file worked, and the key stayed `-rw-------` |
+| Transcribing the computer's audio, with the Mac muted | Test speech came back as words |
+| The microphone, with nobody speaking | 2,819 buffers, and 523,650 frames reached recognition, with no words |
+| Pausing and resuming through Control Center's notifications, from another process | Worked, and the state went 1, 2, 1 |
 | Keychain add, read, and delete, without a provisioning profile | Worked |
 | Global hotkey, Darwin notifications, starting a copy of itself, reading other apps' bundles | Worked |
 | On-device model and speech, available | Yes, 45 languages for speech, 9 installed |
@@ -393,9 +399,13 @@ this build, and `scripts/check-bundle.sh` fails if it comes back.
 The bundle check found one more thing: dead code stripping was off, which left Rust's standard library
 networking in the binary, though nothing called it. It's on now, and those imports are gone.
 
-**Not run in the sandbox:** the overlay on a real display, the microphone, a real transcription, the
-Control Center switch, and writing through a real save panel. Whether an event tap works with Input
-Monitoring in place of Accessibility hasn't been tried either, because it needs someone to switch that on.
+The overlay closes when another app comes to the front, by design, which kept closing it during this test
+while someone was working at this Mac. So a driven run can now open it on the display the pointer isn't on,
+with `--overlay-away`.
+
+**Not run in the sandbox:** the switch in Control Center itself, a real voice through the microphone, the
+swipe, an open panel, and opening at login across a restart. Whether an event tap works with Input Monitoring
+in place of Accessibility hasn't been tried either, because it needs someone to switch that on.
 
 ## Open items
 

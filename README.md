@@ -304,7 +304,7 @@ Elodie checks for a call every 5 seconds, including windows on other Spaces and 
 - **Don't record**
 
 <p align="center">
-  <img src="docs/images/meeting-prompt.png" width="320" alt="A card saying You're in a Zoom meeting, named Design review, with a reminder to check that others are OK with being recorded, and buttons for Transcribe this meeting and Not now">
+  <img src="docs/images/meeting-prompt.png" width="320" alt="A card saying You're in a Zoom meeting, named Design review, with a note to check that others are OK with being recorded, and buttons for Transcribe this meeting and Not now">
 </p>
 
 About 30 seconds after a call's signs disappear, transcription stops by itself. You can also start or stop it at any time with the **Audio capture** switch in the menu bar. Firefox doesn't expose its web address, so use the switch for calls there.
@@ -328,7 +328,7 @@ About 30 seconds after a call's signs disappear, transcription stops by itself. 
 
 The menu bar icon shows what's really happening. A filled frame means recording, an outline means paused or not recording yet, and a line through it means there's a problem, which the menu explains. Three extra bars mean audio is being transcribed.
 
-- **Pause** with the Screen capture switch, for 15 minutes or an hour, or from Shortcuts or Control Center. A pause carries on if Elodie restarts. If you pause with no end time, a card reminds you every hour, and you can turn that off in Settings.
+- **Pause** with the Screen capture switch, for 15 minutes or an hour, or from Shortcuts or Control Center. A pause carries on if Elodie restarts. If you pause with no end time, a card tells you every hour, and you can turn that off in Settings.
 - **Star moment** stars the next frame, even if the screen hasn't changed.
 - **Exclude an app** in Settings → Screen, or from the timeline's ⋯ menu. It takes effect at once.
 - **Forget the last 5 minutes** from the menu bar or the timeline. It's permanent, so it asks first.
@@ -393,7 +393,7 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 | Tab | Setting | Default | Notes |
 |---|---|---|---|
 | General | Open Elodie at login | Chosen during setup | It comes back after a crash, but not after you quit. If macOS is waiting for you to allow it, this says so and links to Login Items. |
-| | Remind me when recording is paused | On | Hourly, for pauses with no end time. |
+| | Alert me when recording is paused | On | Hourly, for pauses with no end time. |
 | | Show in Dock | Off | |
 | Screen | Exclude apps | None | Choose from installed or running apps, or add one with **+**. |
 | | Don't record private or incognito browser windows | On | Warns here if it can't check right now. |
@@ -405,7 +405,7 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 | Storage | Keep recordings for | Forever | 1 week, 1 month, 3 months, 6 months, 1 year, or forever. Whole days are removed, and starred moments aren't kept any longer than the rest. Shortening it asks before deleting anything. |
 | | Space used | | Shows the total, an estimate per day from your own recordings, and free disk space. |
 | | By app | | Shows how much each app takes up, with a button to delete everything recorded from it. Elodie keeps recording that app unless you exclude it. |
-| | Recovery key | | Saves a file that can restore your recordings if the key is lost. Elodie reminds you once, a week after first run. See [If the key is lost](#if-the-key-is-lost). |
+| | Recovery key | | Saves a file that can restore your recordings if the key is lost. Elodie suggests it once, a week after first run. See [If the key is lost](#if-the-key-is-lost). |
 | | Location | | Shows the vault in Finder. |
 | | Delete a time range… | | Deletes screen recordings and transcripts from the times you pick. You can also select a stretch on the timeline. |
 | | Delete all recordings… | | Deletes your screen recordings and transcripts. It can't be undone. |
@@ -462,7 +462,7 @@ Chunk files are stored by random ID rather than by date, so the folder layout do
 
 ### If the key is lost
 
-A recovery key is the only way back if the key in your keychain is ever lost. Settings → Storage saves one to a file, and Elodie reminds you once, a week after first run.
+A recovery key is the only way back if the key in your keychain is ever lost. Settings → Storage saves one to a file, and Elodie suggests it once, a week after first run.
 
 If recordings exist but their key doesn't, Elodie asks for it. Enter the key or choose the file you saved. It only goes back in the keychain once it has been shown to open these recordings, so a wrong key can't do any harm. With no recovery key, **Start over…** deletes the recordings, because they can never be read without it.
 

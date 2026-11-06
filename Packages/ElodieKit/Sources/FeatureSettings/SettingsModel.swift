@@ -58,7 +58,7 @@ public final class SettingsModel {
     private let defaults: UserDefaults
 
     public var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock") } }
-    public var remindWhenPaused: Bool { didSet { defaults.set(remindWhenPaused, forKey: "remindWhenPaused") } }
+    public var alertWhenPaused: Bool { didSet { defaults.set(alertWhenPaused, forKey: "alertWhenPaused") } }
     public var excludedApps: Set<String> {
         didSet { defaults.set(Array(excludedApps).sorted(), forKey: "excludedApps") }
     }
@@ -95,7 +95,7 @@ public final class SettingsModel {
             defaults.object(forKey: key) as? Bool ?? fallback
         }
         showInDock = bool("showInDock", false)
-        remindWhenPaused = bool("remindWhenPaused", true)
+        alertWhenPaused = bool("alertWhenPaused", true)
         namesMeetingsFromCalendar = bool("namesMeetingsFromCalendar", false)
         excludedApps = Set(defaults.stringArray(forKey: "excludedApps") ?? [])
         // On in every language. Private windows shouldn't depend on system language.

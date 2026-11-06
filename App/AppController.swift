@@ -89,6 +89,19 @@ enum AppEnvironment {
         #endif
     }()
 
+    /// Whether this run stays off Control Center's channel. A test of it can ask to use it.
+    static let leavesControlCenterAlone = isGuestBesideRealCopy && !CommandLine.arguments.contains("--control-channel")
+
+    #if DEBUG
+    /// Starts a driven run's save panels somewhere harmless, under a name that doesn't change.
+    static func aim(_ panel: NSSavePanel, named name: String) {
+        let arguments = CommandLine.arguments
+        guard let flag = arguments.firstIndex(of: "--save-to"), arguments.indices.contains(flag + 1) else { return }
+        panel.directoryURL = URL(filePath: arguments[flag + 1], directoryHint: .isDirectory)
+        panel.nameFieldStringValue = name
+    }
+    #endif
+
     nonisolated(unsafe) static let defaults: UserDefaults = {
         guard sandbox != nil, let suite = UserDefaults(suiteName: "elodie-sandbox") else { return .standard }
         return suite
@@ -145,7 +158,7 @@ final class AppController: NSObject {
     private var scrollMonitor: ScrollToOpen?
     private var resumeTimer: Timer?
     private var maintenanceTimer: Timer?
-    private var pausedReminder: Timer?
+    private var pausedAlert: Timer?
     private var lastRetention = Date()
     private var lastStartAttempt = Date.distantPast
     private var lastAppendFailures: UInt64 = 0
@@ -755,7 +768,7 @@ final class AppController: NSObject {
     /// The Control Center button runs in a separate sandboxed process, and it signals
     /// through this notification, which can't carry any data.
     private func listenForControlCenter() {
-        guard !AppEnvironment.isGuestBesideRealCopy else { return }
+        guard !AppEnvironment.leavesControlCenterAlone else { return }
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterAddObserver(center, observer, { _, _, _, _, _ in
@@ -769,7 +782,7 @@ final class AppController: NSObject {
     /// Tells the Control Center button what's really happening, when that's changed.
     func publishRecordingState() {
         let state: RecordingChannel.State = isRecording ? .recording : .paused
-        guard state != publishedState, !AppEnvironment.isGuestBesideRealCopy else { return }
+        guard state != publishedState, !AppEnvironment.leavesControlCenterAlone else { return }
         publishedState = state
         RecordingChannel.publish(state)
         ControlCenter.shared.reloadControls(ofKind: RecordingChannel.controlKind)
@@ -948,8 +961,8 @@ final class AppController: NSObject {
         isPaused = paused
         resumeTimer?.invalidate()
         resumeTimer = nil
-        pausedReminder?.invalidate()
-        pausedReminder = nil
+        pausedAlert?.invalidate()
+        pausedAlert = nil
         if paused {
             savePause(until: duration.map { Date().addingTimeInterval($0) } ?? .distantFuture)
             Task { await recording?.stop() }
@@ -970,8 +983,8 @@ final class AppController: NSObject {
             }
         } else {
             // Open-ended pauses are easy to forget, and the cost is a gap in your history.
-            pausedReminder = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.remindPaused() }
+            pausedAlert = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.alertPaused() }
             }
         }
     }
@@ -1065,8 +1078,8 @@ final class AppController: NSObject {
         menu?.refresh()
     }
 
-    private func remindPaused() {
-        guard settings.remindWhenPaused else { return }
+    private func alertPaused() {
+        guard settings.alertWhenPaused else { return }
         showCard(NoticeCard(
             symbol: "pause.circle",
             title: "Elodie is still paused",
@@ -1082,17 +1095,17 @@ final class AppController: NSObject {
     }
 
     /// Asks once, a week in, by which time there's history worth protecting.
-    private func remindAboutRecoveryKey(now: Date = Date()) {
+    private func suggestRecoveryKey(now: Date = Date()) {
         guard let firstRun = defaults.object(forKey: "firstRunDate") as? Date else {
             defaults.set(now, forKey: "firstRunDate")
             return
         }
         guard now.timeIntervalSince(firstRun) > 7 * 86_400,
               !defaults.bool(forKey: "recoveryKeySaved"),
-              !defaults.bool(forKey: "recoveryKeyReminderShown"),
+              !defaults.bool(forKey: "recoveryKeySuggestionShown"),
               promptPanel == nil
         else { return }
-        defaults.set(true, forKey: "recoveryKeyReminderShown")
+        defaults.set(true, forKey: "recoveryKeySuggestionShown")
         showCard(NoticeCard(
             symbol: "key",
             title: "Save your recovery key",
@@ -1122,7 +1135,7 @@ final class AppController: NSObject {
         checkDisk()
         checkWrites()
         updatePrivacyWarning()
-        remindAboutRecoveryKey(now: now)
+        suggestRecoveryKey(now: now)
         restartIfStopped(now: now)
         // Without this, an app left running for months would keep expired recordings.
         if now.timeIntervalSince(lastRetention) > 3600 {
@@ -1460,7 +1473,12 @@ extension AppController {
         do {
             switch parts.first ?? "" {
             case "open":
-                overlay?.open(focusSearch: argument == "search")
+                if OverlayCoordinator.opensAwayFromPointer {
+                    // The picture from wherever recording happened, on the other display.
+                    overlay?.open(display: try core?.displays().first?.id)
+                } else {
+                    overlay?.open(focusSearch: argument == "search")
+                }
             case "search":
                 overlay?.debugSearch(argument)
             case "choose":
@@ -1539,6 +1557,16 @@ extension AppController {
                 }.joined(separator: "\n")
             case "vaultPath":
                 return vaultDirectory.path
+            case "coreTranscript":
+                guard let core else { return "no vault" }
+                let lines = try core.transcript(from: Date().addingTimeInterval(-900), to: Date())
+                return "\(lines.count) lines\n" + lines.map { "\($0.isMe ? "You" : "Others"): \($0.text)" }.joined(separator: "\n")
+            case "panelExport":
+                overlay?.debugExportLastMinute()
+            case "panelImage":
+                overlay?.debugSaveImage()
+            case "panelRecovery":
+                saveRecoveryKey()
             case "coreExport":
                 // The last minute of a display, into the folder this run was given.
                 guard let core, let sandbox = AppEnvironment.sandbox, let display = try core.displays().first else { return "nothing" }
@@ -1561,6 +1589,7 @@ extension AppController {
             return "failed: \(error)"
         }
         var state = overlay?.debugState ?? ["open": "no overlay"]
+        state["lastResult"] = overlay?.debugLastResult ?? "none"
         state["paused"] = "\(isPaused)"
         state["listening"] = "\(isTranscribing)"
         state["problem"] = problem.map { "\($0)" } ?? "none"
@@ -1691,6 +1720,9 @@ extension AppController: SettingsActions {
     private func promptToSave(_ key: Data) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = "Elodie recovery key.txt"
+        #if DEBUG
+        AppEnvironment.aim(panel, named: "recovery.txt")
+        #endif
         panel.message = String(localized: "Keep this somewhere safe. Anyone with this key and your files can read your recordings.")
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return }

@@ -224,7 +224,13 @@ final class OverlayCoordinator {
     }
 
     #if DEBUG
+    static let opensAwayFromPointer = CommandLine.arguments.contains("--overlay-away")
     var debugDismissReason = "none"
+    var debugLastResult = "none"
+    func debugSaveImage() { saveImage() }
+    func debugExportLastMinute() {
+        export(DateInterval(start: Date().addingTimeInterval(-60), end: Date()))
+    }
     var debugDisplay: UUID? { timeline?.display }
     var debugHits: String {
         search.hits.prefix(6).map { "frame \($0.frameID) at \($0.capturedAt.timeIntervalSince1970): \($0.snippet)" }.joined(separator: "\n")
@@ -320,6 +326,9 @@ final class OverlayCoordinator {
                 #endif
                 MainActor.assumeIsolated {
                     #if DEBUG
+                    // A driven run opens on the display someone isn't using, and it mustn't
+                    // close whenever they switch apps on the other one.
+                    if Self.opensAwayFromPointer, name == NSWorkspace.didActivateApplicationNotification { return }
                     if self?.isOpen == true { self?.debugDismissReason = reason }
                     #endif
                     self?.dismiss()
@@ -562,6 +571,9 @@ final class OverlayCoordinator {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
         panel.nameFieldStringValue = "Elodie \(Self.fileDate()).png"
+        #if DEBUG
+        AppEnvironment.aim(panel, named: "driven.png")
+        #endif
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url,
               let data = image.tiffRepresentation,
@@ -575,6 +587,10 @@ final class OverlayCoordinator {
     }
 
     private func showResult(_ title: String, detail: String) {
+        #if DEBUG
+        debugLastResult = "\(title): \(detail)"
+        if AppEnvironment.sandbox != nil { return }
+        #endif
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = detail
@@ -602,6 +618,9 @@ final class OverlayCoordinator {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]
         panel.nameFieldStringValue = "Elodie \(Self.fileDate()).mp4"
+        #if DEBUG
+        AppEnvironment.aim(panel, named: "driven.mp4")
+        #endif
         panel.message = String(localized: "This saves an unencrypted copy of this stretch of your screen.")
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -617,7 +636,12 @@ final class OverlayCoordinator {
                         to: url
                     )
                 }.value
+                #if DEBUG
+                self?.debugLastResult = "exported \(summary.frames) frames"
+                if AppEnvironment.sandbox == nil { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                #else
                 NSWorkspace.shared.activateFileViewerSelecting([url])
+                #endif
                 if let stopped = summary.stoppedEarlyAt {
                     self?.showResult(
                         String(localized: "The video stops early"),
@@ -679,6 +703,12 @@ final class OverlayCoordinator {
         var display = CGDirectDisplayID()
         var count: UInt32 = 0
         if CGGetDisplaysWithPoint(location, 1, &display, &count) == .success, count > 0 {
+            #if DEBUG
+            if Self.opensAwayFromPointer,
+               let other = NSScreen.screens.compactMap(Self.displayID(of:)).first(where: { $0 != display }) {
+                return other
+            }
+            #endif
             return display
         }
         return CGMainDisplayID()

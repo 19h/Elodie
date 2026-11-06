@@ -34,14 +34,19 @@ Real runs of the sandboxed edition on this Mac, with screen recording granted:
 | Recording a window, through to searching its text | 12 frames stored, and 11 hits for a word in them |
 | Frames from a browser | Kept, with Accessibility reporting as granted |
 | Encoding, the vault, and decoding | The same speed as outside the sandbox: 26.4 ms median to the first new frame, against 25.7 ms |
-| Exporting video | 11 frames, into the sandbox's own folder |
-| Keychain, hotkeys, the on-device model, speech, Control Center's signalling | Worked |
+| The overlay on a real display | Opened with the recorded picture. Search found 30 hits, and choosing one showed its 2 highlights on the word |
+| Star, select a run, and delete it | Worked, taking search from 30 hits to 0, and recording carried on |
+| Saving through real save panels, to a folder outside the sandbox | An image, a video, and the recovery key all saved, and replacing an existing file worked too. The key file stayed private to you (`-rw-------`) |
+| Transcribing the computer's audio | Test speech came back as words, labelled Others |
+| The microphone | 2,819 buffers arrived, and recognition got 523,650 frames. Nobody was speaking, so it produced no words |
+| Control Center's signalling, and the state it reads | Pause and resume worked from another process, and the state went 1, 2, 1 |
+| Keychain, hotkeys, the on-device model | Worked |
 | Connecting to the internet | Blocked |
 
-**Not yet run in the sandbox:** the overlay on a real display, the microphone, a real transcription,
-the Control Center switch, and the save panel. A save panel only gives access to the file it names,
-which is why export now finishes in the app's own folder and moves the result there, but that move
-needs trying from a real panel.
+**Still needs a person:** seeing the switch in Control Center's gallery and flipping it, a real voice
+through the microphone, and the swipe itself. That last one couldn't run here while another copy was
+holding the same gesture, though watching scrolls worked in the sandbox with no permissions. Choosing
+a file in an open panel hasn't been tried, and neither has opening at login across a restart.
 
 ## What only you can do
 
