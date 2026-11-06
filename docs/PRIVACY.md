@@ -17,14 +17,19 @@ App Sandbox, so it can't read other apps through Accessibility. Where this says 
 - **What's said, if you turn it on:** a transcript of your microphone and your computer's audio.
   The audio itself isn't kept.
 
+Elodie takes separate pictures rather than running a capture stream, so macOS shouldn't show its screen
+sharing indicator while Elodie records, and Elodie's menu bar icon may be the only sign that it is. That
+still has to be confirmed on real services. Transcribing does use a stream, so macOS can show its
+indicator then.
+
 ## What it leaves out
 
 - Apps you exclude in Settings, and their sound in a transcript.
 - Private and incognito browser windows. This relies on browsers' window titles, in languages
   Elodie knows. A browser window with no title yet counts as private until it has one, and if a
-  browser doesn't answer in time, Elodie drops the frame. It also drops frames from any time it
-  couldn't check the window list promptly, such as when the Mac is busy. A private window open for
-  less than 0.25 seconds may go unseen and end up in a recording.
+  browser doesn't answer in time, Elodie drops the frame. Each picture holds only the windows Elodie
+  chose just before taking it, so a private window that opens after that can't be in it, however
+  briefly it's open.
 - Elodie's own windows.
 
 **Password fields and other sensitive content in ordinary windows do get recorded** if they're
