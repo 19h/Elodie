@@ -5,7 +5,7 @@ APP := $(DERIVED)/Build/Products/Debug/Elodie.app
 # Where crash tests keep their vaults. Everything is removed afterward.
 TORTURE_DIR ?= build/torture
 
-.PHONY: core project app test test-rust test-swift self-check torture check-privacy scenarios bench interaction-test release app-store app-store-screenshots clean
+.PHONY: core project app test test-rust test-swift self-check torture check-privacy scenarios bench interaction-test release distribute app-store app-store-screenshots clean
 
 core:
 	scripts/build-core.sh debug
@@ -56,6 +56,10 @@ check-privacy: core
 # Builds a signed release and a disk image. It doesn't upload anything.
 release:
 	scripts/release.sh
+
+# Builds a notarized zip that opens on any Mac. This sends the build to Apple to notarize.
+distribute:
+	scripts/release.sh --distribute
 
 # Builds the sandboxed App Store edition and checks it. It doesn't upload anything.
 app-store:

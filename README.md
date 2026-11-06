@@ -697,7 +697,8 @@ Power cuts are simulated by damaging files the way a lost write cache could. Thi
 | `make bench` | Measures scrubbing on an encoded fixture and writes `build/bench.txt`. Uses no window and needs no permission. |
 | `make interaction-test` | Sends real events through the real overlay. It takes over your screen and keyboard for a few seconds, so it asks first. Anything you type meanwhile can fail it. |
 | `make check-privacy` | Checks the privacy promises against the code. |
-| `make release` | Builds a signed release and disk image. Uploads nothing. |
+| `make release` | Builds a signed release and disk image. Uploads nothing, and it won't open on other Macs. |
+| `make distribute` | Builds a notarized `build/release/Elodie.zip` that opens on any Mac, using Xcode's sign-in. This sends the build to Apple. |
 | `make app-store` | Builds the sandboxed App Store edition and checks the bundle. Uploads nothing. |
 | `make app-store-screenshots` | Renders the App Store listing's screenshots from fixture data. |
 | `make clean` | Removes build products and everything generated. |
@@ -785,7 +786,8 @@ The Swift code builds under Swift 6 with complete strict concurrency.
 
 ```sh
 make release                                 # Signed build and disk image in build/release
-scripts/release.sh --notarize <profile>      # The same, then sends it to Apple to notarize
+make distribute                              # A notarized zip that opens on any Mac, using Xcode's sign-in
+scripts/release.sh --notarize <profile>      # A notarized disk image, using a stored notarytool profile
 make app-store                               # The sandboxed App Store edition, in build/app-store
 scripts/app-store.sh --export                # The same, then makes the package to upload
 ```

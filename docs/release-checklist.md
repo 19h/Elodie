@@ -70,6 +70,6 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 ## Final
 
 - [ ] `make test` and `make torture` pass.
-- [ ] Direct download: `make release`, then notarize with `scripts/release.sh --notarize <profile>`, and
-      install from the disk image on a clean Mac.
+- [ ] Direct download: `make distribute`, then install from the zip on a clean Mac. A notarized disk image
+      needs `scripts/release.sh --notarize <profile>` instead.
 - [ ] App Store: `make app-store`, then `scripts/app-store.sh --export`, and try it through TestFlight.
