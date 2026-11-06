@@ -51,6 +51,11 @@ if [[ "$edition" == "appstore" ]]; then
   print -r -- "$imports" | grep -q '_CGEventTapCreate' && fail "an event tap is in the App Store build"
   [[ -e "$app/Contents/Library/LaunchAgents" ]] && fail "a launch agent is in the App Store build"
   [[ $(plutil -extract CFBundleIdentifier raw "$app/Contents/Info.plist") == *.dev ]] && fail "it has the development bundle ID"
+  # Beta build numbers end in a letter, and Apple refuses those with error 90301.
+  for key in DTXcodeBuild DTSDKBuild; do
+    value=$(plutil -extract "$key" raw "$app/Contents/Info.plist" 2>/dev/null)
+    [[ "$value" == *[a-z] ]] && fail "it was built with a beta Xcode or SDK ($key is $value)"
+  done
 fi
 
 if (( failures > 0 )); then
