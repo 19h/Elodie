@@ -365,6 +365,38 @@ had just finished real setup seconds earlier. Those copies carried on recording 
 excluded until the test turned the login item off, and the test force-killed a copy they may have been using.
 Anything that starts the app without `--sandbox` has to be treated as real, and a running copy may not be yours.
 
+## The App Store edition, in the sandbox
+
+macOS 27.2, on this Mac. To get real permissions without anyone clicking, a sandboxed build took the
+bundle ID that already held them. All other apps were excluded from recording.
+
+| What | Result |
+|---|---|
+| `AXIsProcessTrusted()`, with the permission granted | True |
+| Reading another app through Accessibility | Fails, with -25204, as Apple says it will |
+| An event tap that can stop a scroll, with Accessibility granted | Created, and saw 8 of 8 scrolls |
+| The same with no permissions | Not created |
+| Watching scrolls with `NSEvent`, with no permissions | Saw 7 of 8 |
+| Recording a window, through to searching for a word on it | 12 frames stored, 11 hits |
+| Frames from a browser, recognised by how it's built | Kept, where a build with Accessibility code would drop them |
+| Encoding, the vault, and decoding: first new frame | 26.4 ms median and 41.3 ms at p95, against 25.7 and 40.7 outside the sandbox |
+| Exporting 11 frames to MP4 | Worked, with nothing left in the temporary folder |
+| Keychain add, read, and delete, without a provisioning profile | Worked |
+| Global hotkey, Darwin notifications, starting a copy of itself, reading other apps' bundles | Worked |
+| On-device model and speech, available | Yes, 45 languages for speech, 9 installed |
+| Connecting to the internet | Blocked, with -1003 |
+
+Reading other apps through Accessibility can't be fixed from here, and code that tried would drop every
+browser frame, because errors from a browser mean its window can't be checked. So that code isn't in
+this build, and `scripts/check-bundle.sh` fails if it comes back.
+
+The bundle check found one more thing: dead code stripping was off, which left Rust's standard library
+networking in the binary, though nothing called it. It's on now, and those imports are gone.
+
+**Not run in the sandbox:** the overlay on a real display, the microphone, a real transcription, the
+Control Center switch, and writing through a real save panel. Whether an event tap works with Input
+Monitoring in place of Accessibility hasn't been tried either, because it needs someone to switch that on.
+
 ## Open items
 
 - **One test crash, not reproduced.** The test helper exited abnormally once while the 25-test

@@ -16,6 +16,8 @@ settings:
     ARCHS: arm64
     DEVELOPMENT_TEAM: 3352WVT944
     ENABLE_HARDENED_RUNTIME: YES
+    # Rust's standard library comes with networking that nothing calls, and this removes it.
+    DEAD_CODE_STRIPPING: YES
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
     # A real identity keeps TCC grants stable across rebuilds.

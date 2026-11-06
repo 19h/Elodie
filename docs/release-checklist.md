@@ -4,13 +4,14 @@
 
 - [ ] **Name.** Get a trademark check for "Elodie". A search of the US App Store found no app with that
       name on 2026-11-06, but that isn't a trademark search.
-- [ ] **Bundle ID.** `app.elodie.Elodie.dev` in `project.yml` is a placeholder. Changing it after
-      release orphans keychain items and permission grants, so choose before shipping.
+- [x] **Bundle ID.** `app.elodie.Elodie`, and `.dev` for development builds. Changing it after release
+      orphans keychain items and permission grants.
 - [ ] **Legal review.** The behaviour was informed by analysing a decompiled commercial app, whose
       licence may restrict that. This repository keeps that material out, and uses its own code and
       wording, but that doesn't settle the question.
 - [x] **Licence** for Elodie itself: MIT.
-- [ ] **Hosting** for the update feed and disk image.
+- [ ] **Hosting** for the disk image, if there's a direct download as well as the App Store.
+- [ ] **Export compliance.** See [app-store.md](app-store/README.md).
 
 ## Setup
 
@@ -19,6 +20,7 @@
       registered App ID, and it would add "this device only, after first unlock" protection. The
       login keychain works today. See docs/spikes.md.
 - [ ] Update `docs/third-party-notices.md` for the final dependencies.
+- [ ] For the App Store, follow [app-store.md](app-store/README.md).
 
 ## Checks that need a person
 
@@ -68,5 +70,6 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 ## Final
 
 - [ ] `make test` and `make torture` pass.
-- [ ] `make release`, then notarize with `scripts/release.sh --notarize <profile>`.
-- [ ] Install from the disk image on a clean Mac.
+- [ ] Direct download: `make release`, then notarize with `scripts/release.sh --notarize <profile>`, and
+      install from the disk image on a clean Mac.
+- [ ] App Store: `make app-store`, then `scripts/app-store.sh --export`, and try it through TestFlight.

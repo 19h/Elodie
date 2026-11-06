@@ -73,7 +73,18 @@ which hold window titles and web addresses.
 With Accessibility on, an event tap takes the ⌘⇧ swipe away from the app underneath, on its own
 thread so a busy main thread can't make other apps stutter. It sees scroll events only, and it passes
 along everything except that gesture. Without Accessibility, a plain monitor opens the timeline, but
-the app underneath also sees the scroll.
+the app underneath also sees the scroll. That's always the case in the App Store edition.
+
+## Editions
+
+The direct download and the App Store edition come from the same code. The App Store requires the App
+Sandbox, where reading another app through Accessibility fails even with permission, so the
+`AppStore` configuration sets `ELODIE_APP_STORE`, and has no Accessibility code or event tap at all.
+Everything that differs is in `App/Edition.swift`, plus `App/AccessibilityProbe.swift` and
+`App/ScrollToOpen.swift`. The package never uses Accessibility itself: recording and onboarding are
+handed a way to read a window, or a way to ask for permission, and do without if there isn't one.
+Test support compiles to nothing outside debug builds. `scripts/check-bundle.sh` checks all of this
+in the finished app.
 
 ## Keys
 

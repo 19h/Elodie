@@ -28,11 +28,7 @@ xcodebuild -project Elodie.xcodeproj -scheme Elodie -configuration Release \
 
 app="$archive/Products/Applications/Elodie.app"
 codesign --verify --deep --strict --verbose=1 "$app"
-for spike in LiveSpikes Scenarios SyntheticScreen; do
-  if strings "$app/Contents/MacOS/Elodie" | grep -q "$spike"; then
-    print -u2 "warning: test code named $spike is in the release build"
-  fi
-done
+"$root/scripts/check-bundle.sh" "$app" direct
 
 staging="$output/staging"
 mkdir -p "$staging"

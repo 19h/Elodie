@@ -28,6 +28,7 @@
 
 - [What it does](#what-it-does)
 - [Status](#status)
+- [Two editions](#two-editions)
 - [Getting started](#getting-started)
 - [Using Elodie](#using-elodie)
   - [The timeline](#the-timeline)
@@ -72,12 +73,29 @@ Capture, encoding, text recognition, search, transcription, and answers all run 
 | **Version** | 0.1.0, unreleased |
 | **Download** | None yet. Build from source. |
 | **Name** | Elodie. It hasn't had a trademark check yet. |
-| **Bundle ID** | `app.elodie.Elodie.dev` is a placeholder. |
+| **Bundle ID** | `app.elodie.Elodie`, and `app.elodie.Elodie.dev` for development builds. |
+| **Editions** | A direct download, and a sandboxed App Store build that can't read web addresses. See [Two editions](#two-editions). |
 | **Updates** | Nothing in the app checks for them. The App Store build gets its updates from the App Store, and a direct download is replaced by a newer one. |
 | **Tested on** | Benchmarks have only run on an M4 Max with synthetic screens. See [Measurements](#measurements). |
 | **Licence** | [MIT](LICENSE) |
 
 [docs/release-checklist.md](docs/release-checklist.md) lists everything left to do before a public release.
+
+## Two editions
+
+The App Store only takes sandboxed apps, and macOS doesn't let a sandboxed app read other apps through Accessibility. So there are two builds from the same code. This README describes the direct download, and this is what changes in the App Store build:
+
+| | Direct download | App Store |
+|---|---|---|
+| Web addresses on recordings | Recorded, except in Firefox | Not recorded, so **Open** returns to the browser and not the page |
+| Arc | Recorded, with private windows left out | Not recorded, because its private windows can't be recognised |
+| Calls in a browser | Noticed from the address | Not noticed, but you can start transcribing by hand |
+| ⌘⇧ and scroll | The app underneath stays still | Opens the timeline, but that first swipe also reaches the app underneath |
+| Opening at login | Comes back after a crash | Doesn't come back by itself |
+| Permissions | Screen Recording, Accessibility, Microphone | Screen Recording, Microphone |
+| Network | No code for it | No code for it, and macOS blocks it too |
+
+[docs/app-store/README.md](docs/app-store/README.md) has what's been checked, the App Store listing, and what's left to do.
 
 ## Getting started
 
@@ -122,7 +140,7 @@ Setup explains what Elodie is and how it works, then asks for permissions:
 | Permission | | What it's for |
 |---|---|---|
 | Screen Recording | Required | Takes a picture of your screen every few seconds. |
-| Accessibility | Required | Reads the front window's title and web address, spots private browser windows, and lets the ⌘⇧ scroll gesture take over from the app underneath. |
+| Accessibility | Required, direct download only | Reads the front window's title and web address, spots private browser windows, and lets the ⌘⇧ scroll gesture take over from the app underneath. |
 | Microphone | Optional | Transcribes meetings you choose to record. |
 | Calendar | Optional | Names meetings. It's only requested when you turn this on in Settings → Meetings. |
 
@@ -558,7 +576,7 @@ Scrubbing outruns decoding, so the engine always works on the latest request and
 |---|---|
 | Crash or kill | Each record goes out in a single authenticated write, so a torn one is detected and trimmed. On launch, recovery replays what the database missed. |
 | Power cut | The log is flushed with `F_FULLFSYNC` every 5 seconds, which bounds the loss. Recovery removes database rows the log no longer has. |
-| Repeated crashes | launchd brings Elodie back after a crash. After 3 crashes in 5 minutes, it comes back paused and says why. |
+| Repeated crashes | In the direct download, launchd brings Elodie back after a crash. After 3 crashes in 5 minutes, it comes back paused and says why. |
 | Less than 10 GB free | Reading of frames set aside for later pauses. |
 | Less than 2 GB free | Recording stops and says so. It resumes by itself above 4 GB. |
 | Encoder keeps failing | After 3 failures in a minute, capture stops and says so. Raw frames are never stored instead. |
@@ -678,6 +696,8 @@ Power cuts are simulated by damaging files the way a lost write cache could. Thi
 | `make interaction-test` | Sends real events through the real overlay. It takes over your screen and keyboard for a few seconds, so it asks first. Anything you type meanwhile can fail it. |
 | `make check-privacy` | Checks the privacy promises against the code. |
 | `make release` | Builds a signed release and disk image. Uploads nothing. |
+| `make app-store` | Builds the sandboxed App Store edition and checks the bundle. Uploads nothing. |
+| `make app-store-screenshots` | Renders the App Store listing's screenshots from fixture data. |
 | `make clean` | Removes build products and everything generated. |
 
 Development builds optimise the Rust core. Reading recordings means decrypting them, and unoptimised, a group of frames took 240 ms to read instead of 8 ms, which made scrubbing feel broken and benchmarks meaningless. Set `ELODIE_APP` to point `make scenarios` and `make interaction-test` at a build from somewhere else.
@@ -756,6 +776,8 @@ The Swift code builds under Swift 6 with complete strict concurrency.
 ```sh
 make release                                 # Signed build and disk image in build/release
 scripts/release.sh --notarize <profile>      # The same, then sends it to Apple to notarize
+make app-store                               # The sandboxed App Store edition, in build/app-store
+scripts/app-store.sh --export                # The same, then makes the package to upload
 ```
 
 Release builds need a Developer ID Application identity. Notarizing needs a profile stored with `xcrun notarytool store-credentials`. Nothing is uploaded except for notarization, and only when you ask for it.
@@ -777,7 +799,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 | "Nothing recorded on this display yet" | Elodie only records the display your pointer is on. If another display has recordings, the display picker takes you there. |
 | New recordings can't be found by their text yet | The first text recognition under a new app identity compiles Vision's models. That took 31 s on an M4 Max, and a slower Mac will take longer. Frames wait safely in the log. |
 | Ask shows moments but no written answer | It says why. Usually Apple Intelligence is off, or its model is still downloading. |
-| "Accessibility is off for Elodie…" in Settings → Screen | Grant Accessibility in System Settings. Without it, Elodie can only spot private windows by their titles. |
+| "Accessibility is off for Elodie…" in Settings → Screen | Grant Accessibility in System Settings. Without it, Elodie can only spot private windows by their titles. The App Store edition can't use Accessibility, and says so here. |
 | "… isn't responding to Elodie…" in Settings → Screen | That browser's windows aren't being recorded until it answers again. This is deliberate. |
 | "Transcription couldn't start…" | Check the language in Settings → Audio. macOS needs to download each language the first time. |
 | "That transcription language isn't available on this Mac." | Choose another in Settings → Audio. |
@@ -815,6 +837,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 | [docs/PRIVACY.md](docs/PRIVACY.md) | What's recorded, where it's kept, and how to delete it |
 | [docs/spikes.md](docs/spikes.md) | What's been measured, what hasn't, and what each result changed |
 | [docs/release-checklist.md](docs/release-checklist.md) | Everything left to do before a public release |
+| [docs/app-store/README.md](docs/app-store/README.md) | The App Store edition: what's checked, what's left, and the listing |
 | [docs/third-party-notices.md](docs/third-party-notices.md) | Third-party software and licences |
 
 ## Built with

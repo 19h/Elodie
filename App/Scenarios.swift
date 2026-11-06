@@ -363,7 +363,13 @@ enum Scenarios {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
-        let size = NSSize(width: 1512, height: 982)
+        // The App Store only takes 16:10 screenshots, so those ask for a window of that shape.
+        let arguments = CommandLine.arguments
+        let requested = arguments.firstIndex(of: "--window").flatMap { flag -> [Double]? in
+            arguments.indices.contains(flag + 1) ? arguments[flag + 1].split(separator: "x").compactMap { Double($0) } : nil
+        }
+        let size = requested.flatMap { $0.count == 2 ? NSSize(width: $0[0], height: $0[1]) : nil }
+            ?? NSSize(width: 1512, height: 982)
         let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 9, count: 32))
         let display = UUID()
         let end = Date()
