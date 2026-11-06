@@ -8,8 +8,8 @@ use std::thread::JoinHandle;
 use std::time::Instant;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
-use remind_store::{ChunkInfo, LoggedFrame, segment};
-use remind_vault::{ChunkHeader, ChunkWriter, MasterKey, RecordRef, flags};
+use elodie_store::{ChunkInfo, LoggedFrame, segment};
+use elodie_vault::{ChunkHeader, ChunkWriter, MasterKey, RecordRef, flags};
 
 use crate::writer::WriterMessage;
 use crate::{EngineConfig, Sample, Shared};
@@ -49,7 +49,7 @@ pub(crate) fn spawn(
     requests: Receiver<AppendRequest>,
     logged: Sender<WriterMessage>,
 ) -> std::io::Result<JoinHandle<()>> {
-    std::thread::Builder::new().name("remind-appender".to_owned()).spawn(move || {
+    std::thread::Builder::new().name("elodie-appender".to_owned()).spawn(move || {
         crate::set_utility_qos();
         let mut appender = Appender { root, master, config, shared, logged, open: HashMap::new() };
         appender.run(&requests);
@@ -101,7 +101,7 @@ impl Appender {
         }
     }
 
-    fn try_append(&mut self, sample: &Sample) -> remind_vault::Result<()> {
+    fn try_append(&mut self, sample: &Sample) -> elodie_vault::Result<()> {
         let chunk = self.chunk_for(sample)?;
         let appended = chunk.writer.append(RecordRef {
             wall_ms: sample.wall_ms,
@@ -129,7 +129,7 @@ impl Appender {
 
     /// Returns the chunk this sample belongs in, replacing the current one if
     /// it's due. Chunks only change on a keyframe, because each must start with one.
-    fn chunk_for(&mut self, sample: &Sample) -> remind_vault::Result<&mut OpenChunk> {
+    fn chunk_for(&mut self, sample: &Sample) -> elodie_vault::Result<&mut OpenChunk> {
         let display = sample.display_uuid;
         let replace = self.open.get(&display).is_some_and(|chunk| {
             let header = chunk.writer.header();
@@ -148,12 +148,12 @@ impl Appender {
             self.open.insert(display, chunk);
         }
         // The entry was just ensured.
-        self.open.get_mut(&display).ok_or(remind_vault::VaultError::WriterFailed)
+        self.open.get_mut(&display).ok_or(elodie_vault::VaultError::WriterFailed)
     }
 
-    fn create_chunk(&self, sample: &Sample) -> remind_vault::Result<OpenChunk> {
+    fn create_chunk(&self, sample: &Sample) -> elodie_vault::Result<OpenChunk> {
         let mut id = [0u8; 16];
-        getrandom::fill(&mut id).map_err(|_| remind_vault::VaultError::Random)?;
+        getrandom::fill(&mut id).map_err(|_| elodie_vault::VaultError::Random)?;
         let relative = chunk_relative_path(&id);
         let header = ChunkHeader {
             id,

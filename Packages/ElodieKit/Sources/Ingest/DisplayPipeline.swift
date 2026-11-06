@@ -1,0 +1,246 @@
+import Capture
+import CoreAPI
+import CoreVideo
+import Foundation
+
+/// What to do with a frame that has changed enough to keep.
+public enum FrameDecision: Sendable, Equatable {
+    case keep(FrameContext)
+    case drop(reason: String)
+}
+
+/// Counts of what happened to each frame. Everything received ends up in exactly
+/// one of the other buckets, or is still in progress.
+public struct PipelineStats: Sendable, Equatable {
+    public var received = 0
+    public var busy = 0
+    public var unchanged = 0
+    public var black = 0
+    public var excluded = 0
+    public var encodeFailed = 0
+    public var appendRefused = 0
+    public var stored = 0
+
+    public init() {}
+}
+
+public struct PipelineSettings: Sendable {
+    /// A frame needs this many changed pixels to be kept.
+    public var changedPixelThreshold = 1000
+    public var keyframeInterval = 30
+    public var rate = EncoderRate.quality(0.75)
+
+    public init() {}
+}
+
+/// Turns one display's frames into encoded samples in the vault.
+///
+/// Everything runs on one serial queue, and nothing blocks it: the GPU and encoder
+/// call back when they're done. Each frame is one of the capture stream's few
+/// buffers, so it's held only until the encoder has it.
+public final class DisplayPipeline: @unchecked Sendable {
+    /// Frames allowed inside the encoder at once. More than this means the machine
+    /// can't keep up, so it's better to drop before encoding.
+    private static let maxEncoding = 2
+
+    public let queue: DispatchQueue
+    private let core: any ElodieCore
+    private let displayUUID: UUID
+    private let settings: PipelineSettings
+    private let decide: @Sendable (CapturedFrame) -> FrameDecision
+    private let differ: FrameDiffer
+
+    /// Called when encoding keeps failing, since retrying won't help.
+    public var onEncoderFailure: (@Sendable () -> Void)?
+    private var encoderFailures: [Date] = []
+    private var lastBundleID: String?
+
+    private var encoder: HEVCEncoder?
+    private var encoderSize: (width: Int, height: Int)?
+    private var comparing = false
+    private var encoding = 0
+    private var needsKeyframe = true
+    private var starNext = false
+    private var counters = PipelineStats()
+    private let latestLock = NSLock()
+    private var latest: CVPixelBuffer?
+
+    public init(
+        core: any ElodieCore,
+        displayUUID: UUID,
+        settings: PipelineSettings = PipelineSettings(),
+        decide: @escaping @Sendable (CapturedFrame) -> FrameDecision
+    ) throws {
+        self.core = core
+        self.displayUUID = displayUUID
+        self.settings = settings
+        self.decide = decide
+        differ = try FrameDiffer()
+        queue = DispatchQueue(label: "elodie.display.\(displayUUID.uuidString)", qos: .utility)
+    }
+
+    public var stats: PipelineStats {
+        queue.sync { counters }
+    }
+
+    /// The last frame kept, shown first when the timeline opens so it feels instant.
+    public var latestFrame: CVPixelBuffer? {
+        latestLock.withLock { latest }
+    }
+
+    /// Keeps the next frame even if it hasn't changed.
+    public func keepNextFrame() {
+        queue.async { self.starNext = true }
+    }
+
+    /// Takes a frame. Must be called on `queue`.
+    public func ingest(_ frame: CapturedFrame) {
+        dispatchPrecondition(condition: .onQueue(queue))
+        counters.received += 1
+
+        // Dropping here means the next frame still compares against what's stored,
+        // so a change isn't lost, only delayed.
+        guard !comparing, encoding < Self.maxEncoding else {
+            counters.busy += 1
+            return
+        }
+
+        comparing = true
+        differ.compare(frame.pixelBuffer, ignoringTop: frame.menuBarRows) { [self] result in
+            queue.async { self.finishComparison(frame, result) }
+        }
+    }
+
+    private func finishComparison(_ frame: CapturedFrame, _ result: Result<FrameDifference, any Error>) {
+        comparing = false
+        let forced = starNext
+
+        switch result {
+        case .failure:
+            // Without a comparison it's safest to keep the frame. Storing an
+            // extra frame costs little, and missing one can't be undone.
+            break
+        case .success(let difference):
+            if difference.isBlack {
+                counters.black += 1
+                return
+            }
+            if !difference.isFirstFrame, !forced, difference.changedPixels < settings.changedPixelThreshold {
+                counters.unchanged += 1
+                return
+            }
+        }
+
+        switch decide(frame) {
+        case .drop:
+            // The reference stays put, so this change is still noticed next time.
+            counters.excluded += 1
+        case .keep(let context):
+            starNext = false
+            differ.commitCandidate()
+            latestLock.withLock { latest = frame.pixelBuffer }
+            // Each app starts on a keyframe, so removing a run of one app later needs
+            // nothing re-encoded and takes nothing from the next app.
+            if context.bundleID != lastBundleID {
+                needsKeyframe = true
+                lastBundleID = context.bundleID
+            }
+            encode(frame, context: context)
+        }
+    }
+
+    private func encode(_ frame: CapturedFrame, context: FrameContext) {
+        let width = CVPixelBufferGetWidth(frame.pixelBuffer)
+        let height = CVPixelBufferGetHeight(frame.pixelBuffer)
+        do {
+            let encoder = try encoder(width: width, height: height)
+            encoding += 1
+            let force = needsKeyframe
+            needsKeyframe = false
+            encoder.encode(frame.pixelBuffer, forceKeyframe: force) { [self] result in
+                queue.async {
+                    self.finishEncoding(result, frame: frame, width: width, height: height, context: context)
+                }
+            }
+        } catch {
+            counters.encodeFailed += 1
+            needsKeyframe = true
+            // This frame was never stored, so on a still screen it has to count as new.
+            differ.reset()
+            noteEncoderFailure()
+        }
+    }
+
+    /// Frames are 2 seconds apart, so rebuilding on the next one is already a gentle retry.
+    /// Three failures within a minute means it isn't recovering. Raw frames are never
+    /// stored instead, so capture has to stop and say so.
+    private func noteEncoderFailure(now: Date = Date()) {
+        encoderFailures.removeAll { now.timeIntervalSince($0) > 60 }
+        encoderFailures.append(now)
+        if encoderFailures.count >= 3 {
+            encoderFailures.removeAll()
+            onEncoderFailure?()
+        }
+    }
+
+    private func encoder(width: Int, height: Int) throws -> HEVCEncoder {
+        if let encoder, encoderSize?.width == width, encoderSize?.height == height {
+            return encoder
+        }
+        let created = try HEVCEncoder(settings: EncoderSettings(
+            width: width,
+            height: height,
+            keyframeInterval: settings.keyframeInterval,
+            rate: settings.rate
+        ))
+        encoder = created
+        encoderSize = (width, height)
+        needsKeyframe = true
+        return created
+    }
+
+    private func finishEncoding(
+        _ result: Result<EncodedFrame, any Error>,
+        frame: CapturedFrame,
+        width: Int,
+        height: Int,
+        context: FrameContext
+    ) {
+        encoding -= 1
+        guard case .success(let encoded) = result else {
+            counters.encodeFailed += 1
+            // The chain is broken, and the encoder may be unwell.
+            needsKeyframe = true
+            encoder = nil
+            encoderSize = nil
+            differ.reset()
+            noteEncoderFailure()
+            return
+        }
+        do {
+            let outcome = try core.append(EncodedSample(
+                displayID: displayUUID,
+                width: width,
+                height: height,
+                parameterSets: encoded.parameterSets,
+                capturedAt: frame.capturedAt,
+                monotonicNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                isKeyframe: encoded.isKeyframe,
+                context: context,
+                data: encoded.data
+            ))
+            switch outcome {
+            case .accepted:
+                counters.stored += 1
+            case .droppedQueueFull, .needsKeyframe:
+                counters.appendRefused += 1
+                needsKeyframe = true
+                differ.reset()
+            }
+        } catch {
+            counters.appendRefused += 1
+            needsKeyframe = true
+            differ.reset()
+        }
+    }
+}

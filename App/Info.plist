@@ -11,7 +11,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>Remind</string>
+	<string>Elodie</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -27,7 +27,7 @@
 			<string>Moment links</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>remind</string>
+				<string>elodie</string>
 			</array>
 		</dict>
 	</array>
@@ -38,8 +38,8 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
-	<string>Remind uses your calendar to name the meetings you record.</string>
+	<string>Elodie uses your calendar to name the meetings you record.</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Remind can record your microphone so you can search what was said in meetings.</string>
+	<string>Elodie can record your microphone so you can search what was said in meetings.</string>
 </dict>
 </plist>

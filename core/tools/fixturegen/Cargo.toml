@@ -7,7 +7,7 @@ publish.workspace = true
 [dependencies]
 libc = "0.2.191"
 rayon.workspace = true
-remind-search.workspace = true
-remind-store.workspace = true
-remind-text.workspace = true
+elodie-search.workspace = true
+elodie-store.workspace = true
+elodie-text.workspace = true
 rusqlite.workspace = true

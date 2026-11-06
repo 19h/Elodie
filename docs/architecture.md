@@ -1,4 +1,4 @@
-# How Remind works
+# How Elodie works
 
 ## The path a frame takes
 
@@ -27,7 +27,7 @@
 ## Why it's split this way
 
 Swift owns every Apple framework. Rust owns data and computation, and it never calls Swift.
-Feature code sees only the `RemindCore` protocol, so previews and tests run on a fake.
+Feature code sees only the `ElodieCore` protocol, so previews and tests run on a fake.
 
 ## Crash safety
 

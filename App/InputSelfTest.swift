@@ -24,7 +24,7 @@ enum InputSelfTest {
     @MainActor
     static func run(to output: URL) async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "remind-input-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "elodie-input-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -61,7 +61,7 @@ enum InputSelfTest {
         let panel = OverlayPanel(screen: screen)
         panel.setFrame(NSRect(origin: screen.frame.origin, size: size), display: false)
         let controller = TimelineController(core: core, display: display, frame: NSRect(origin: .zero, size: size))
-        let pasteboard = NSPasteboard(name: NSPasteboard.Name("remind-input-test-\(UUID().uuidString)"))
+        let pasteboard = NSPasteboard(name: NSPasteboard.Name("elodie-input-test-\(UUID().uuidString)"))
         controller.pasteboard = pasteboard
         let search = SearchModel(core: core, debounce: .milliseconds(1))
         var field: NSTextField?
@@ -90,7 +90,7 @@ enum InputSelfTest {
             searchEditing: { editing = $0 },
             searchCancelled: {},
             coachMarks: {
-                let defaults = UserDefaults(suiteName: "remind-scenario")!
+                let defaults = UserDefaults(suiteName: "elodie-scenario")!
                 defaults.set(3, forKey: "coachMarkStep")
                 return CoachMarkProgress(defaults: defaults)
             }()
@@ -233,7 +233,7 @@ enum InputSelfTest {
     @MainActor
     static func runSwipe(to output: URL) async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "remind-swipe-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "elodie-swipe-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -311,7 +311,7 @@ enum InputSelfTest {
         check("the panel came up", coordinator.debugIsPanelVisible)
         coordinator.dismiss()
         check("it closes", !coordinator.isOpen && !coordinator.debugIsPanelVisible)
-        results.append("NOTE Accessibility is \(AXIsProcessTrusted() ? "on" : "off") for Remind, so \(AXIsProcessTrusted() ? "the event tap keeps the app underneath still" : "only the fallback runs: the app underneath will also scroll")")
+        results.append("NOTE Accessibility is \(AXIsProcessTrusted() ? "on" : "off") for Elodie, so \(AXIsProcessTrusted() ? "the event tap keeps the app underneath still" : "only the fallback runs: the app underneath will also scroll")")
 
         try results.joined(separator: "\n").write(to: output, atomically: true, encoding: .utf8)
     }

@@ -6,7 +6,7 @@ publish.workspace = true
 
 [dependencies]
 libc = "0.2.191"
-remind-engine.workspace = true
-remind-store.workspace = true
-remind-vault.workspace = true
+elodie-engine.workspace = true
+elodie-store.workspace = true
+elodie-vault.workspace = true
 rusqlite.workspace = true

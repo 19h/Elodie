@@ -18,10 +18,10 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use remind_search::{Facets, Order, Query, Search};
-use remind_store::project::{self, ChunkInfo, LoggedFrame};
-use remind_store::{DbKey, FrameContext, open_reader, open_writer, schema, text};
-use remind_text::{OcrLine, OpenRun, Rect, RunPolicy, prepare_lines};
+use elodie_search::{Facets, Order, Query, Search};
+use elodie_store::project::{self, ChunkInfo, LoggedFrame};
+use elodie_store::{DbKey, FrameContext, open_reader, open_writer, schema, text};
+use elodie_text::{OcrLine, OpenRun, Rect, RunPolicy, prepare_lines};
 use rusqlite::{Connection, params};
 
 const KEY: DbKey = DbKey([0x42; 32]);
@@ -333,7 +333,7 @@ fn terms_by_frequency(conn: &Connection, vocabulary: &[String]) -> (Vec<String>,
 }
 
 fn timed_first_pages(conn: &Connection, queries: &[String], order: Order) -> (Duration, Duration, usize) {
-    timed_with_window(conn, queries, order, remind_search::DEFAULT_RANKING_WINDOW)
+    timed_with_window(conn, queries, order, elodie_search::DEFAULT_RANKING_WINDOW)
 }
 
 fn timed_with_window(conn: &Connection, queries: &[String], order: Order, window: i64) -> (Duration, Duration, usize) {
@@ -466,8 +466,8 @@ fn recall(union_dir: &Path, baseline_dir: &Path) {
         let run_lines: Vec<u8> = baseline
             .query_row("SELECT lines_z FROM text_run WHERE id = ?1", params![run_id], |r| r.get(0))
             .unwrap();
-        let lines = remind_text::codec::decode_lines(&run_lines).unwrap();
-        let shown = remind_text::codec::decode_frame_lines(&lines_z).unwrap();
+        let lines = elodie_text::codec::decode_lines(&run_lines).unwrap();
+        let shown = elodie_text::codec::decode_frame_lines(&lines_z).unwrap();
         if shown.len() < 2 {
             continue;
         }
@@ -533,7 +533,7 @@ fn pair_co_visible(conn: &Connection, run: i64, a: &str, b: &str) -> bool {
     let run_lines: Vec<u8> = conn
         .query_row("SELECT lines_z FROM text_run WHERE id = ?1", params![run], |r| r.get(0))
         .unwrap();
-    let lines = remind_text::codec::decode_lines(&run_lines).unwrap();
+    let lines = elodie_text::codec::decode_lines(&run_lines).unwrap();
     let has = |needle: &str| -> HashSet<u32> {
         lines
             .iter()
@@ -546,7 +546,7 @@ fn pair_co_visible(conn: &Connection, run: i64, a: &str, b: &str) -> bool {
     let mut stmt = conn.prepare_cached("SELECT lines_z FROM frame_text WHERE run_id = ?1").unwrap();
     let frames = stmt.query_map(params![run], |r| r.get::<_, Vec<u8>>(0)).unwrap();
     for frame in frames {
-        let shown: HashSet<u32> = remind_text::codec::decode_frame_lines(&frame.unwrap())
+        let shown: HashSet<u32> = elodie_text::codec::decode_frame_lines(&frame.unwrap())
             .unwrap()
             .into_iter()
             .map(|(number, _)| number)

@@ -394,6 +394,92 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e9c71c2167ca323c882b99918929403426e2373ea17242ff5653e0d5e1058be"
 
 [[package]]
+name = "elodie-engine"
+version = "0.1.0"
+dependencies = [
+ "crossbeam-channel",
+ "elodie-search",
+ "elodie-store",
+ "elodie-text",
+ "elodie-timeline",
+ "elodie-vault",
+ "getrandom",
+ "libc",
+ "rayon",
+ "rusqlite",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "elodie-ffi"
+version = "0.1.0"
+dependencies = [
+ "elodie-engine",
+ "elodie-search",
+ "elodie-vault",
+ "rusqlite",
+ "thiserror",
+ "uniffi",
+]
+
+[[package]]
+name = "elodie-search"
+version = "0.1.0"
+dependencies = [
+ "elodie-store",
+ "elodie-text",
+ "rayon",
+ "rusqlite",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "elodie-store"
+version = "0.1.0"
+dependencies = [
+ "elodie-text",
+ "rusqlite",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "elodie-text"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "rust-stemmers",
+ "thiserror",
+ "unicode-normalization",
+ "zstd",
+]
+
+[[package]]
+name = "elodie-timeline"
+version = "0.1.0"
+dependencies = [
+ "elodie-store",
+ "rusqlite",
+ "tempfile",
+]
+
+[[package]]
+name = "elodie-vault"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "chacha20poly1305",
+ "getrandom",
+ "libc",
+ "proptest",
+ "tempfile",
+ "thiserror",
+ "zeroize",
+]
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -437,11 +523,11 @@ checksum = "1c66915cc5391097de7a2b0b972e8505aa33c0df401fd3a6811dbdb32881ba48"
 name = "fixturegen"
 version = "0.1.0"
 dependencies = [
+ "elodie-search",
+ "elodie-store",
+ "elodie-text",
  "libc",
  "rayon",
- "remind-search",
- "remind-store",
- "remind-text",
  "rusqlite",
 ]
 
@@ -771,92 +857,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
-name = "remind-engine"
-version = "0.1.0"
-dependencies = [
- "crossbeam-channel",
- "getrandom",
- "libc",
- "rayon",
- "remind-search",
- "remind-store",
- "remind-text",
- "remind-timeline",
- "remind-vault",
- "rusqlite",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "remind-ffi"
-version = "0.1.0"
-dependencies = [
- "remind-engine",
- "remind-search",
- "remind-vault",
- "rusqlite",
- "thiserror",
- "uniffi",
-]
-
-[[package]]
-name = "remind-search"
-version = "0.1.0"
-dependencies = [
- "rayon",
- "remind-store",
- "remind-text",
- "rusqlite",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "remind-store"
-version = "0.1.0"
-dependencies = [
- "remind-text",
- "rusqlite",
- "tempfile",
- "thiserror",
-]
-
-[[package]]
-name = "remind-text"
-version = "0.1.0"
-dependencies = [
- "proptest",
- "rust-stemmers",
- "thiserror",
- "unicode-normalization",
- "zstd",
-]
-
-[[package]]
-name = "remind-timeline"
-version = "0.1.0"
-dependencies = [
- "remind-store",
- "rusqlite",
- "tempfile",
-]
-
-[[package]]
-name = "remind-vault"
-version = "0.1.0"
-dependencies = [
- "blake3",
- "chacha20poly1305",
- "getrandom",
- "libc",
- "proptest",
- "tempfile",
- "thiserror",
- "zeroize",
-]
-
-[[package]]
 name = "rsqlite-vfs"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1181,10 +1181,10 @@ checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 name = "torture"
 version = "0.1.0"
 dependencies = [
+ "elodie-engine",
+ "elodie-store",
+ "elodie-vault",
  "libc",
- "remind-engine",
- "remind-store",
- "remind-vault",
  "rusqlite",
 ]
 

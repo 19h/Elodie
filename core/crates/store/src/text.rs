@@ -1,6 +1,6 @@
 //! Stores text runs and what each frame shows.
 
-use remind_text::{OpenRun, codec, run::FrameLine};
+use elodie_text::{OpenRun, codec, run::FrameLine};
 use rusqlite::{Transaction, params};
 
 /// OCR states of a frame.

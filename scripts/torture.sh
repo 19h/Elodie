@@ -33,7 +33,7 @@ failed=0
 "$torture" kill "$scratch/kill" "$kill_iterations" || failed=1
 "$torture" power "$scratch/power" "$power_iterations" || failed=1
 
-hdiutil create -quiet -size 64m -type SPARSE -fs APFS -volname RemindTorture "$image"
+hdiutil create -quiet -size 64m -type SPARSE -fs APFS -volname ElodieTorture "$image"
 mkdir -p "$mount_point"
 hdiutil attach -quiet -nobrowse -mountpoint "$mount_point" "$image"
 "$torture" enospc "$mount_point" "$enospc_iterations" || failed=1

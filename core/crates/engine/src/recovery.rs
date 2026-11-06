@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use rayon::prelude::*;
-use remind_store::{ChunkInfo, LoggedFrame, project, segment};
-use remind_vault::{ChunkReader, MasterKey, ScanStart, VaultError, flags, recover_tail};
+use elodie_store::{ChunkInfo, LoggedFrame, project, segment};
+use elodie_vault::{ChunkReader, MasterKey, ScanStart, VaultError, flags, recover_tail};
 use rusqlite::{Connection, Transaction, params};
 
 use crate::Result;

@@ -4,8 +4,8 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remind_engine::{AppendOutcome, Engine, EngineConfig, FrameContext, Sample};
-use remind_vault::MasterKey;
+use elodie_engine::{AppendOutcome, Engine, EngineConfig, FrameContext, Sample};
+use elodie_vault::MasterKey;
 use tempfile::TempDir;
 
 const DISPLAY: [u8; 16] = [1; 16];
@@ -268,9 +268,9 @@ fn rows_past_the_end_of_a_damaged_log_are_removed() {
 
     // Make the chunk look unsealed again, as it would be after a real power cut.
     {
-        let conn = remind_store::open_writer(
+        let conn = elodie_store::open_writer(
             &dir.path().join("vault.db"),
-            &remind_store::DbKey(master().database_key()),
+            &elodie_store::DbKey(master().database_key()),
         )
         .unwrap();
         conn.execute_batch("UPDATE chunk SET sealed = 0").unwrap();
@@ -297,7 +297,7 @@ fn a_file_cut_off_inside_its_header_is_removed() {
     let shard = dir.path().join("chunks/aa");
     std::fs::create_dir_all(&shard).unwrap();
     let torn = shard.join("aabb.chunk");
-    std::fs::write(&torn, b"RMDCH").unwrap();
+    std::fs::write(&torn, b"ELDCH").unwrap();
 
     let (engine, report) = Engine::open(dir.path(), master(), config()).unwrap();
     assert_eq!(report.chunks_removed, 1);
@@ -307,9 +307,9 @@ fn a_file_cut_off_inside_its_header_is_removed() {
 
 /// Makes every chunk look unsealed, as they would be after a real power cut.
 fn mark_unsealed(root: &Path) {
-    let conn = remind_store::open_writer(
+    let conn = elodie_store::open_writer(
         &root.join("vault.db"),
-        &remind_store::DbKey(master().database_key()),
+        &elodie_store::DbKey(master().database_key()),
     )
     .unwrap();
     conn.execute_batch("UPDATE chunk SET sealed = 0").unwrap();
@@ -362,9 +362,9 @@ fn a_chunk_under_another_key_is_never_deleted() {
     engine.append(sample(0, true)).unwrap();
     engine.close().unwrap();
     {
-        let conn = remind_store::open_writer(
+        let conn = elodie_store::open_writer(
             &dir.path().join("vault.db"),
-            &remind_store::DbKey(master().database_key()),
+            &elodie_store::DbKey(master().database_key()),
         )
         .unwrap();
         conn.execute_batch("UPDATE chunk SET sealed = 0").unwrap();
@@ -386,8 +386,8 @@ fn a_chunk_under_another_key_is_never_deleted() {
 
 mod deleting {
     use super::*;
-    use remind_engine::{OcrBatchOptions, OcrLine, OcrResult, Rect};
-    use remind_search::{Facets, Order, Query};
+    use elodie_engine::{OcrBatchOptions, OcrLine, OcrResult, Rect};
+    use elodie_search::{Facets, Order, Query};
 
     const T0: i64 = 1_000_000;
 
@@ -488,7 +488,7 @@ mod deleting {
         let blobs: Vec<Vec<u8>> =
             statement.query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
         for blob in blobs {
-            let lines = remind_text::codec::decode_lines(&blob).unwrap();
+            let lines = elodie_text::codec::decode_lines(&blob).unwrap();
             assert!(lines.iter().all(|line| line.text != "word7"), "deleted text is still stored");
         }
         engine.close().unwrap();
@@ -558,9 +558,9 @@ mod deleting {
         // Put back the state a crash would leave: old file present, and marked for removal.
         std::fs::write(&old, &saved).unwrap();
         {
-            let conn = remind_store::open_writer(
+            let conn = elodie_store::open_writer(
                 &dir.path().join("vault.db"),
-                &remind_store::DbKey(master().database_key()),
+                &elodie_store::DbKey(master().database_key()),
             )
             .unwrap();
             let relative = old.strip_prefix(dir.path()).unwrap().to_str().unwrap();
@@ -619,8 +619,8 @@ mod deleting {
 
 mod transcripts {
     use super::*;
-    use remind_engine::SpokenWord;
-    use remind_search::{Facets, Order, Query};
+    use elodie_engine::SpokenWord;
+    use elodie_search::{Facets, Order, Query};
 
     fn said(text: &str, t_ms: i64, is_me: bool) -> SpokenWord {
         SpokenWord { text: text.to_owned(), t_ms, duration_ms: 300, confidence: 0.87, is_me }
@@ -633,7 +633,7 @@ mod transcripts {
             .collect()
     }
 
-    fn search(engine: &Engine, query: &str, facets: Facets) -> Vec<remind_search::Hit> {
+    fn search(engine: &Engine, query: &str, facets: Facets) -> Vec<elodie_search::Hit> {
         let session = engine.search(Query::parse(query).unwrap(), facets, Order::Newest).unwrap();
         session.next_page().unwrap().hits
     }
@@ -701,12 +701,12 @@ mod transcripts {
         engine.append(sample(0, true)).unwrap();
         wait_for(&engine, 1);
         let jobs = engine
-            .next_ocr_batch(remind_engine::OcrBatchOptions { max: 8, now_ms: T, include_deferred: false })
+            .next_ocr_batch(elodie_engine::OcrBatchOptions { max: 8, now_ms: T, include_deferred: false })
             .unwrap();
         engine
-            .submit_ocr(vec![remind_engine::OcrResult {
+            .submit_ocr(vec![elodie_engine::OcrResult {
                 frame_id: jobs[0].frame_id,
-                lines: vec![remind_engine::OcrLine { text: "budget on screen".to_owned(), rect: remind_engine::Rect::default() }],
+                lines: vec![elodie_engine::OcrLine { text: "budget on screen".to_owned(), rect: elodie_engine::Rect::default() }],
             }])
             .unwrap();
         engine.append_transcript(sentence("budget out loud", 2_000_000, false), None).unwrap();

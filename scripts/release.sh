@@ -9,7 +9,7 @@ set -euo pipefail
 
 root="${0:A:h:h}"
 output="$root/build/release"
-archive="$output/Remind.xcarchive"
+archive="$output/Elodie.xcarchive"
 notary_profile=""
 if [[ "${1:-}" == "--notarize" ]]; then
   notary_profile="${2:?usage: release.sh --notarize <keychain-profile>}"
@@ -22,14 +22,14 @@ xcodegen generate --quiet
 rm -rf "$output"
 mkdir -p "$output"
 
-xcodebuild -project Remind.xcodeproj -scheme Remind -configuration Release \
-  -derivedDataPath "$root/build/DerivedData-Release" -archivePath "$archive" \
+xcodebuild -project Elodie.xcodeproj -scheme Elodie -configuration Release \
+  -derivedDataPath "$root/build/ElodieData-Release" -archivePath "$archive" \
   ENABLE_HARDENED_RUNTIME=YES archive -quiet
 
-app="$archive/Products/Applications/Remind.app"
+app="$archive/Products/Applications/Elodie.app"
 codesign --verify --deep --strict --verbose=1 "$app"
 for spike in LiveSpikes Scenarios SyntheticScreen; do
-  if strings "$app/Contents/MacOS/Remind" | grep -q "$spike"; then
+  if strings "$app/Contents/MacOS/Elodie" | grep -q "$spike"; then
     print -u2 "warning: test code named $spike is in the release build"
   fi
 done
@@ -38,8 +38,8 @@ staging="$output/staging"
 mkdir -p "$staging"
 cp -R "$app" "$staging/"
 ln -s /Applications "$staging/Applications"
-dmg="$output/Remind.dmg"
-hdiutil create -quiet -volname Remind -srcfolder "$staging" -ov -format UDZO "$dmg"
+dmg="$output/Elodie.dmg"
+hdiutil create -quiet -volname Elodie -srcfolder "$staging" -ov -format UDZO "$dmg"
 rm -rf "$staging"
 codesign --sign "Developer ID Application" --timestamp "$dmg"
 

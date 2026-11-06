@@ -1,15 +1,15 @@
 <p align="center">
-  <img src="docs/images/icon.png" width="128" height="128" alt="Remind's icon: three frames in depth, crossed by a playhead">
+  <img src="docs/images/icon.png" width="128" height="128" alt="Elodie's icon: three frames in depth, crossed by a playhead">
 </p>
 
-<h1 align="center">Remind</h1>
+<h1 align="center">Elodie</h1>
 
 <p align="center">
   <strong>Find anything you've seen on your Mac.</strong>
 </p>
 
 <p align="center">
-  Remind records your screen in the background, reads the words on it, and lets you search for them or scroll back to any moment.<br>
+  Elodie records your screen in the background, reads the words on it, and lets you search for them or scroll back to any moment.<br>
   Recordings are encrypted and stay on your Mac.
 </p>
 
@@ -22,14 +22,14 @@
 <p align="center"><sub>All screenshots show synthetic test data.</sub></p>
 
 > [!IMPORTANT]
-> **Remind is pre-release software, at version 0.1.0.** There's no download yet, so the only way to run it is to build it. The name and bundle ID aren't final, and some checks are still open, including whether the timeline stays hidden on a real call. See [Status](#status) and [Known limitations](#known-limitations).
+> **Elodie is pre-release software, at version 0.1.0.** There's no download yet, so the only way to run it is to build it. The name and bundle ID aren't final, and some checks are still open, including whether the timeline stays hidden on a real call. See [Status](#status) and [Known limitations](#known-limitations).
 
 ## Contents
 
 - [What it does](#what-it-does)
 - [Status](#status)
 - [Getting started](#getting-started)
-- [Using Remind](#using-remind)
+- [Using Elodie](#using-elodie)
   - [The timeline](#the-timeline)
   - [Working with a stretch of time](#working-with-a-stretch-of-time)
   - [Search](#search)
@@ -43,7 +43,7 @@
 - [Privacy and security](#privacy-and-security)
 - [How it works](#how-it-works)
 - [Measurements](#measurements)
-- [Developing Remind](#developing-remind)
+- [Developing Elodie](#developing-elodie)
 - [Troubleshooting](#troubleshooting)
 - [Known limitations](#known-limitations)
 - [Documentation](#documentation)
@@ -52,7 +52,7 @@
 
 ## What it does
 
-You saw it somewhere: a figure in a spreadsheet, an error message, a flight time, a page you closed last Tuesday. Remind keeps a private, searchable history of your screen, so you can get it back by typing a word you remember or by scrolling back to the moment.
+You saw it somewhere: a figure in a spreadsheet, an error message, a flight time, a page you closed last Tuesday. Elodie keeps a private, searchable history of your screen, so you can get it back by typing a word you remember or by scrolling back to the moment.
 
 | | |
 |---|---|
@@ -71,8 +71,8 @@ Capture, encoding, text recognition, search, transcription, and answers all run 
 |---|---|
 | **Version** | 0.1.0, unreleased |
 | **Download** | None yet. Build from source. |
-| **Name** | A working name. "Remind" is also used by a school-messaging app, and it needs a trademark check. |
-| **Bundle ID** | `app.remind.Remind.dev` is a placeholder. |
+| **Name** | Elodie. It hasn't had a trademark check yet. |
+| **Bundle ID** | `app.elodie.Elodie.dev` is a placeholder. |
 | **Updates** | Sparkle is wired in, but builds have no updater until a feed and signing key are set. |
 | **Tested on** | Benchmarks have only run on an M4 Max with synthetic screens. See [Measurements](#measurements). |
 | **Licence** | [MIT](LICENSE) |
@@ -83,7 +83,7 @@ Capture, encoding, text recognition, search, transcription, and answers all run 
 
 ### Requirements
 
-To run Remind:
+To run Elodie:
 
 - A Mac with Apple Silicon
 - macOS 26 or later
@@ -100,24 +100,24 @@ To build it:
 
 ```sh
 git clone git@github.com:19h/Remind.git
-cd Remind
+cd Elodie
 ```
 
 Set `DEVELOPMENT_TEAM` in `project.yml` to your own team ID. Debug builds use your Apple Development identity on purpose: macOS ties permission grants to the signature, so a real identity keeps them across rebuilds.
 
 ```sh
 make app
-open build/Derived/Build/Products/Debug/Remind.app
+open build/Elodie/Build/Products/Debug/Elodie.app
 ```
 
-`make app` builds the Rust core, generates its Swift bindings, generates the Xcode project, and builds the app. To work in Xcode, run `make project` and open `Remind.xcodeproj`. The project and the core's framework are generated, so neither is checked in.
+`make app` builds the Rust core, generates its Swift bindings, generates the Xcode project, and builds the app. To work in Xcode, run `make project` and open `Elodie.xcodeproj`. The project and the core's framework are generated, so neither is checked in.
 
 > [!WARNING]
-> A development build is the real app. Once you finish setup, it records your actual screen into `~/Library/Application Support/app.remind.Remind.dev/vault`. To check a build without recording anything, run `make self-check`, which opens a temporary vault, prints the core's versions, and exits.
+> A development build is the real app. Once you finish setup, it records your actual screen into `~/Library/Application Support/app.elodie.Elodie.dev/vault`. To check a build without recording anything, run `make self-check`, which opens a temporary vault, prints the core's versions, and exits.
 
 ### First run
 
-Setup explains what Remind is and how it works, then asks for permissions:
+Setup explains what Elodie is and how it works, then asks for permissions:
 
 | Permission | | What it's for |
 |---|---|---|
@@ -126,21 +126,21 @@ Setup explains what Remind is and how it works, then asks for permissions:
 | Microphone | Optional | Transcribes meetings you choose to record. |
 | Calendar | Optional | Names meetings. It's only requested when you turn this on in Settings → Meetings. |
 
-macOS only applies a new Screen Recording grant to new processes, so Remind offers to reopen itself and comes back at the same step. You can also leave setup and return later, because Remind keeps your place and the menu bar offers **Finish setting up Remind…**. macOS also asks you to confirm screen recording from time to time. If recording stops, the menu bar icon tells you.
+macOS only applies a new Screen Recording grant to new processes, so Elodie offers to reopen itself and comes back at the same step. You can also leave setup and return later, because Elodie keeps your place and the menu bar offers **Finish setting up Elodie…**. macOS also asks you to confirm screen recording from time to time. If recording stops, the menu bar icon tells you.
 
-The last step shows the three things worth remembering, and **Start recording** begins. Remind lives in the menu bar from then on. The first few times you open the timeline, three short hints show you how to scroll, search, and get back. They wait while search results or a selection are showing.
+The last step shows the three things worth remembering, and **Start recording** begins. Elodie lives in the menu bar from then on. The first few times you open the timeline, three short hints show you how to scroll, search, and get back. They wait while search results or a selection are showing.
 
 <p align="center">
   <img src="docs/images/onboarding-ready.png" width="560" alt="The last step of setup, headed You're ready: ⌘⇧ and scroll up goes back in time, ⇧⌘Space searches, and Esc comes straight back, above a Start recording button">
 </p>
 
-## Using Remind
+## Using Elodie
 
 ### The timeline
 
 Hold ⌘⇧ and scroll up from any app. The swipe that opens the timeline is the same one that moves through it, and it carries on after you let go of the keys and through momentum, so it looks like the screen itself going back in time. Press Esc to return to what you were doing.
 
-The overlay opens on the display under your pointer. It never activates Remind, so the app you were using stays active, opening causes no Space or stage switch, and Esc puts you back with focus where it was. The frame reaches the screen before the window does, so there's no black flash, and the controls rise only after it.
+The overlay opens on the display under your pointer. It never activates Elodie, so the app you were using stays active, opening causes no Space or stage switch, and Esc puts you back with focus where it was. The frame reaches the screen before the window does, so there's no black flash, and the controls rise only after it.
 
 - **Scroll or swipe** to move through time. Scrolling moves the strip under a fixed playhead, and it follows your natural scrolling setting. Hold ⌥ to go 8 times faster.
 - **Pinch, or press ⌘+ and ⌘−,** to zoom the strip, from a whole day on screen down to seconds. The magnifier beside **Open** does the same with a slider.
@@ -172,7 +172,7 @@ The **⋯** menu holds everything else:
 | Star moment, Remove star | Marks the frame, so the Starred search filter finds it and the strip shows it. |
 | Save image…, Copy image | Saves the frame as a PNG, or copies it. |
 | Copy text | Copies the selected lines, or the whole frame's text. |
-| Copy link to this moment | Copies a [`remind://` link](#moment-links). |
+| Copy link to this moment | Copies a [`elodie://` link](#moment-links). |
 | Export 5 minutes as video… | Saves the 5 minutes around the playhead as an MP4. To choose exactly what to export, select it on the strip. |
 | Screen capture, Audio capture | The same switches as in the menu bar. |
 | Exclude this app from recording | Leaves the app out of recording from now on, effective at once. |
@@ -279,7 +279,7 @@ Open **Daily Recap** from the menu bar, or give it a shortcut in Settings. It's 
 
 ### Meetings and transcripts
 
-Remind checks for a call every 5 seconds, including windows on other Spaces and minimised ones. It recognises Zoom, Slack huddles, Webex, and the Microsoft Teams app, and Google Meet, Zoom, and Teams in a browser. A browser call is recognised from the address of the front tab, which Remind only reads while your microphone is in use. Once it's recognised, switching tabs doesn't end it, but the microphone being let go does. What happens next is up to you, in Settings → Meetings:
+Elodie checks for a call every 5 seconds, including windows on other Spaces and minimised ones. It recognises Zoom, Slack huddles, Webex, and the Microsoft Teams app, and Google Meet, Zoom, and Teams in a browser. A browser call is recognised from the address of the front tab, which Elodie only reads while your microphone is in use. Once it's recognised, switching tabs doesn't end it, but the microphone being let go does. What happens next is up to you, in Settings → Meetings:
 
 - **Ask me**, the default, because recording other people is a decision to make each time
 - **Record automatically**
@@ -291,7 +291,7 @@ Remind checks for a call every 5 seconds, including windows on other Spaces and 
 
 About 30 seconds after a call's signs disappear, transcription stops by itself. You can also start or stop it at any time with the **Audio capture** switch in the menu bar. Firefox doesn't expose its web address, so use the switch for calls there.
 
-**How transcription works.** Apple's speech framework transcribes on your Mac, and macOS downloads each language the first time it's used. Audio is never written to disk. The microphone and your computer's audio are transcribed separately, which labels each line **You** or **Others**. When your microphone picks up the call from your speakers, a word is dropped only if the same word came from the speakers at around the same moment. What you say over someone else is kept, unless it's that same word. Sound from apps you've excluded stays out too. If the microphone isn't allowed, Remind transcribes only your computer's audio and tells you.
+**How transcription works.** Apple's speech framework transcribes on your Mac, and macOS downloads each language the first time it's used. Audio is never written to disk. The microphone and your computer's audio are transcribed separately, which labels each line **You** or **Others**. When your microphone picks up the call from your speakers, a word is dropped only if the same word came from the speakers at around the same moment. What you say over someone else is kept, unless it's that same word. Sound from apps you've excluded stays out too. If the microphone isn't allowed, Elodie transcribes only your computer's audio and tells you.
 
 **Afterwards.** What was said is searchable alongside your screen, and the Meetings filter narrows to it. **Transcripts** in the menu bar lists every transcript, most recent first. Words appear a few seconds after they're said, and a recent transcript keeps catching up while it's open. Click a line to go to that moment on the timeline, or use the Details tab to summarise the meeting on your Mac. A long meeting is cut to what fits the model.
 
@@ -299,24 +299,24 @@ About 30 seconds after a call's signs disappear, transcription stops by itself. 
   <img src="docs/images/transcript.png" width="560" alt="A transcript window with Transcript and Details tabs, showing timed lines labelled You and Others">
 </p>
 
-**Calendar names** are off by default. When you turn them on, Remind reads the event in progress, or one starting within 5 minutes, and keeps only its title with the transcript.
+**Calendar names** are off by default. When you turn them on, Elodie reads the event in progress, or one starting within 5 minutes, and keeps only its title with the transcript.
 
 > [!NOTE]
 > Laws on recording conversations differ by place, and many require everyone's consent. Getting consent is up to you.
 
 ### Controlling what's recorded
 
-<img src="docs/images/status-menu.png" width="320" align="right" alt="Remind's menu: Search, Ask, Daily Recap, Transcripts, switches for screen and audio capture, Star moment, Pause for, Forget the last 5 minutes, Settings, and Quit">
+<img src="docs/images/status-menu.png" width="320" align="right" alt="Elodie's menu: Search, Ask, Daily Recap, Transcripts, switches for screen and audio capture, Star moment, Pause for, Forget the last 5 minutes, Settings, and Quit">
 
 The menu bar icon shows what's really happening. A filled frame means recording, an outline means paused or not recording yet, and a line through it means there's a problem, which the menu explains. Three extra bars mean audio is being transcribed.
 
-- **Pause** with the Screen capture switch, for 15 minutes or an hour, or from Shortcuts or Control Center. A pause carries on if Remind restarts. If you pause with no end time, a card reminds you every hour, and you can turn that off in Settings.
+- **Pause** with the Screen capture switch, for 15 minutes or an hour, or from Shortcuts or Control Center. A pause carries on if Elodie restarts. If you pause with no end time, a card reminds you every hour, and you can turn that off in Settings.
 - **Star moment** stars the next frame, even if the screen hasn't changed.
 - **Exclude an app** in Settings → Screen, or from the timeline's ⋯ menu. It takes effect at once.
 - **Forget the last 5 minutes** from the menu bar or the timeline. It's permanent, so it asks first.
 - **Set how long to keep recordings** in Settings → Storage.
 
-Remind also adjusts by itself:
+Elodie also adjusts by itself:
 
 - It stops recording and transcribing when your Mac sleeps or locks, and starts recording again afterwards.
 - If recording stops unexpectedly, it says why and tries again about every 30 seconds.
@@ -335,7 +335,7 @@ Remind also adjusts by itself:
 | ⌘⇧ and scroll up | Open the timeline. |
 | ⌘⇧Space | Open search. |
 | ⌥⇧Space | Open Ask. |
-| Open Remind again while it's running | Open search, or setup or the recovery key if they need you first. |
+| Open Elodie again while it's running | Open search, or setup or the recovery key if they need you first. |
 
 You can change the two key combinations in Settings → Shortcuts. A default is saved the first time it's used, so a Mac that ran an earlier build keeps ⌘⇧- for Ask until you change it there. You can also assign shortcuts there for Daily Recap, Star moment, and Audio capture, which have none by default.
 
@@ -374,7 +374,7 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 
 | Tab | Setting | Default | Notes |
 |---|---|---|---|
-| General | Open Remind at login | Chosen during setup | It comes back after a crash, but not after you quit. If macOS is waiting for you to allow it, this says so and links to Login Items. |
+| General | Open Elodie at login | Chosen during setup | It comes back after a crash, but not after you quit. If macOS is waiting for you to allow it, this says so and links to Login Items. |
 | | Remind me when recording is paused | On | Hourly, for pauses with no end time. |
 | | Show in Dock | Off | |
 | | Check for updates automatically | On | Only appears in builds with an updater. |
@@ -387,8 +387,8 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 | | Name meetings from your calendar | Off | Requests calendar access when you turn it on. |
 | Storage | Keep recordings for | Forever | 1 week, 1 month, 3 months, 6 months, 1 year, or forever. Whole days are removed, and starred moments aren't kept any longer than the rest. Shortening it asks before deleting anything. |
 | | Space used | | Shows the total, an estimate per day from your own recordings, and free disk space. |
-| | By app | | Shows how much each app takes up, with a button to delete everything recorded from it. Remind keeps recording that app unless you exclude it. |
-| | Recovery key | | Saves a file that can restore your recordings if the key is lost. Remind reminds you once, a week after first run. See [If the key is lost](#if-the-key-is-lost). |
+| | By app | | Shows how much each app takes up, with a button to delete everything recorded from it. Elodie keeps recording that app unless you exclude it. |
+| | Recovery key | | Saves a file that can restore your recordings if the key is lost. Elodie reminds you once, a week after first run. See [If the key is lost](#if-the-key-is-lost). |
 | | Location | | Shows the vault in Finder. |
 | | Delete a time range… | | Deletes screen recordings and transcripts from the times you pick. You can also select a stretch on the timeline. |
 | | Delete all recordings… | | Deletes your screen recordings and transcripts. It can't be undone. |
@@ -400,35 +400,35 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 
 | Action | Input | Siri phrase |
 |---|---|---|
-| Search Remind | | "Search Remind" |
-| Go to a moment in Remind | Date and time | |
-| Pause Remind recording | Minutes, optional. Leave it empty to pause until you resume. | "Pause Remind" |
-| Resume Remind recording | | "Resume Remind" |
+| Search Elodie | | "Search Elodie" |
+| Go to a moment in Elodie | Date and time | |
+| Pause Elodie recording | Minutes, optional. Leave it empty to pause until you resume. | "Pause Elodie" |
+| Resume Elodie recording | | "Resume Elodie" |
 
 ### Moment links
 
-`remind://moment/<milliseconds since 1970>` opens the timeline at that moment:
+`elodie://moment/<milliseconds since 1970>` opens the timeline at that moment:
 
 ```sh
-open "remind://moment/1800000000000"
+open "elodie://moment/1800000000000"
 ```
 
 **Copy link to this moment** in the ⋯ menu makes one for you. These links come from outside the app, so anything malformed is ignored, and a link can only say where to look.
 
 ### Control Center
 
-Add the **Remind recording** control to Control Center or the menu bar. It's a switch that shows whether Remind is recording, and turning it off or on pauses or resumes. It says **Not recording** whatever the reason, whether that's a pause, a problem, or Remind not running. It can only ask, so turning it on doesn't start Remind if it isn't running.
+Add the **Elodie recording** control to Control Center or the menu bar. It's a switch that shows whether Elodie is recording, and turning it off or on pauses or resumes. It says **Not recording** whatever the reason, whether that's a pause, a problem, or Elodie not running. It can only ask, so turning it on doesn't start Elodie if it isn't running.
 
-The switch runs in a separate sandboxed process, so it shares only system notifications with the app: one name to ask for a pause, one to ask to resume, and a number on a third that says what's true. The system forgets that number when Remind stops, so a crash can't leave the switch claiming to record.
+The switch runs in a separate sandboxed process, so it shares only system notifications with the app: one name to ask for a pause, one to ask to resume, and a number on a third that says what's true. The system forgets that number when Elodie stops, so a crash can't leave the switch claiming to record.
 
 ## Privacy and security
 
-**Remind keeps everything on your Mac.** It has no account, no analytics, and no crash reporting. It doesn't upload your recordings, text, or transcripts anywhere. [docs/PRIVACY.md](docs/PRIVACY.md) is the full statement. This is a summary.
+**Elodie keeps everything on your Mac.** It has no account, no analytics, and no crash reporting. It doesn't upload your recordings, text, or transcripts anywhere. [docs/PRIVACY.md](docs/PRIVACY.md) is the full statement. This is a summary.
 
 | | |
 |---|---|
 | **Recorded** | A picture of the display your pointer is on, about every 2 seconds when it has changed. The text on it. The app, window title, and web address of what's in front. A transcript, if you turn that on. |
-| **Left out** | Apps you exclude, and their sound in a transcript. Private and incognito browser windows. Remind's own windows. The audio behind a transcript. |
+| **Left out** | Apps you exclude, and their sound in a transcript. Private and incognito browser windows. Elodie's own windows. The audio behind a transcript. |
 | **Not protected** | **Password fields and other sensitive content in ordinary windows do get recorded if they're visible.** Exclude any app you don't want recorded. |
 | **Read to work** | Scroll events, with Accessibility on, so ⌘⇧ and scrolling up can take over from the app underneath. It sees scroll events only, never the keyboard, and passes along everything except that gesture. While your microphone is in use, the front browser tab's address, to recognise a call. With calendar names on, the title of the event happening now. |
 
@@ -445,34 +445,34 @@ Chunk files are stored by random ID rather than by date, so the folder layout do
 
 ### If the key is lost
 
-A recovery key is the only way back if the key in your keychain is ever lost. Settings → Storage saves one to a file, and Remind reminds you once, a week after first run.
+A recovery key is the only way back if the key in your keychain is ever lost. Settings → Storage saves one to a file, and Elodie reminds you once, a week after first run.
 
-If recordings exist but their key doesn't, Remind asks for it. Enter the key or choose the file you saved. It only goes back in the keychain once it has been shown to open these recordings, so a wrong key can't do any harm. With no recovery key, **Start over…** deletes the recordings, because they can never be read without it.
+If recordings exist but their key doesn't, Elodie asks for it. Enter the key or choose the file you saved. It only goes back in the keychain once it has been shown to open these recordings, so a wrong key can't do any harm. With no recovery key, **Start over…** deletes the recordings, because they can never be read without it.
 
 <p align="center">
-  <img src="docs/images/recovery.png" width="480" alt="A window headed Remind can't unlock your recordings, with a field for the recovery key, Choose file and Unlock buttons, and Quit and Start over buttons">
+  <img src="docs/images/recovery.png" width="480" alt="A window headed Elodie can't unlock your recordings, with a field for the recovery key, Choose file and Unlock buttons, and Quit and Start over buttons">
 </p>
 
 ### Private windows
 
-Browsers offer no API for this, so Remind recognises private windows from their titles, in 16 languages. Arc also marks them in a way that doesn't depend on language. A browser is recognised by how it's built rather than from a fixed list, so new and renamed Chromium browsers are covered.
+Browsers offer no API for this, so Elodie recognises private windows from their titles, in 16 languages. Arc also marks them in a way that doesn't depend on language. A browser is recognised by how it's built rather than from a fixed list, so new and renamed Chromium browsers are covered.
 
 **When in doubt, a frame is dropped.** A frame is kept only if the capture filter in effect when it was composed already hid every window that must be hidden. While a new private window is on its way into the filter, frames are thrown away. A browser window with no title yet counts as private until it has one. If a browser doesn't answer within 50 ms or gives an error, that frame is dropped too, and Settings tells you if it keeps happening.
 
-**Remind also watches between frames.** Frames only arrive every couple of seconds, which leaves time for a private window to open and close unseen. So it looks at the window list every 0.2 seconds, and usually has the filter updated before the next frame is composed. It does this on a strict timer at a higher priority, and App Nap can't slow it. A new filter is only trusted after 0.25 seconds, because updating one returns a few milliseconds before frames stop showing what it hides. If a window that must be hidden closes before any filter covered it, everything composed up to that moment counts as unsafe.
+**Elodie also watches between frames.** Frames only arrive every couple of seconds, which leaves time for a private window to open and close unseen. So it looks at the window list every 0.2 seconds, and usually has the filter updated before the next frame is composed. It does this on a strict timer at a higher priority, and App Nap can't slow it. A new filter is only trusted after 0.25 seconds, because updating one returns a few milliseconds before frames stop showing what it hides. If a window that must be hidden closes before any filter covered it, everything composed up to that moment counts as unsafe.
 
 **A late look makes frames unsafe too.** A busy Mac can't always keep to that timer. If more than 0.25 seconds pass between looks, nothing composed in that time can be vouched for, so those frames are dropped. The same happens if a window closes between the two reads of the list, because then there's no telling what it was. A busy Mac may lose a few frames this way. A private window open for less than 0.25 seconds may still go unseen and reach a recording, and [Measurements](#measurements) has what testing found.
 
 ### What it can't protect you from
 
-- **Your own account.** Anyone who can use your Mac while you're logged in can open Remind and see your history.
-- **Other apps on your Mac.** The Control Center switch talks to Remind through system notifications, and any app can use them too. Another app can see whether Remind is recording, and can ask it to pause or resume. It can't read your recordings this way.
+- **Your own account.** Anyone who can use your Mac while you're logged in can open Elodie and see your history.
+- **Other apps on your Mac.** The Control Center switch talks to Elodie through system notifications, and any app can use them too. Another app can see whether Elodie is recording, and can ask it to pause or resume. It can't read your recordings this way.
 - **Copies you make.** Exported videos, saved images, and dragged frames aren't encrypted. A saved recovery key can decrypt everything, so keep it somewhere safe.
-- **Deleted blocks.** Deleting removes recordings and their text from Remind's files, and a few frames just after a deleted period also go, because they can't be decoded without what came before. Like any file deletion, old encrypted blocks can stay on the drive or in APFS snapshots until they're overwritten.
+- **Deleted blocks.** Deleting removes recordings and their text from Elodie's files, and a few frames just after a deleted period also go, because they can't be decoded without what came before. Like any file deletion, old encrypted blocks can stay on the drive or in APFS snapshots until they're overwritten.
 
 ### The network
 
-Remind uses the network for one thing: Sparkle's update check, which you can turn off. It's limited to `App/Updater.swift`, and a build with no update feed and signing key doesn't run it at all. macOS downloads its own language models for transcription and Ask, and Remind sends nothing in that process.
+Elodie uses the network for one thing: Sparkle's update check, which you can turn off. It's limited to `App/Updater.swift`, and a build with no update feed and signing key doesn't run it at all. macOS downloads its own language models for transcription and Ask, and Elodie sends nothing in that process.
 
 These promises are checked against the code. `make check-privacy` runs as part of `make test` and before every release build, and it fails if:
 
@@ -484,7 +484,7 @@ These promises are checked against the code. `make check-privacy` runs as part o
 
 ## How it works
 
-Swift owns every Apple framework. Rust owns data and computation, and it never calls Swift. Feature code sees only the `RemindCore` protocol, so previews and tests can run on a fake.
+Swift owns every Apple framework. Rust owns data and computation, and it never calls Swift. Feature code sees only the `ElodieCore` protocol, so previews and tests can run on a fake.
 
 ```text
   App/                 menu bar, overlay coordination, keychain, updater, intents
@@ -495,9 +495,9 @@ Swift owns every Apple framework. Rust owns data and computation, and it never c
    ├── Ingest          change check, encoder, OCR         Capture        streams, exclusions
    ├── Audio           transcription, meeting detection
    │
-   └── CoreAPI         the RemindCore protocol
+   └── CoreAPI         the ElodieCore protocol
         ├── CoreFake   a stand-in for previews and tests
-        └── CoreLive ──▶ CoreABI ──▶ RemindCoreFFI.xcframework
+        └── CoreLive ──▶ CoreABI ──▶ ElodieCoreFFI.xcframework
                                         │  UniFFI
   ──────────────────────────────────────┼───────────────────────────────────
   core/ (Rust)                          ▼
@@ -555,27 +555,27 @@ Scrubbing outruns decoding, so the engine always works on the latest request and
 
 ### When things go wrong
 
-| Situation | What Remind does |
+| Situation | What Elodie does |
 |---|---|
 | Crash or kill | Each record goes out in a single authenticated write, so a torn one is detected and trimmed. On launch, recovery replays what the database missed. |
 | Power cut | The log is flushed with `F_FULLFSYNC` every 5 seconds, which bounds the loss. Recovery removes database rows the log no longer has. |
-| Repeated crashes | launchd brings Remind back after a crash. After 3 crashes in 5 minutes, it comes back paused and says why. |
+| Repeated crashes | launchd brings Elodie back after a crash. After 3 crashes in 5 minutes, it comes back paused and says why. |
 | Less than 10 GB free | Reading of frames set aside for later pauses. |
 | Less than 2 GB free | Recording stops and says so. It resumes by itself above 4 GB. |
 | Encoder keeps failing | After 3 failures in a minute, capture stops and says so. Raw frames are never stored instead. |
 | A frame crashes OCR | An attempt is recorded before OCR runs, so a frame is given up on after 3 tries rather than crashing every launch. |
-| Keychain locked | Treated as temporarily unavailable, and never as missing. Remind tries again when you unlock your Mac. |
-| Key missing | Remind asks for your recovery key. A new key is only created if you choose to start over, because otherwise it would orphan all recorded history. |
-| A second copy of Remind | A later copy hands over to the one running and leaves. The vault is also locked to one process, because recovery treats open chunks as crash leftovers, so two at once would damage each other's recordings. |
-| Recording stops unexpectedly | Remind says why, and tries again about every 30 seconds. |
-| The disk refuses writes | Remind says recordings aren't being saved, which can happen long before a disk looks full. It clears once writes work again. |
+| Keychain locked | Treated as temporarily unavailable, and never as missing. Elodie tries again when you unlock your Mac. |
+| Key missing | Elodie asks for your recovery key. A new key is only created if you choose to start over, because otherwise it would orphan all recorded history. |
+| A second copy of Elodie | A later copy hands over to the one running and leaves. The vault is also locked to one process, because recovery treats open chunks as crash leftovers, so two at once would damage each other's recordings. |
+| Recording stops unexpectedly | Elodie says why, and tries again about every 30 seconds. |
+| The disk refuses writes | Elodie says recordings aren't being saved, which can happen long before a disk looks full. It clears once writes work again. |
 | A chunk is damaged | A card says how many pieces can't be read. Everything else stays usable. |
-| A delete can't finish | Remind says so, and recording carries on. |
-| Quitting | Remind turns what was just said into words and seals its files first, but it never waits more than 5 seconds. |
+| A delete can't finish | Elodie says so, and recording carries on. |
+| Quitting | Elodie turns what was just said into words and seals its files first, but it never waits more than 5 seconds. |
 
 ### Design
 
-Remind uses system Liquid Glass with its own accent, verdigris, the patina time leaves on copper (`#45C9B1` in dark mode, `#0B7F70` in light). It's distinct from system blue and from the red and orange macOS uses for recording indicators. Search matches are marked in `#FFC83D`. Animations respect Reduce Motion.
+Elodie uses system Liquid Glass with its own accent, verdigris, the patina time leaves on copper (`#45C9B1` in dark mode, `#0B7F70` in light). It's distinct from system blue and from the red and orange macOS uses for recording indicators. Search matches are marked in `#FFC83D`. Animations respect Reduce Motion.
 
 **Controls stay readable over anything.** A recorded frame can be any colour, and glass over a white page reads as pale grey. Liquid Glass also adapts any tint to what's behind it, so a tint made things worse. Control text sits on a 60% black fill under the glass instead, which took the time pill from 2.29:1 to 8.18:1 over a white page. `make scenarios` holds it to 4.5:1 on white, black, saturated, and noisy backdrops.
 
@@ -586,7 +586,7 @@ Remind uses system Liquid Glass with its own accent, verdigris, the patina time 
 These come from [docs/spikes.md](docs/spikes.md), which has the full results and what each one changed.
 
 > [!CAUTION]
-> Everything here ran on an M4 Max with macOS 27.2, which flatters the numbers, and storage figures come from a synthetic screen. Remind hasn't been measured on a base MacBook Air, over a real week of use, or for energy, and the time from hotkey to first pixel isn't measured yet. Treat these as evidence about the design, not as promises about your Mac.
+> Everything here ran on an M4 Max with macOS 27.2, which flatters the numbers, and storage figures come from a synthetic screen. Elodie hasn't been measured on a base MacBook Air, over a real week of use, or for energy, and the time from hotkey to first pixel isn't measured yet. Treat these as evidence about the design, not as promises about your Mac.
 
 **Storage and seeking.** At 3024×1964, in the worst case, with all 14,400 ticks in 8 hours stored:
 
@@ -661,15 +661,15 @@ The first row leaves out one English run, where the control never saw the marker
 
 Power cuts are simulated by damaging files the way a lost write cache could. This hasn't been run on a machine that actually lost power.
 
-## Developing Remind
+## Developing Elodie
 
 ### Make targets
 
 | Command | What it does |
 |---|---|
-| `make app` | Builds the debug app into `build/Derived`. |
+| `make app` | Builds the debug app into `build/Elodie`. |
 | `make core` | Builds the Rust core, its bindings, and its framework. |
-| `make project` | Builds the core and generates `Remind.xcodeproj`. |
+| `make project` | Builds the core and generates `Elodie.xcodeproj`. |
 | `make test` | Runs the Rust tests, the Swift tests, and the privacy checks. |
 | `make test-rust`, `make test-swift` | Runs one side of that. |
 | `make self-check` | Builds the app and proves a signed build can reach the Rust core. |
@@ -681,7 +681,7 @@ Power cuts are simulated by damaging files the way a lost write cache could. Thi
 | `make release` | Builds a signed release and disk image. Uploads nothing. |
 | `make clean` | Removes build products and everything generated. |
 
-Development builds optimise the Rust core. Reading recordings means decrypting them, and unoptimised, a group of frames took 240 ms to read instead of 8 ms, which made scrubbing feel broken and benchmarks meaningless. Set `REMIND_APP` to point `make scenarios` and `make interaction-test` at a build from somewhere else.
+Development builds optimise the Rust core. Reading recordings means decrypting them, and unoptimised, a group of frames took 240 ms to read instead of 8 ms, which made scrubbing feel broken and benchmarks meaningless. Set `ELODIE_APP` to point `make scenarios` and `make interaction-test` at a build from somewhere else.
 
 ### Tests
 
@@ -695,10 +695,10 @@ There are more than 400 Rust and Swift tests:
 
 ```sh
 # Encoder, storage, and OCR measurements. These need no permissions.
-swift run --package-path Packages/RemindKit remind-spike holdback
-swift run --package-path Packages/RemindKit remind-spike storage 450
-swift run --package-path Packages/RemindKit remind-spike worst-case 450
-swift run --package-path Packages/RemindKit remind-spike ocr 2000
+swift run --package-path Packages/ElodieKit elodie-spike holdback
+swift run --package-path Packages/ElodieKit elodie-spike storage 450
+swift run --package-path Packages/ElodieKit elodie-spike worst-case 450
+swift run --package-path Packages/ElodieKit elodie-spike ocr 2000
 
 # Large synthetic databases, for scale. 800,000 frames take about 4 GB.
 cd core
@@ -707,10 +707,10 @@ cargo run --release -p fixturegen -- query <dir>
 cargo run --release -p fixturegen -- recall <union-dir> <per-frame-dir>
 ```
 
-Debug builds of the app have two more modes. Launch them through `open`, so macOS treats Remind as the app asking for permission:
+Debug builds of the app have two more modes. Launch them through `open`, so macOS treats Elodie as the app asking for permission:
 
 ```sh
-APP=build/Derived/Build/Products/Debug/Remind.app
+APP=build/Elodie/Build/Products/Debug/Elodie.app
 
 # Shows one screen with fixture data, screenshots its own window, and exits.
 open -n $APP --args --scenario search-expanded --out /path/to/shot.png
@@ -747,7 +747,7 @@ These protect people's data, and several are enforced by a test or a check:
 - **Never reopen a chunk for writing.** It could repeat a nonce.
 - **Never let two processes open a vault, and never reuse a frame ID.** Tests guard both.
 - **A chunk must start with a keyframe.** A full-disk test caught chunks that could never be decoded because of this.
-- **Keep the split.** Swift owns Apple frameworks, Rust owns data and computation, and Rust never calls Swift. New core features go through `ffi`, the `RemindCore` protocol, `CoreLive`, and `CoreFake`.
+- **Keep the split.** Swift owns Apple frameworks, Rust owns data and computation, and Rust never calls Swift. New core features go through `ffi`, the `ElodieCore` protocol, `CoreLive`, and `CoreFake`.
 - **New network use needs a very good reason.** `make check-privacy` will fail, and the privacy statement would have to change.
 
 The Swift code builds under Swift 6 with complete strict concurrency.
@@ -767,34 +767,34 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 | What you see | What to do |
 |---|---|
-| "Remind needs Screen Recording permission." | Use **Open Screen Recording settings…** in the menu, turn it on, and choose **Reopen Remind**, because a new grant only reaches a new process. |
-| "Your keychain is locked, so recordings can't be opened yet." | Unlock your login keychain. Remind tries again when you unlock your Mac, or you can choose **Try again**. Your recordings are safe. |
-| "Remind wasn't allowed to read its key from your keychain." | Deny was probably clicked when macOS asked. Choose **Try again** and allow it. |
+| "Elodie needs Screen Recording permission." | Use **Open Screen Recording settings…** in the menu, turn it on, and choose **Reopen Elodie**, because a new grant only reaches a new process. |
+| "Your keychain is locked, so recordings can't be opened yet." | Unlock your login keychain. Elodie tries again when you unlock your Mac, or you can choose **Try again**. Your recordings are safe. |
+| "Elodie wasn't allowed to read its key from your keychain." | Deny was probably clicked when macOS asked. Choose **Try again** and allow it. |
 | "The key for your recordings is missing from your keychain." | Choose **Unlock with recovery key…**, then enter the key or choose the file you saved. See [If the key is lost](#if-the-key-is-lost). |
 | "Recording stopped because the disk is nearly full." | Free up some space. Recording resumes by itself above 4 GB free. |
 | "Recordings aren't being saved to disk." | The disk is refusing writes. Check for space and disk errors, then choose **Try again**. It clears by itself once writes work again. |
 | "Recording stopped because video encoding kept failing." | Choose **Try again** in the menu. |
-| "Recording is paused because Remind kept crashing." | Choose **Try again** in the menu, or turn Screen capture back on. The count clears after 10 minutes without trouble. |
-| "Nothing recorded on this display yet" | Remind only records the display your pointer is on. If another display has recordings, the display picker takes you there. |
+| "Recording is paused because Elodie kept crashing." | Choose **Try again** in the menu, or turn Screen capture back on. The count clears after 10 minutes without trouble. |
+| "Nothing recorded on this display yet" | Elodie only records the display your pointer is on. If another display has recordings, the display picker takes you there. |
 | New recordings can't be found by their text yet | The first text recognition under a new app identity compiles Vision's models. That took 31 s on an M4 Max, and a slower Mac will take longer. Frames wait safely in the log. |
 | Ask shows moments but no written answer | It says why. Usually Apple Intelligence is off, or its model is still downloading. |
-| "Accessibility is off for Remind…" in Settings → Screen | Grant Accessibility in System Settings. Without it, Remind can only spot private windows by their titles. |
-| "… isn't responding to Remind…" in Settings → Screen | That browser's windows aren't being recorded until it answers again. This is deliberate. |
+| "Accessibility is off for Elodie…" in Settings → Screen | Grant Accessibility in System Settings. Without it, Elodie can only spot private windows by their titles. |
+| "… isn't responding to Elodie…" in Settings → Screen | That browser's windows aren't being recorded until it answers again. This is deliberate. |
 | "Transcription couldn't start…" | Check the language in Settings → Audio. macOS needs to download each language the first time. |
 | "That transcription language isn't available on this Mac." | Choose another in Settings → Audio. |
-| "Remind can't hear your microphone" | Allow the microphone in System Settings. Until then, only your computer's audio is transcribed. |
+| "Elodie can't hear your microphone" | Allow the microphone in System Settings. Until then, only your computer's audio is transcribed. |
 | "Some recordings couldn't be read" | Those pieces of your recordings are damaged, so what's in them can't be shown. Everything else is fine. |
-| "macOS is waiting for you to allow this." in Settings → General | Choose **Open Login Items** and allow Remind there. |
+| "macOS is waiting for you to allow this." in Settings → General | Choose **Open Login Items** and allow Elodie there. |
 | Permissions keep resetting after rebuilds | macOS ties grants to the signature. Build with a real signing identity, and keep the same bundle ID. |
-| Xcode can't find `RemindCoreFFI.xcframework` | Run `make project`. The framework is generated by `make core`. |
+| Xcode can't find `ElodieCoreFFI.xcframework` | Run `make project`. The framework is generated by `make core`. |
 
 ## Known limitations
 
-**Check these before relying on Remind:**
+**Check these before relying on Elodie:**
 
 - **Screen sharing hasn't been tried on a real call.** The overlay asks macOS to keep it out of screen capture (`sharingType = .none`). A separate process capturing the display with ScreenCaptureKit finds nothing of it, by screenshot, by stream, or by asking for that window alone, and neither does the system's `screencapture` tool. Chrome's real `getDisplayMedia`, which web call apps use, doesn't see it either: 0 in 28 frames. An ordinary panel shows up every time. That's good evidence, but no call app has been tried. Until one has, it's safest not to open the timeline while sharing your screen, because that could expose your history. This blocks a public release.
 - **A real first run has only happened on one Mac, with other apps excluded.** It recorded two real displays into a scratch vault, and [docs/spikes.md](docs/spikes.md) has what it covered. Normal daily use, and energy use, haven't been measured.
-- **Very brief private windows can reach a recording.** Spike 2 found no marker in 22,897 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 2 to 3 of about 50 allowed frames. Remind only promises to catch windows open for at least 0.25 seconds.
+- **Very brief private windows can reach a recording.** Spike 2 found no marker in 22,897 allowed frames for windows open 250 to 700 ms. Windows open under 120 ms can open and close between two looks at the window list, and reached the encoder in 2 to 3 of about 50 allowed frames. Elodie only promises to catch windows open for at least 0.25 seconds.
 - **Password fields aren't special-cased.** If it's visible in an ordinary window, it's recorded.
 
 **Known gaps:**
@@ -812,7 +812,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 | Document | What's in it |
 |---|---|
-| [docs/architecture.md](docs/architecture.md) | How Remind fits together |
+| [docs/architecture.md](docs/architecture.md) | How Elodie fits together |
 | [docs/PRIVACY.md](docs/PRIVACY.md) | What's recorded, where it's kept, and how to delete it |
 | [docs/spikes.md](docs/spikes.md) | What's been measured, what hasn't, and what each result changed |
 | [docs/release-checklist.md](docs/release-checklist.md) | Everything left to do before a public release |
@@ -828,4 +828,4 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 ## Licence
 
-Remind is released under the [MIT License](LICENSE). Third-party software keeps its own licences, listed in [docs/third-party-notices.md](docs/third-party-notices.md).
+Elodie is released under the [MIT License](LICENSE). Third-party software keeps its own licences, listed in [docs/third-party-notices.md](docs/third-party-notices.md).

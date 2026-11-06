@@ -1,6 +1,6 @@
-# Remind build entry points.
-DERIVED := build/Derived
-APP := $(DERIVED)/Build/Products/Debug/Remind.app
+# Elodie build entry points.
+DERIVED := build/Elodie
+APP := $(DERIVED)/Build/Products/Debug/Elodie.app
 
 # Where crash tests keep their vaults. Everything is removed afterward.
 TORTURE_DIR ?= build/torture
@@ -14,7 +14,7 @@ project: core
 	xcodegen generate --quiet
 
 app: project
-	xcodebuild -project Remind.xcodeproj -scheme Remind -configuration Debug \
+	xcodebuild -project Elodie.xcodeproj -scheme Elodie -configuration Debug \
 		-derivedDataPath $(DERIVED) -quiet build
 
 test: test-rust test-swift check-privacy
@@ -23,10 +23,10 @@ test-rust:
 	cd core && cargo test --workspace --no-fail-fast --quiet
 
 test-swift: core
-	swift test --package-path Packages/RemindKit --quiet
+	swift test --package-path Packages/ElodieKit --quiet
 
 self-check: app
-	$(APP)/Contents/MacOS/Remind --self-check
+	$(APP)/Contents/MacOS/Elodie --self-check
 
 torture:
 	scripts/torture.sh $(TORTURE_DIR)
@@ -49,7 +49,7 @@ bench: app
 interaction-test: app
 	scripts/interaction-test.sh
 
-# Everything Remind promises about the network and cloud services, checked against the code.
+# Everything Elodie promises about the network and cloud services, checked against the code.
 check-privacy: core
 	scripts/check-privacy.sh
 
@@ -58,5 +58,5 @@ release:
 	scripts/release.sh
 
 clean:
-	rm -rf build core/target Packages/RemindKit/.build Packages/RemindKit/Frameworks \
-		Packages/RemindKit/Sources/CoreABI/Generated Remind.xcodeproj
+	rm -rf build core/target Packages/ElodieKit/.build Packages/ElodieKit/Frameworks \
+		Packages/ElodieKit/Sources/CoreABI/Generated Elodie.xcodeproj

@@ -3,8 +3,8 @@
 //! These stay in the suite as regression tests. A dependency bump that changes
 //! the crypto provider or breaks contentless deletion should fail here.
 
-use remind_store::{DbKey, open_reader, open_writer};
-use remind_text::LINE_SEPARATOR;
+use elodie_store::{DbKey, open_reader, open_writer};
+use elodie_text::LINE_SEPARATOR;
 use rusqlite::{Connection, params};
 use tempfile::TempDir;
 
@@ -13,7 +13,7 @@ const KEY: DbKey = DbKey([7; 32]);
 const CREATE_FTS: &str = "CREATE VIRTUAL TABLE run_fts USING fts5(
     text, other, title,
     content='', contentless_delete=1,
-    tokenize='remind', prefix='2 3'
+    tokenize='elodie', prefix='2 3'
 )";
 
 fn db() -> (TempDir, Connection) {

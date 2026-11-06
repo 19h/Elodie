@@ -11,7 +11,7 @@ use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 
 use crate::{MasterKey, Result, VaultError};
 
-const MAGIC: &[u8; 8] = b"RMDCHUNK";
+const MAGIC: &[u8; 8] = b"ELDCHUNK";
 const VERSION: u16 = 1;
 /// magic, version, reserved, chunk ID, and header length.
 const PREFIX_LEN: usize = 8 + 2 + 2 + 16 + 4;

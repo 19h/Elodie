@@ -4,8 +4,8 @@
 # windows, and these capture nothing else.
 set -u
 cd "$(dirname "$0")/.."
-# Set REMIND_APP to use a build from somewhere else.
-APP="${REMIND_APP:-$PWD/build/Derived/Build/Products/Debug/Remind.app}"
+# Set ELODIE_APP to use a build from somewhere else.
+APP="${ELODIE_APP:-$PWD/build/Elodie/Build/Products/Debug/Elodie.app}"
 OUT="$PWD/build/scenarios"
 mkdir -p "$OUT"
 

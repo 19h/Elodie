@@ -2,14 +2,14 @@
 
 ## Decisions only you can make
 
-- [ ] **Name.** "Remind" is used by a school-messaging app, and it sits close to Apple Reminders
-      in Spotlight. Get a trademark check.
-- [ ] **Bundle ID.** `app.remind.Remind.dev` in `project.yml` is a placeholder. Changing it after
+- [ ] **Name.** Get a trademark check for "Elodie". A search of the US App Store found no app with that
+      name on 2026-11-06, but that isn't a trademark search.
+- [ ] **Bundle ID.** `app.elodie.Elodie.dev` in `project.yml` is a placeholder. Changing it after
       release orphans keychain items and permission grants, so choose before shipping.
 - [ ] **Legal review.** The behaviour was informed by analysing a decompiled commercial app, whose
       licence may restrict that. This repository keeps that material out, and uses its own code and
       wording, but that doesn't settle the question.
-- [x] **Licence** for Remind itself: MIT.
+- [x] **Licence** for Elodie itself: MIT.
 - [ ] **Hosting** for the update feed and disk image.
 
 ## Setup
@@ -55,8 +55,8 @@ Automated tests can't cover these. Each needs a real Mac and real prompts.
 - [ ] Haptics while scrubbing.
 - [ ] Transcribing a real meeting with a real microphone. Real audio reaches speech recognition, and speech in
       the microphone's format becomes words in a test, but no real voice has been tried.
-- [ ] The Control Center switch: it appears, shows whether Remind is recording, pauses and resumes, and says
-      Not recording after Remind is force quit. A sandboxed process has read the state and paused and resumed
+- [ ] The Control Center switch: it appears, shows whether Elodie is recording, pauses and resumes, and says
+      Not recording after Elodie is force quit. A sandboxed process has read the state and paused and resumed
       the app, but the switch hasn't been seen in Control Center itself.
 
 ## Measurements still needed

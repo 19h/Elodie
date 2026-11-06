@@ -21,7 +21,7 @@ enum KeyStore {
     }
 
     /// Test runs pass their own, so they can't touch the real key.
-    nonisolated(unsafe) static var service = "app.remind.vault"
+    nonisolated(unsafe) static var service = "app.elodie.vault"
     private static let account = "master-key"
 
     private static var baseQuery: [CFString: Any] {
@@ -68,8 +68,8 @@ enum KeyStore {
         }
         var attributes = baseQuery
         attributes[kSecValueData] = bytes
-        attributes[kSecAttrLabel] = "Remind recording key"
-        attributes[kSecAttrDescription] = "Decrypts your Remind recordings."
+        attributes[kSecAttrLabel] = "Elodie recording key"
+        attributes[kSecAttrDescription] = "Decrypts your Elodie recordings."
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw .couldNotCreate(status)
@@ -83,8 +83,8 @@ enum KeyStore {
         SecItemDelete(baseQuery as CFDictionary)
         var attributes = baseQuery
         attributes[kSecValueData] = key
-        attributes[kSecAttrLabel] = "Remind recording key"
-        attributes[kSecAttrDescription] = "Decrypts your Remind recordings."
+        attributes[kSecAttrLabel] = "Elodie recording key"
+        attributes[kSecAttrDescription] = "Decrypts your Elodie recordings."
         let status = SecItemAdd(attributes as CFDictionary, nil)
         guard status == errSecSuccess else {
             throw .couldNotCreate(status)

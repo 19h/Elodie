@@ -9,12 +9,12 @@ rust-version = "1.99"
 publish = false
 
 [workspace.dependencies]
-remind-vault = { path = "crates/vault" }
-remind-engine = { path = "crates/engine" }
-remind-store = { path = "crates/store" }
-remind-text = { path = "crates/text" }
-remind-search = { path = "crates/search" }
-remind-timeline = { path = "crates/timeline" }
+elodie-vault = { path = "crates/vault" }
+elodie-engine = { path = "crates/engine" }
+elodie-store = { path = "crates/store" }
+elodie-text = { path = "crates/text" }
+elodie-search = { path = "crates/search" }
+elodie-timeline = { path = "crates/timeline" }
 
 rusqlite = { version = "0.41", features = ["bundled-sqlcipher"] }
 uniffi = "0.32"

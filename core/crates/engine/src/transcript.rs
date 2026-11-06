@@ -1,8 +1,8 @@
 //! Stores what was said, searchable alongside what was on screen.
 
-use remind_store::segment::{self, Decision, FrameContext};
-use remind_text::transcript::{Speaker, Word, remove_echo};
-use remind_text::{LINE_SEPARATOR, RunLine, codec};
+use elodie_store::segment::{self, Decision, FrameContext};
+use elodie_text::transcript::{Speaker, Word, remove_echo};
+use elodie_text::{LINE_SEPARATOR, RunLine, codec};
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use crate::ocr::RunTracker;

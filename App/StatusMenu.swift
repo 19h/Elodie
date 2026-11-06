@@ -1,7 +1,7 @@
 import AppKit
 import KeyboardShortcuts
 
-/// Remind's menu bar item, which is its main way in.
+/// Elodie's menu bar item, which is its main way in.
 @MainActor
 final class StatusMenu: NSObject, NSMenuDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -31,16 +31,16 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             status = problem.message
         } else if controller.isPaused {
             state = .paused
-            status = String(localized: "Remind is paused")
+            status = String(localized: "Elodie is paused")
         } else if controller.isRecording {
             state = .recording
-            status = String(localized: "Remind is recording")
+            status = String(localized: "Elodie is recording")
         } else if !controller.hasFinishedOnboarding {
             state = .paused
-            status = String(localized: "Remind isn't set up yet")
+            status = String(localized: "Elodie isn't set up yet")
         } else {
             state = .paused
-            status = String(localized: "Remind isn't recording yet")
+            status = String(localized: "Elodie isn't recording yet")
         }
         item.button?.image = glyph(state, isListening: controller.isTranscribing)
         item.button?.toolTip = controller.isTranscribing
@@ -64,9 +64,9 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.removeAllItems()
         guard let controller else { return }
         if !controller.hasFinishedOnboarding {
-            menu.addItem(entry("Finish setting up Remind…", symbol: "sparkles", action: #selector(finishSetup)))
+            menu.addItem(entry("Finish setting up Elodie…", symbol: "sparkles", action: #selector(finishSetup)))
             menu.addItem(.separator())
-            menu.addItem(entry("Quit Remind", action: #selector(quit), key: "q"))
+            menu.addItem(entry("Quit Elodie", action: #selector(quit), key: "q"))
             return
         }
         if let problem = controller.problem {
@@ -77,7 +77,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             if problem == .permissionMissing {
                 menu.addItem(entry("Open Screen Recording settings…", action: #selector(openPermissionSettings)))
                 // A new grant only reaches a new process.
-                menu.addItem(entry("Reopen Remind", symbol: "arrow.clockwise", action: #selector(reopen)))
+                menu.addItem(entry("Reopen Elodie", symbol: "arrow.clockwise", action: #selector(reopen)))
             }
             if problem == .keyMissing {
                 menu.addItem(entry("Unlock with recovery key…", symbol: "key", action: #selector(unlock)))
@@ -101,8 +101,8 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
-        menu.addItem(entry("Search Remind…", symbol: "magnifyingglass", action: #selector(search), shortcut: .search, enabled: hasRecordings))
-        menu.addItem(entry("Ask Remind…", symbol: "questionmark.bubble", action: #selector(ask), shortcut: .ask, enabled: hasRecordings))
+        menu.addItem(entry("Search Elodie…", symbol: "magnifyingglass", action: #selector(search), shortcut: .search, enabled: hasRecordings))
+        menu.addItem(entry("Ask Elodie…", symbol: "questionmark.bubble", action: #selector(ask), shortcut: .ask, enabled: hasRecordings))
         menu.addItem(.separator())
         menu.addItem(entry("Daily Recap", symbol: "calendar", action: #selector(recap), shortcut: .dailyRecap, enabled: hasRecordings))
         menu.addItem(entry("Transcripts", symbol: "text.quote", action: #selector(transcripts), enabled: hasRecordings))
@@ -141,7 +141,7 @@ final class StatusMenu: NSObject, NSMenuDelegate {
             menu.addItem(entry("Check for updates…", action: #selector(checkForUpdates)))
         }
         menu.addItem(.separator())
-        menu.addItem(entry("Quit Remind", action: #selector(quit), key: "q"))
+        menu.addItem(entry("Quit Elodie", action: #selector(quit), key: "q"))
     }
 
     private func entry(

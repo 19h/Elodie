@@ -74,7 +74,7 @@ final class ScrollToOpen: @unchecked Sendable {
             CGEvent.tapEnable(tap: startingTap, enable: true)
             CFRunLoopRun()
         }
-        thread.name = "remind-scroll-tap"
+        thread.name = "elodie-scroll-tap"
         thread.qualityOfService = .userInteractive
         thread.start()
         return true

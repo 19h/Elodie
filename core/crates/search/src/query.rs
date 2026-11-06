@@ -1,6 +1,6 @@
 //! Turns what someone typed into a full-text query.
 
-use remind_text::{Mode, tokenize};
+use elodie_text::{Mode, tokenize};
 
 /// One thing to look for: a word, or a quoted phrase.
 #[derive(Clone, Debug, PartialEq, Eq)]

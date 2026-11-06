@@ -1,9 +1,9 @@
 //! Searches against a real encrypted database with the real tokenizer.
 
-use remind_search::{Facets, Order, Page, Query, Search};
-use remind_store::project::{self, ChunkInfo, LoggedFrame};
-use remind_store::{DbKey, FrameContext, open_writer, schema, text};
-use remind_text::{OcrLine, OpenRun, Rect, RunPolicy, prepare_lines};
+use elodie_search::{Facets, Order, Page, Query, Search};
+use elodie_store::project::{self, ChunkInfo, LoggedFrame};
+use elodie_store::{DbKey, FrameContext, open_writer, schema, text};
+use elodie_text::{OcrLine, OpenRun, Rect, RunPolicy, prepare_lines};
 use rusqlite::{Connection, params};
 use tempfile::TempDir;
 

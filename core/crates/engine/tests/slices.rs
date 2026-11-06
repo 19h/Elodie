@@ -4,11 +4,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use remind_engine::{
+use elodie_engine::{
     AppendOutcome, Engine, EngineConfig, EngineError, FrameContext, MomentQuery, OcrBatchOptions,
     OcrLine, OcrResult, Rect, Sample,
 };
-use remind_vault::MasterKey;
+use elodie_vault::MasterKey;
 use tempfile::TempDir;
 
 const DISPLAY: [u8; 16] = [1; 16];

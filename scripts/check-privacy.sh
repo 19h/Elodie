@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Checks what Remind says about privacy against the code, so it can't quietly stop being true.
+# Checks what Elodie says about privacy against the code, so it can't quietly stop being true.
 set -uo pipefail
 
 root="${0:A:h:h}"
@@ -11,7 +11,7 @@ fail() {
 }
 
 cd "$root"
-sources=(App Widgets Packages/RemindKit/Sources)
+sources=(App Widgets Packages/ElodieKit/Sources)
 matches() {
   # Generated bindings and the two harnesses that launch local tools aren't app logic.
   grep -rnE "$1" "${sources[@]}" --include='*.swift' \
@@ -34,15 +34,15 @@ found=$(matches 'PrivateCloudCompute')
 found=$(matches '^import (Sentry|Segment|FirebaseAnalytics|Mixpanel|Amplitude|LaunchDarkly|TelemetryDeck)')
 [[ -n "$found" ]] && { print -u2 "$found"; fail "telemetry framework imported"; }
 
-# Nothing from Rewind ships with Remind.
-found=$(grep -rliE 'rewind\.ai|memoryvault|limitless\.ai|What if you had perfect memory' App Widgets Packages/RemindKit/Sources core/crates 2>/dev/null)
+# Nothing from Rewind ships with Elodie.
+found=$(grep -rliE 'rewind\.ai|memoryvault|limitless\.ai|What if you had perfect memory' App Widgets Packages/ElodieKit/Sources core/crates 2>/dev/null)
 [[ -n "$found" ]] && { print -u2 "$found"; fail "text copied from the reference app"; }
 if git ls-files | grep -qE '(^|/)ui-assets/|\.i64$|REWIND_(SPEC|UI)\.md'; then
   fail "reference material is in the repository"
 fi
 
 # The Rust library can't reach the network if it doesn't link the calls for it.
-lib="core/target/aarch64-apple-darwin/debug/libremind_ffi.a"
+lib="core/target/aarch64-apple-darwin/debug/libelodie_ffi.a"
 if [[ -f "$lib" ]]; then
   # Rust's standard library defines its own networking, which is only linked in if used,
   # so what matters is whether anything of ours asks for it.
@@ -56,7 +56,7 @@ fi
 if grep -qE '^(reqwest|hyper|ureq|tokio|surf|isahc)' core/Cargo.toml; then
   fail "the Rust core depends on a network library"
 fi
-tree=$(cd core && cargo tree -p remind-ffi --prefix none --edges normal 2>/dev/null)
+tree=$(cd core && cargo tree -p elodie-ffi --prefix none --edges normal 2>/dev/null)
 if print -r -- "$tree" | grep -qE '^(reqwest|hyper|ureq|tokio-rustls|isahc|native-tls|rustls) '; then
   fail "a Rust dependency brings in networking"
 fi

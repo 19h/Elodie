@@ -3,12 +3,12 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use remind_engine::{
+use elodie_engine::{
     Engine, EngineConfig, EngineError, FrameContext, OcrBatchOptions, OcrLine, OcrResult, Rect,
     Sample, SearchSession,
 };
-use remind_search::{Facets, Order, Query};
-use remind_vault::MasterKey;
+use elodie_search::{Facets, Order, Query};
+use elodie_vault::MasterKey;
 
 uniffi::setup_scaffolding!();
 
@@ -432,7 +432,7 @@ pub struct CoreStats {
     pub disk_full: bool,
 }
 
-fn gop_from(gop: remind_engine::Gop) -> Gop {
+fn gop_from(gop: elodie_engine::Gop) -> Gop {
     Gop {
         width: gop.width,
         height: gop.height,
@@ -528,9 +528,9 @@ impl Core {
             data: sample.data,
         })?;
         Ok(match outcome {
-            remind_engine::AppendOutcome::Accepted => AppendOutcome::Accepted,
-            remind_engine::AppendOutcome::DroppedQueueFull => AppendOutcome::DroppedQueueFull,
-            remind_engine::AppendOutcome::NeedsKeyframe => AppendOutcome::NeedsKeyframe,
+            elodie_engine::AppendOutcome::Accepted => AppendOutcome::Accepted,
+            elodie_engine::AppendOutcome::DroppedQueueFull => AppendOutcome::DroppedQueueFull,
+            elodie_engine::AppendOutcome::NeedsKeyframe => AppendOutcome::NeedsKeyframe,
         })
     }
 
@@ -632,7 +632,7 @@ impl Core {
         Ok(self.engine.append_transcript(
             words
                 .into_iter()
-                .map(|word| remind_engine::SpokenWord {
+                .map(|word| elodie_engine::SpokenWord {
                     text: word.text,
                     t_ms: word.t_ms,
                     duration_ms: word.duration_ms,
@@ -784,7 +784,7 @@ impl Core {
     pub fn moments(&self, query: MomentQuery) -> Result<Vec<SearchHit>, CoreError> {
         Ok(self
             .engine
-            .moments(&remind_engine::MomentQuery {
+            .moments(&elodie_engine::MomentQuery {
                 bundle_ids: query.bundle_ids,
                 starred_only: query.starred_only,
                 transcripts_only: query.transcripts_only,

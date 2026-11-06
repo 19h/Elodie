@@ -1,4 +1,4 @@
-name: Remind
+name: Elodie
 options:
   deploymentTarget:
     macOS: "26.0"
@@ -15,8 +15,8 @@ settings:
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development"
 packages:
-  RemindKit:
-    path: Packages/RemindKit
+  ElodieKit:
+    path: Packages/ElodieKit
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.0.0
@@ -24,7 +24,7 @@ packages:
     url: https://github.com/sparkle-project/Sparkle
     from: 2.6.0
 targets:
-  Remind:
+  Elodie:
     type: application
     platform: macOS
     sources:
@@ -41,54 +41,54 @@ targets:
       base:
         # Placeholder until the name is cleared. Changing it after release
         # orphans Keychain items and permission grants.
-        PRODUCT_BUNDLE_IDENTIFIER: app.remind.Remind.dev
+        PRODUCT_BUNDLE_IDENTIFIER: app.elodie.Elodie.dev
         INFOPLIST_FILE: App/Info.plist
-        CODE_SIGN_ENTITLEMENTS: App/Remind.entitlements
+        CODE_SIGN_ENTITLEMENTS: App/Elodie.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
       configs:
         Release:
           CODE_SIGN_IDENTITY: "Developer ID Application"
     dependencies:
-      - package: RemindKit
+      - package: ElodieKit
         product: CoreAPI
-      - package: RemindKit
+      - package: ElodieKit
         product: CoreLive
-      - package: RemindKit
+      - package: ElodieKit
         product: DesignSystem
-      - package: RemindKit
+      - package: ElodieKit
         product: Capture
-      - package: RemindKit
+      - package: ElodieKit
         product: Ingest
-      - package: RemindKit
+      - package: ElodieKit
         product: TestKit
-      - package: RemindKit
+      - package: ElodieKit
         product: CoreFake
-      - package: RemindKit
+      - package: ElodieKit
         product: FrameEngine
-      - package: RemindKit
+      - package: ElodieKit
         product: OverlayShell
-      - package: RemindKit
+      - package: ElodieKit
         product: StripRenderer
-      - package: RemindKit
+      - package: ElodieKit
         product: FeatureTimeline
-      - package: RemindKit
+      - package: ElodieKit
         product: FeatureSearch
-      - package: RemindKit
+      - package: ElodieKit
         product: FeatureOnboarding
-      - package: RemindKit
+      - package: ElodieKit
         product: FeatureSettings
-      - package: RemindKit
+      - package: ElodieKit
         product: FeatureAsk
-      - package: RemindKit
+      - package: ElodieKit
         product: FeatureMeetings
-      - package: RemindKit
+      - package: ElodieKit
         product: Audio
-      - package: RemindKit
+      - package: ElodieKit
         product: FeatureRecap
       - package: KeyboardShortcuts
       - package: Sparkle
-      - target: RemindWidgets
+      - target: ElodieWidgets
         embed: true
         codeSign: true
     preBuildScripts:
@@ -98,7 +98,7 @@ targets:
           profile=debug
           [ "$CONFIGURATION" = "Release" ] && profile=release
           "$SRCROOT/scripts/build-core.sh" "$profile"
-  RemindWidgets:
+  ElodieWidgets:
     type: app-extension
     platform: macOS
     sources:
@@ -108,18 +108,18 @@ targets:
           - "*.entitlements"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.remind.Remind.dev.controls
+        PRODUCT_BUNDLE_IDENTIFIER: app.elodie.Elodie.dev.controls
         INFOPLIST_FILE: Widgets/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Widgets/RemindWidgets.entitlements
+        CODE_SIGN_ENTITLEMENTS: Widgets/ElodieWidgets.entitlements
         SKIP_INSTALL: YES
       configs:
         Release:
           CODE_SIGN_IDENTITY: "Developer ID Application"
 schemes:
-  Remind:
+  Elodie:
     build:
       targets:
-        Remind: all
+        Elodie: all
     run:
       config: Debug
     archive:

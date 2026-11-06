@@ -54,7 +54,7 @@ enum Bench {
     @MainActor
     static func run(to output: URL) async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "remind-bench-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "elodie-bench-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 

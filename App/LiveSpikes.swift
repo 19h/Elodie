@@ -18,9 +18,9 @@ import TestKit
 /// Frames are examined in memory and thrown away, so nothing gets stored. The
 /// windows these draw are the only thing they look for.
 ///
-/// Launch through `open`, so macOS treats Remind as the app asking for permission:
+/// Launch through `open`, so macOS treats Elodie as the app asking for permission:
 ///
-///     open -n Remind.app --args --spike capture --out /path/to/report.txt
+///     open -n Elodie.app --args --spike capture --out /path/to/report.txt
 enum LiveSpikes {
     private static let report = Report()
 
@@ -29,7 +29,7 @@ enum LiveSpikes {
         func value(after flag: String) -> String? {
             arguments.firstIndex(of: flag).flatMap { arguments.indices.contains($0 + 1) ? arguments[$0 + 1] : nil }
         }
-        let output = value(after: "--out") ?? NSTemporaryDirectory() + "remind-spike.txt"
+        let output = value(after: "--out") ?? NSTemporaryDirectory() + "elodie-spike.txt"
         report.open(path: output)
 
         let app = NSApplication.shared
@@ -55,7 +55,7 @@ enum LiveSpikes {
                 case "browsers": try await Self.browserTitles()
                 case "endtoend": try await Self.endToEnd()
                 case "login-item":
-                    let agent = SMAppService.agent(plistName: "app.remind.Remind.agent.plist")
+                    let agent = SMAppService.agent(plistName: "app.elodie.Elodie.agent.plist")
                     switch value(after: "--action") {
                     case "on": try agent.register()
                     case "off": try await agent.unregister()
@@ -77,7 +77,7 @@ enum LiveSpikes {
                         windowID: CGWindowID(value(after: "--window") ?? "") ?? 0
                     )
                     // The system's own tool too, which doesn't go through this code's capture.
-                    let picture = FileManager.default.temporaryDirectory.appending(path: "remind-sharing-\(UUID().uuidString).png")
+                    let picture = FileManager.default.temporaryDirectory.appending(path: "elodie-sharing-\(UUID().uuidString).png")
                     defer { try? FileManager.default.removeItem(at: picture) }
                     let tool = Process()
                     tool.executableURL = URL(filePath: "/usr/sbin/screencapture")
@@ -135,7 +135,7 @@ enum LiveSpikes {
             panel.orderFrontRegardless()
             try await Task.sleep(for: .milliseconds(500))
 
-            let answer = URL(filePath: NSTemporaryDirectory()).appending(path: "remind-sharing-\(UUID().uuidString).txt")
+            let answer = URL(filePath: NSTemporaryDirectory()).appending(path: "elodie-sharing-\(UUID().uuidString).txt")
             defer { try? FileManager.default.removeItem(at: answer) }
             let configuration = NSWorkspace.OpenConfiguration()
             configuration.createsNewApplicationInstance = true
@@ -252,7 +252,7 @@ enum LiveSpikes {
     private static func endToEnd() async throws {
         report.line("End to end: a word on screen, found by search")
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "remind-e2e-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "elodie-e2e-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -260,7 +260,7 @@ enum LiveSpikes {
         guard let uuid = ScreenContent.stableID(of: displayID), let screen = NSScreen.screens.first else { return }
         let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 8, count: 32))
         let letters = Array("abcdefghjkmnpqrstuvwxyz")
-        let marker = "remind" + String((0..<8).map { _ in letters.randomElement()! })
+        let marker = "elodie" + String((0..<8).map { _ in letters.randomElement()! })
 
         let frame = NSRect(x: 120, y: screen.frame.height - 420, width: 900, height: 160)
         let window = NSWindow(contentRect: frame, styleMask: [.borderless], backing: .buffered, defer: false)
@@ -275,7 +275,7 @@ enum LiveSpikes {
         try await Task.sleep(for: .milliseconds(300))
 
         let pipeline = try DisplayPipeline(core: core, displayUUID: uuid) { _ in
-            .keep(FrameContext(bundleID: "app.remind.endtoend", window: "End to end"))
+            .keep(FrameContext(bundleID: "app.elodie.endtoend", window: "End to end"))
         }
         let stream = DisplayStream(
             displayID: displayID,
@@ -535,7 +535,7 @@ enum LiveSpikes {
     @MainActor
     private static func energy(seconds: Int) async throws {
         report.line("Spike 1: energy, \(seconds) seconds per mode, at a 2 second interval")
-        report.line("  Figures cover Remind and replayd only. WindowServer's share needs powermetrics.")
+        report.line("  Figures cover Elodie and replayd only. WindowServer's share needs powermetrics.")
         let displayID = CGMainDisplayID()
         let queue = DispatchQueue(label: "spike.energy", qos: .utility)
         let view = CounterView(frame: NSRect(x: 0, y: 0, width: 640, height: 64))

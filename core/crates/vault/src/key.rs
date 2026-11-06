@@ -42,14 +42,14 @@ impl MasterKey {
         let mut material = [0u8; 48];
         material[..32].copy_from_slice(&self.0);
         material[32..].copy_from_slice(chunk_id);
-        let key = blake3::derive_key("remind 2026-11 chunk key", &material);
+        let key = blake3::derive_key("elodie 2026-11 chunk key", &material);
         material.zeroize();
         key
     }
 
     /// The raw SQLCipher key.
     pub fn database_key(&self) -> [u8; 32] {
-        blake3::derive_key("remind 2026-11 database key", &self.0)
+        blake3::derive_key("elodie 2026-11 database key", &self.0)
     }
 }
 
@@ -72,8 +72,8 @@ mod tests {
         // Known answers. Existing vaults depend on these values, so if this
         // fails, the change would orphan all recorded history.
         let master = MasterKey::from_bytes([1; 32]);
-        assert_eq!(hex(&master.database_key()), "f32f54af1c2bd4fe368f25bd00d37e04f74663c5ebbac1f0faffbf2080417c6c");
-        assert_eq!(hex(&master.chunk_key(&[2; 16])), "981cd0273aac48bb44d60fdb5cb84d8997f21167f7ea8e1d9755c82bba336d76");
+        assert_eq!(hex(&master.database_key()), "12ce994e397635f844694b3514db0cca67c77898c5dfc57d7e0216f09a130b2c");
+        assert_eq!(hex(&master.chunk_key(&[2; 16])), "ae631bb722ba775d72d0da0ecd4264ccbe392a71c7a6cbd21460c11085042987");
     }
 
     fn hex(bytes: &[u8]) -> String {

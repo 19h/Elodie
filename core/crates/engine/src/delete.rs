@@ -20,9 +20,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use remind_store::text::ocr_state;
-use remind_text::{RunLine, codec};
-use remind_vault::{ChunkHeader, ChunkReader, ChunkWriter, MasterKey, RecordRef};
+use elodie_store::text::ocr_state;
+use elodie_text::{RunLine, codec};
+use elodie_vault::{ChunkHeader, ChunkReader, ChunkWriter, MasterKey, RecordRef};
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
 use crate::appender::{chunk_relative_path, path_in};
@@ -351,7 +351,7 @@ fn prune_runs(tx: &Transaction<'_>, runs: &HashSet<i64>) -> rusqlite::Result<()>
             continue;
         };
         let lines = codec::decode_lines(&lines_z).map_err(io_failure)?;
-        let decoded: Vec<(i64, Vec<(u32, remind_text::Rect)>)> = frames
+        let decoded: Vec<(i64, Vec<(u32, elodie_text::Rect)>)> = frames
             .iter()
             .map(|(id, compressed)| Ok((*id, codec::decode_frame_lines(compressed)?)))
             .collect::<std::io::Result<_>>()
@@ -398,7 +398,7 @@ fn prune_runs(tx: &Transaction<'_>, runs: &HashSet<i64>) -> rusqlite::Result<()>
         for line in &kept {
             let column = if line.is_front { &mut front } else { &mut other };
             if !column.is_empty() {
-                column.push(remind_text::LINE_SEPARATOR);
+                column.push(elodie_text::LINE_SEPARATOR);
             }
             column.push_str(&line.text);
         }

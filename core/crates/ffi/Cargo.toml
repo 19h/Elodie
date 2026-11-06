@@ -1,5 +1,5 @@
 [package]
-name = "remind-ffi"
+name = "elodie-ffi"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,13 +9,13 @@ publish.workspace = true
 workspace = true
 
 [lib]
-name = "remind_ffi"
+name = "elodie_ffi"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [dependencies]
-remind-engine.workspace = true
-remind-search.workspace = true
-remind-vault.workspace = true
+elodie-engine.workspace = true
+elodie-search.workspace = true
+elodie-vault.workspace = true
 rusqlite.workspace = true
 thiserror.workspace = true
 uniffi.workspace = true

@@ -3,7 +3,7 @@
 use std::collections::{HashSet, VecDeque};
 
 use rayon::prelude::*;
-use remind_text::{Rect, RunLine, codec};
+use elodie_text::{Rect, RunLine, codec};
 use rusqlite::{Connection, ToSql, params_from_iter};
 
 use crate::matching::{TermMatch, find_in_line};

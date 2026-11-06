@@ -1,7 +1,7 @@
 import AppKit
 import Sparkle
 
-/// Checks for and installs updates. This is the only part of Remind that uses the
+/// Checks for and installs updates. This is the only part of Elodie that uses the
 /// network, which `scripts/check-privacy.sh` enforces. It only asks whether a new version
 /// exists, and it never sends anything from your recordings.
 @MainActor

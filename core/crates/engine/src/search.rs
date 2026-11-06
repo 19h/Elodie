@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use remind_search::{Facets, Order, Page, Query, Search, SearchError};
+use elodie_search::{Facets, Order, Page, Query, Search, SearchError};
 use rusqlite::{Connection, InterruptHandle};
 
 use crate::{Engine, EngineError, Result};

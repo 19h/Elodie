@@ -1,14 +1,14 @@
-//! Registers the `remind` tokenizer with FTS5.
+//! Registers the `elodie` tokenizer with FTS5.
 
 use std::ffi::{c_char, c_int, c_void};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr;
 
-use remind_text::{Mode, tokenize};
+use elodie_text::{Mode, tokenize};
 use rusqlite::{Connection, ffi};
 
-/// The name used in `tokenize='remind'`.
-pub const TOKENIZER_NAME: &str = "remind";
+/// The name used in `tokenize='elodie'`.
+pub const TOKENIZER_NAME: &str = "elodie";
 
 /// FTS5 needs a non-null tokenizer handle, but this tokenizer has no state.
 /// The address of this byte stands in for one.
@@ -130,10 +130,10 @@ pub fn register_tokenizer(conn: &Connection) -> rusqlite::Result<()> {
         let create = (*api)
             .xCreateTokenizer
             .ok_or_else(|| sqlite_error(ffi::SQLITE_ERROR, "FTS5 has no xCreateTokenizer"))?;
-        create(api, c"remind".as_ptr(), ptr::null_mut(), &mut tokenizer, None)
+        create(api, c"elodie".as_ptr(), ptr::null_mut(), &mut tokenizer, None)
     };
     if rc != ffi::SQLITE_OK {
-        return Err(sqlite_error(rc, "couldn't register the remind tokenizer"));
+        return Err(sqlite_error(rc, "couldn't register the elodie tokenizer"));
     }
     Ok(())
 }

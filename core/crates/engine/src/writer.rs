@@ -6,7 +6,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
-use remind_store::{LoggedFrame, project};
+use elodie_store::{LoggedFrame, project};
 use rusqlite::{Connection, params};
 
 use crate::ocr::{self, OcrBatchOptions, OcrJob, PreparedResult, RunTracker};
@@ -45,7 +45,7 @@ pub(crate) fn spawn(
     shared: Arc<Shared>,
     messages: Receiver<WriterMessage>,
 ) -> std::io::Result<JoinHandle<()>> {
-    std::thread::Builder::new().name("remind-db-writer".to_owned()).spawn(move || {
+    std::thread::Builder::new().name("elodie-db-writer".to_owned()).spawn(move || {
         crate::set_utility_qos();
         run(conn, &config, &shared, &messages);
     })

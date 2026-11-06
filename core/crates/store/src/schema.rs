@@ -100,7 +100,7 @@ const MIGRATIONS: &[&str] = &[
      CREATE VIRTUAL TABLE run_fts USING fts5(
          text, other, title,
          content='', contentless_delete=1,
-         tokenize='remind', prefix='2 3'
+         tokenize='elodie', prefix='2 3'
      );",
     // Version 3: deletion.
     "CREATE TABLE purge (path TEXT PRIMARY KEY);

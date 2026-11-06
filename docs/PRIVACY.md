@@ -1,6 +1,6 @@
-# Remind and your privacy
+# Elodie and your privacy
 
-**Remind keeps everything on your Mac.** It has no account, no analytics, and no crash reporting,
+**Elodie keeps everything on your Mac.** It has no account, no analytics, and no crash reporting,
 and it doesn't upload your recordings, text, or transcripts anywhere.
 
 ## What it records
@@ -16,43 +16,43 @@ and it doesn't upload your recordings, text, or transcripts anywhere.
 
 - Apps you exclude in Settings, and their sound in a transcript.
 - Private and incognito browser windows. This relies on browsers' window titles, in languages
-  Remind knows. A browser window with no title yet counts as private until it has one, and if a
-  browser doesn't answer in time, Remind drops the frame. It also drops frames from any time it
+  Elodie knows. A browser window with no title yet counts as private until it has one, and if a
+  browser doesn't answer in time, Elodie drops the frame. It also drops frames from any time it
   couldn't check the window list promptly, such as when the Mac is busy. A private window open for
   less than 0.25 seconds may go unseen and end up in a recording.
-- Remind's own windows.
+- Elodie's own windows.
 
 **Password fields and other sensitive content in ordinary windows do get recorded** if they're
 visible on screen. Exclude apps you don't want recorded.
 
 ## What it reads to work
 
-- **Scrolling, to open the timeline.** With Accessibility on, Remind watches scroll events so that
+- **Scrolling, to open the timeline.** With Accessibility on, Elodie watches scroll events so that
   ⌘⇧ and scrolling up can take over from the app underneath. It sees scroll events only, never the
   keyboard, and it passes along everything except that gesture.
-- **The front browser tab's address, while your microphone is in use.** This is how Remind recognises
+- **The front browser tab's address, while your microphone is in use.** This is how Elodie recognises
   a call in a browser. Nothing is read for this while the microphone is off.
-- **Your calendar, only if you turn it on.** Remind reads the title of the event happening now, to
+- **Your calendar, only if you turn it on.** Elodie reads the title of the event happening now, to
   name a meeting. The title stays on your Mac with the transcript.
 
 ## Where it's kept
 
 Recordings are encrypted with a key in your login keychain, in
-`~/Library/Application Support/<Remind's identifier>/vault`. They're excluded from Time Machine,
+`~/Library/Application Support/<Elodie's identifier>/vault`. They're excluded from Time Machine,
 because a backup couldn't be read without that key anyway. If you lose the key, your history can't
 be recovered without a recovery key. Settings can save one to a file, and if the key is ever lost,
-Remind asks for it. Anyone with that file and your recordings can read them, so keep it somewhere safe.
+Elodie asks for it. Anyone with that file and your recordings can read them, so keep it somewhere safe.
 
-Anyone who can use your Mac while you're logged in can open Remind and see your history.
+Anyone who can use your Mac while you're logged in can open Elodie and see your history.
 
-The Control Center switch talks to Remind through system notifications, and any app can use them too.
-Another app can see whether Remind is recording, and can ask it to pause or resume. It can't read your
+The Control Center switch talks to Elodie through system notifications, and any app can use them too.
+Another app can see whether Elodie is recording, and can ask it to pause or resume. It can't read your
 recordings this way.
 
 ## Deleting
 
 You can delete a stretch on the timeline, a time range, everything recorded from one app, or
-everything at once. Deleting removes the recordings and their text from Remind's files, and whole
+everything at once. Deleting removes the recordings and their text from Elodie's files, and whole
 chunk files are removed from disk. A few frames just after a deleted period can also go, because
 they can't be decoded without what came before, and the timeline tells you before you confirm. Like
 any file deletion, old encrypted blocks can stay on the
@@ -60,14 +60,14 @@ drive or in APFS snapshots until they're overwritten.
 
 ## The network
 
-Remind uses the network for one thing: checking for updates, which you can turn off in Settings.
+Elodie uses the network for one thing: checking for updates, which you can turn off in Settings.
 That check sends your Mac's standard update request and nothing from your recordings. A build check
-(`scripts/check-privacy.sh`) confirms that nothing else in Remind can use the network.
+(`scripts/check-privacy.sh`) confirms that nothing else in Elodie can use the network.
 
-macOS downloads its own language models for transcription and Ask. Remind doesn't send anything in
+macOS downloads its own language models for transcription and Ask. Elodie doesn't send anything in
 that process. Ask uses Apple's on-device model, and your questions and screen text stay on your Mac.
 
 ## Recording other people
 
-Laws on recording conversations differ by place, and many require everyone's consent. Remind asks
+Laws on recording conversations differ by place, and many require everyone's consent. Elodie asks
 before transcribing a meeting unless you change that setting. Getting consent is up to you.

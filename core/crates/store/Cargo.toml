@@ -1,5 +1,5 @@
 [package]
-name = "remind-store"
+name = "elodie-store"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,7 @@ workspace = true
 [dependencies]
 thiserror.workspace = true
 rusqlite.workspace = true
-remind-text.workspace = true
+elodie-text.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

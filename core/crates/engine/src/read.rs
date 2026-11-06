@@ -1,6 +1,6 @@
 //! Reads frames back for display and verification.
 
-use remind_vault::{ChunkReader, MasterKey};
+use elodie_vault::{ChunkReader, MasterKey};
 use rusqlite::{OptionalExtension, params};
 
 use crate::appender::path_in;
@@ -10,7 +10,7 @@ use crate::{Engine, EngineError, Result};
 #[derive(Clone, Debug, PartialEq)]
 pub struct FrameTextLine {
     pub text: String,
-    pub rect: remind_text::Rect,
+    pub rect: elodie_text::Rect,
 }
 
 /// A meeting that was transcribed.
@@ -172,7 +172,7 @@ impl Engine {
     }
 
     /// What was on screen for a frame.
-    pub fn frame_context(&self, frame_id: i64) -> Result<Option<remind_store::FrameContext>> {
+    pub fn frame_context(&self, frame_id: i64) -> Result<Option<elodie_store::FrameContext>> {
         let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
         Ok(reader
             .prepare_cached(
@@ -180,7 +180,7 @@ impl Engine {
                  JOIN segment s ON s.id = f.segment_id WHERE f.id = ?1",
             )?
             .query_row(params![frame_id], |r| {
-                Ok(remind_store::FrameContext {
+                Ok(elodie_store::FrameContext {
                     bundle_id: r.get(0)?,
                     window: r.get(1)?,
                     url: r.get(2)?,
@@ -216,21 +216,21 @@ impl Engine {
         from_ms: i64,
         to_ms: i64,
         min_duration_ms: i64,
-    ) -> Result<remind_timeline::Timeline> {
+    ) -> Result<elodie_timeline::Timeline> {
         let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
-        Ok(remind_timeline::load(&reader, display_uuid, from_ms, to_ms, min_duration_ms)?)
+        Ok(elodie_timeline::load(&reader, display_uuid, from_ms, to_ms, min_duration_ms)?)
     }
 
     /// The stretches with something recorded for a display, oldest first.
     pub fn recorded_periods(&self, display_uuid: &[u8; 16], min_gap_ms: i64) -> Result<Vec<(i64, i64)>> {
         let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
-        Ok(remind_timeline::recorded_periods(&reader, display_uuid, min_gap_ms)?)
+        Ok(elodie_timeline::recorded_periods(&reader, display_uuid, min_gap_ms)?)
     }
 
     /// Summarises what was recorded in a period.
-    pub fn recap(&self, from_ms: i64, to_ms: i64, bucket_ms: i64) -> Result<remind_timeline::Recap> {
+    pub fn recap(&self, from_ms: i64, to_ms: i64, bucket_ms: i64) -> Result<elodie_timeline::Recap> {
         let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
-        Ok(remind_timeline::recap(&reader, from_ms, to_ms, bucket_ms)?)
+        Ok(elodie_timeline::recap(&reader, from_ms, to_ms, bucket_ms)?)
     }
 
     /// The text a frame shows, front window first, for answering questions about it.
@@ -253,8 +253,8 @@ impl Engine {
             row
         };
         let corrupt = |error: std::io::Error| EngineError::Corrupt(error.to_string());
-        let lines = remind_text::codec::decode_lines(&lines_z).map_err(corrupt)?;
-        let shown = remind_text::codec::decode_frame_lines(&frame_z).map_err(corrupt)?;
+        let lines = elodie_text::codec::decode_lines(&lines_z).map_err(corrupt)?;
+        let shown = elodie_text::codec::decode_frame_lines(&frame_z).map_err(corrupt)?;
         let in_order = |front: bool| {
             shown
                 .iter()
@@ -500,7 +500,7 @@ impl Engine {
             })?;
             for row in rows {
                 let (run_id, t_ms, lines_z, window) = row?;
-                let snippet = remind_text::codec::decode_lines(&lines_z)
+                let snippet = elodie_text::codec::decode_lines(&lines_z)
                     .ok()
                     .and_then(|lines| lines.into_iter().next())
                     .map(|line| line.text)
@@ -620,7 +620,7 @@ impl Engine {
     /// Which of the given periods have any recording.
     pub fn active_periods(&self, periods: &[(i64, i64)]) -> Result<Vec<bool>> {
         let reader = self.reader.lock().map_err(|_| EngineError::Stopped)?;
-        Ok(remind_timeline::active_periods(&reader, periods)?)
+        Ok(elodie_timeline::active_periods(&reader, periods)?)
     }
 
     /// Reads only the keyframe of a frame's group, for scrubbing too fast to decode
@@ -712,9 +712,9 @@ impl Engine {
 
     /// A new read connection, for tools and tests.
     pub fn open_reader(&self) -> Result<rusqlite::Connection> {
-        Ok(remind_store::open_reader(
+        Ok(elodie_store::open_reader(
             &self.root.join("vault.db"),
-            &remind_store::DbKey(self.db_key),
+            &elodie_store::DbKey(self.db_key),
         )?)
     }
 }

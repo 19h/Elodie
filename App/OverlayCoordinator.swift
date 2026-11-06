@@ -34,7 +34,7 @@ final class OverlayCoordinator {
         }
     }
 
-    private let core: any RemindCore
+    private let core: any ElodieCore
     private var prepared: [CGDirectDisplayID: Prepared] = [:]
     private var active: Prepared?
     private let search: SearchModel
@@ -76,7 +76,7 @@ final class OverlayCoordinator {
     }
     private var openedForSearch = false
 
-    init(core: any RemindCore) {
+    init(core: any ElodieCore) {
         self.core = core
         search = SearchModel(core: core)
         observeDismissals()
@@ -561,7 +561,7 @@ final class OverlayCoordinator {
         dismiss()
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.png]
-        panel.nameFieldStringValue = "Remind \(Self.fileDate()).png"
+        panel.nameFieldStringValue = "Elodie \(Self.fileDate()).png"
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url,
               let data = image.tiffRepresentation,
@@ -601,7 +601,7 @@ final class OverlayCoordinator {
         dismiss()
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]
-        panel.nameFieldStringValue = "Remind \(Self.fileDate()).mp4"
+        panel.nameFieldStringValue = "Elodie \(Self.fileDate()).mp4"
         panel.message = String(localized: "This saves an unencrypted copy of this stretch of your screen.")
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return }
@@ -722,7 +722,7 @@ final class HighlightModel {
 
 /// Everything drawn over the frame.
 struct OverlayContent: View {
-    let core: any RemindCore
+    let core: any ElodieCore
     let timeline: TimelineController
     @Bindable var search: SearchModel
     let highlights: HighlightModel
@@ -1055,7 +1055,7 @@ final class ActionMenuItem: NSMenuItem {
 
 /// A crop of a result's frame, centred on the match.
 struct HitThumbnail: View {
-    let core: any RemindCore
+    let core: any ElodieCore
     let hit: SearchHit
     @State private var image: CGImage?
     @State private var didFail = false

@@ -8,9 +8,9 @@
 use std::collections::HashMap;
 
 use rayon::prelude::*;
-use remind_store::project::decode_front_rect;
-use remind_store::text::{self, ocr_state};
-use remind_text::{OcrLine, OpenRun, PreparedLine, Rect, RunPolicy, prepare_lines};
+use elodie_store::project::decode_front_rect;
+use elodie_store::text::{self, ocr_state};
+use elodie_text::{OcrLine, OpenRun, PreparedLine, Rect, RunPolicy, prepare_lines};
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use crate::writer::WriterMessage;

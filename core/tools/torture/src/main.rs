@@ -23,9 +23,9 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use remind_engine::{AppendOutcome, Engine, EngineConfig, FrameContext, Sample};
-use remind_store::{DbKey, open_reader};
-use remind_vault::{ChunkReader, MasterKey};
+use elodie_engine::{AppendOutcome, Engine, EngineConfig, FrameContext, Sample};
+use elodie_store::{DbKey, open_reader};
+use elodie_vault::{ChunkReader, MasterKey};
 
 const DISPLAY: [u8; 16] = [0xD1; 16];
 
@@ -690,7 +690,7 @@ fn run_self_test(root: &Path) -> ! {
         let clean = verify(root, 0, MAX_LEN).unwrap().0;
         assert!(clean.violations.is_empty(), "the clean vault failed: {:?}", clean.violations);
 
-        let conn = remind_store::open_writer(&root.join("vault.db"), &DbKey(master().database_key())).unwrap();
+        let conn = elodie_store::open_writer(&root.join("vault.db"), &DbKey(master().database_key())).unwrap();
         damage(root, &conn);
         drop(conn);
 

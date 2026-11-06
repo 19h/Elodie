@@ -22,7 +22,7 @@ import TestKit
 /// Shows one screen with fixture data, screenshots its own window, and exits. This is
 /// how the interface can be checked with no one watching.
 ///
-///     open -n Remind.app --args --scenario timeline --out /path/to/shot.png
+///     open -n Elodie.app --args --scenario timeline --out /path/to/shot.png
 enum Scenarios {
     @MainActor
     static func run(arguments: [String]) -> Never {
@@ -75,10 +75,10 @@ enum Scenarios {
             try await capture(
                 AnyView(NoticeCard(
                     symbol: "rectangle.dashed.badge.record",
-                    title: "Remind has stopped recording",
-                    detail: "It needs Screen Recording permission. If it's already on, reopening Remind applies it.",
+                    title: "Elodie has stopped recording",
+                    detail: "It needs Screen Recording permission. If it's already on, reopening Elodie applies it.",
                     primary: "Open System Settings",
-                    secondary: "Reopen Remind",
+                    secondary: "Reopen Elodie",
                     onPrimary: {},
                     onSecondary: {}
                 )),
@@ -90,7 +90,7 @@ enum Scenarios {
         case "settings-general", "settings-screen", "settings-audio", "settings-meetings", "settings-storage", "settings-shortcuts":
             let tabs = ["general": SettingsTab.general, "screen": .screen, "audio": .audio, "meetings": .meetings, "storage": .storage, "shortcuts": .shortcuts]
             let window = ScenarioWindow(contentViewController: SettingsWindow.controller(
-                model: SettingsModel(defaults: UserDefaults(suiteName: "remind-scenario")!),
+                model: SettingsModel(defaults: UserDefaults(suiteName: "elodie-scenario")!),
                 actions: PreviewActions(),
                 shortcuts: AnyView(ShortcutsTab()),
                 selecting: tabs[String(name.dropFirst("settings-".count))] ?? .general
@@ -177,7 +177,7 @@ enum Scenarios {
     @MainActor
     private static func captureContrast(_ backdrop: String, to output: URL) async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "remind-contrast-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "elodie-contrast-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 5, count: 32))
@@ -359,7 +359,7 @@ enum Scenarios {
     @MainActor
     private static func captureOverlay(_ name: String, to output: URL) async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "remind-scenario-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "elodie-scenario-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
 
@@ -538,7 +538,7 @@ enum Scenarios {
     @MainActor
     private static func captureHistoryWindow(_ name: String, to output: URL) async throws {
         let directory = FileManager.default.temporaryDirectory
-            .appending(path: "remind-scenario-\(UUID().uuidString)", directoryHint: .isDirectory)
+            .appending(path: "elodie-scenario-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let core = try LiveCore(vaultDirectory: directory, masterKey: Data(repeating: 9, count: 32))
@@ -623,7 +623,7 @@ enum Scenarios {
     }
 
     /// Words reach the index in batches.
-    private static func waitForTranscript(_ core: any RemindCore, from: Date, to: Date) async throws {
+    private static func waitForTranscript(_ core: any ElodieCore, from: Date, to: Date) async throws {
         for _ in 0..<100 {
             if try !core.transcriptSessions(from: from, to: to, limit: 1).isEmpty { return }
             try await Task.sleep(for: .milliseconds(100))
@@ -647,7 +647,7 @@ private struct ScenarioAnswers: AnswerGenerator {
 /// Defaults that don't touch the real app's, with the hints already at a given step.
 @MainActor
 private func scenarioDefaults(coachMarksAt step: Int) -> UserDefaults {
-    let defaults = UserDefaults(suiteName: "remind-scenario")!
+    let defaults = UserDefaults(suiteName: "elodie-scenario")!
     defaults.set(step, forKey: "coachMarkStep")
     return defaults
 }

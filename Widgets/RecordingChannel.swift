@@ -7,10 +7,10 @@ import notify
 /// stops holding the name, so a crash can't leave the button claiming it's recording.
 enum RecordingChannel {
     /// The control's identity, for asking the system to read it again.
-    static let controlKind = "app.remind.recording"
-    static let pauseRequest = "app.remind.pause-recording"
-    static let resumeRequest = "app.remind.resume-recording"
-    private static let stateName = "app.remind.recording-state"
+    static let controlKind = "app.elodie.recording"
+    static let pauseRequest = "app.elodie.pause-recording"
+    static let resumeRequest = "app.elodie.resume-recording"
+    private static let stateName = "app.elodie.recording-state"
 
     enum State: UInt64 {
         case notRunning = 0

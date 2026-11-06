@@ -12,7 +12,7 @@ enum ThumbnailLoader {
     /// The crop's width as a fraction of the frame, so the match has some context.
     private static let cropWidth: CGFloat = 0.30
 
-    static func crop(core: any RemindCore, hit: SearchHit) async -> CGImage? {
+    static func crop(core: any ElodieCore, hit: SearchHit) async -> CGImage? {
         await Task.detached(priority: .utility) { () -> CGImage? in
             guard let group = try? core.readGroup(containing: hit.frameID),
                   let decoder = try? HEVCDecoder(parameterSets: group.parameterSets, width: group.width, height: group.height)

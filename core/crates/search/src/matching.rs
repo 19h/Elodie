@@ -3,7 +3,7 @@
 //! The index can't report where a match is, because it's contentless. So lines get
 //! tokenised again here, with the same tokenizer the index used.
 
-use remind_text::{Mode, tokenize};
+use elodie_text::{Mode, tokenize};
 
 use crate::QueryTerm;
 

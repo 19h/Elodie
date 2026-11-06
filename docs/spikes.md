@@ -17,7 +17,7 @@ were proposals until measured here. Machine: M4 Max, macOS 27.2, unless noted.
 | Signed app calling Rust | Works, signed with Apple Development and hardened runtime |
 
 The checks live on as `core/crates/store/tests/spike0_storage.rs` and
-`Packages/RemindKit/Tests/CoreLiveTests`.
+`Packages/ElodieKit/Tests/CoreLiveTests`.
 
 **Tokenizer change found while building.** Stemming breaks prefix search, because
 `runn*` can't match a stored `run`. Documents now index the folded word and its
@@ -32,7 +32,7 @@ waits for the release milestone.
 The login keychain works today with no profile: add, read, and delete all succeed.
 It doesn't sync, and its access list is tied to the code signature. It differs from
 the plan's "after first unlock" in one way: if someone configures their login
-keychain to lock on sleep, the key is unavailable until it's unlocked. Remind must
+keychain to lock on sleep, the key is unavailable until it's unlocked. Elodie must
 treat that as "temporarily unavailable" and never as "missing".
 
 ## Spike 6: durability (passed)
@@ -264,7 +264,7 @@ the app underneath stays still. With real events through the real coordinator, t
 lost, the swipe carries on after the keys are let go and through momentum, and opening costs 24 ms on
 the main thread.
 
-**The real event tap has now run**, both under the shell's Accessibility grant and under Remind's own. A
+**The real event tap has now run**, both under the shell's Accessibility grant and under Elodie's own. A
 separate process filled the screen and counted every marked scroll that reached it, standing in for the
 app underneath, while scrolls were posted through the system:
 
@@ -351,7 +351,7 @@ code, live transcription stopping within seconds, highlights off on a display of
 recording back on not clearing "kept crashing", Ask refusing to summarise a whole period, and the
 coach mark covering the selection bar.
 
-Once every permission had been granted, first run was repeated under Remind's own identity: all three rows
+Once every permission had been granted, first run was repeated under Elodie's own identity: all three rows
 showed as granted, Continue was on, and Start recording started recording with the event tap live.
 
 | Also tested for real | Result |

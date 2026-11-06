@@ -306,7 +306,7 @@ pub fn recap(
 #[cfg(test)]
 mod period_tests {
     use super::*;
-    use remind_store::{DbKey, open_writer, schema};
+    use elodie_store::{DbKey, open_writer, schema};
     use tempfile::TempDir;
 
     const SCREEN: [u8; 16] = [1; 16];
@@ -388,7 +388,7 @@ mod period_tests {
 #[cfg(test)]
 mod recap_tests {
     use super::*;
-    use remind_store::{DbKey, open_writer, schema};
+    use elodie_store::{DbKey, open_writer, schema};
     use tempfile::TempDir;
 
     fn database() -> (TempDir, Connection) {

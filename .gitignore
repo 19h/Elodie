@@ -1,9 +1,9 @@
 # Build products
 /build/
 /core/target/
-/Packages/RemindKit/.build/
-/Packages/RemindKit/Frameworks/
-/Packages/RemindKit/Sources/CoreABI/Generated/
+/Packages/ElodieKit/.build/
+/Packages/ElodieKit/Frameworks/
+/Packages/ElodieKit/Sources/CoreABI/Generated/
 DerivedData/
 *.xcodeproj/
 *.xcworkspace/

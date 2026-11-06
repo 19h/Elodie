@@ -27,7 +27,7 @@ extension KeyboardShortcuts.Name {
     static let toggleAudio = Self("toggleAudio")
 }
 
-/// Why Remind can't record, as shown to the user.
+/// Why Elodie can't record, as shown to the user.
 enum RecordingProblem: Equatable {
     case permissionMissing
     case keyMissing
@@ -41,14 +41,14 @@ enum RecordingProblem: Equatable {
 
     var message: String {
         switch self {
-        case .permissionMissing: String(localized: "Remind needs Screen Recording permission.")
+        case .permissionMissing: String(localized: "Elodie needs Screen Recording permission.")
         case .keyMissing: String(localized: "The key for your recordings is missing from your keychain.")
         case .keychainLocked: String(localized: "Your keychain is locked, so recordings can't be opened yet.")
-        case .keychainDenied: String(localized: "Remind wasn't allowed to read its key from your keychain.")
+        case .keychainDenied: String(localized: "Elodie wasn't allowed to read its key from your keychain.")
         case .diskFull: String(localized: "Recording stopped because the disk is nearly full.")
         case .encoderFailed: String(localized: "Recording stopped because video encoding kept failing.")
         case .notSaving: String(localized: "Recordings aren't being saved to disk.")
-        case .keptCrashing: String(localized: "Recording is paused because Remind kept crashing.")
+        case .keptCrashing: String(localized: "Recording is paused because Elodie kept crashing.")
         case .other(let text): text
         }
     }
@@ -76,7 +76,7 @@ enum AppEnvironment {
     nonisolated(unsafe) static var sandbox: URL?
 
     nonisolated(unsafe) static let defaults: UserDefaults = {
-        guard sandbox != nil, let suite = UserDefaults(suiteName: "remind-sandbox") else { return .standard }
+        guard sandbox != nil, let suite = UserDefaults(suiteName: "elodie-sandbox") else { return .standard }
         return suite
     }()
 
@@ -85,7 +85,7 @@ enum AppEnvironment {
             return sandbox.appending(path: "vault", directoryHint: .isDirectory)
         }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appending(path: Bundle.main.bundleIdentifier ?? "app.remind.Remind", directoryHint: .isDirectory)
+        return base.appending(path: Bundle.main.bundleIdentifier ?? "app.elodie.Elodie", directoryHint: .isDirectory)
             .appending(path: "vault", directoryHint: .isDirectory)
     }
 }
@@ -142,7 +142,7 @@ final class AppController: NSObject {
     private var windowObservers: [NSWindow: any NSObjectProtocol] = [:]
     private let launchedAt = Date()
     private let crashGuard = CrashGuard(defaults: AppEnvironment.defaults)
-    private static let loginAgent = SMAppService.agent(plistName: "app.remind.Remind.agent.plist")
+    private static let loginAgent = SMAppService.agent(plistName: "app.elodie.Elodie.agent.plist")
     private(set) var problem: RecordingProblem?
     private(set) var isPaused = false
 
@@ -334,7 +334,7 @@ final class AppController: NSObject {
         overlay.onRecordingsDeleted = { [weak self] in self?.closeWindowsShowingRecordings() }
         overlay.searchNote = { [weak self] in
             guard self?.ocr?.isWarmingUp == true else { return nil }
-            return String(localized: "Remind is getting ready to read your screen, which takes a minute or so the first time. New recordings turn up here after that.")
+            return String(localized: "Elodie is getting ready to read your screen, which takes a minute or so the first time. New recordings turn up here after that.")
         }
         self.overlay = overlay
 
@@ -407,7 +407,7 @@ final class AppController: NSObject {
             onQuit: { NSApp.terminate(nil) }
         )
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
-        window.title = String(localized: "Unlock Remind")
+        window.title = String(localized: "Unlock Elodie")
         window.styleMask = [.titled, .closable]
         window.isReleasedWhenClosed = false
         window.center()
@@ -487,11 +487,11 @@ final class AppController: NSObject {
                 if !useMicrophone {
                     if wantsSpeakers {
                         showAudioNotice(
-                            String(localized: "Remind can't hear your microphone"),
+                            String(localized: "Elodie can't hear your microphone"),
                             detail: String(localized: "Only your computer's audio is being transcribed. Allow the microphone in System Settings to include your voice.")
                         )
                     } else {
-                        audioFailed(String(localized: "Remind isn't allowed to use the microphone."))
+                        audioFailed(String(localized: "Elodie isn't allowed to use the microphone."))
                         return
                     }
                 }
@@ -849,12 +849,12 @@ final class AppController: NSObject {
         case .stoppedBySystem:
             // macOS stops capture for several reasons, and permission is only one of them.
             if CGPreflightScreenCaptureAccess() {
-                show(problem: .other(String(localized: "macOS stopped the recording. Remind will try again shortly.")))
+                show(problem: .other(String(localized: "macOS stopped the recording. Elodie will try again shortly.")))
             } else {
                 show(problem: .permissionMissing)
             }
         case .other(let code):
-            show(problem: .other(String(localized: "Recording stopped unexpectedly (\(code)). Remind will try again shortly.")))
+            show(problem: .other(String(localized: "Recording stopped unexpectedly (\(code)). Elodie will try again shortly.")))
         }
     }
 
@@ -875,10 +875,10 @@ final class AppController: NSObject {
         case .permissionMissing:
             showCard(NoticeCard(
                 symbol: "rectangle.dashed.badge.record",
-                title: "Remind has stopped recording",
-                detail: "It needs Screen Recording permission. If it's already on, reopening Remind applies it.",
+                title: "Elodie has stopped recording",
+                detail: "It needs Screen Recording permission. If it's already on, reopening Elodie applies it.",
                 primary: "Open System Settings",
-                secondary: "Reopen Remind",
+                secondary: "Reopen Elodie",
                 onPrimary: { [weak self] in
                     self?.openPermissionSettings()
                 },
@@ -887,7 +887,7 @@ final class AppController: NSObject {
         case .diskFull:
             showCard(NoticeCard(
                 symbol: "externaldrive.badge.exclamationmark",
-                title: "Remind has stopped recording",
+                title: "Elodie has stopped recording",
                 detail: "The disk is nearly full. Recording starts again when there's space, or you can keep less in Settings.",
                 primary: "Open Settings",
                 secondary: "Not now",
@@ -902,7 +902,7 @@ final class AppController: NSObject {
         default:
             showCard(NoticeCard(
                 symbol: "exclamationmark.triangle",
-                title: "Remind has stopped recording",
+                title: "Elodie has stopped recording",
                 detail: LocalizedStringKey(problem.message),
                 primary: "Try again",
                 secondary: "Not now",
@@ -1055,7 +1055,7 @@ final class AppController: NSObject {
         guard settings.remindWhenPaused else { return }
         showCard(NoticeCard(
             symbol: "pause.circle",
-            title: "Remind is still paused",
+            title: "Elodie is still paused",
             detail: "Nothing on your screen is being recorded.",
             primary: "Resume recording",
             secondary: "Keep paused",
@@ -1160,13 +1160,13 @@ final class AppController: NSObject {
         switch recording?.privacyCheckTrouble {
         case .accessibilityOff:
             settings.privateBrowsingWarning = String(
-                localized: "Accessibility is off for Remind, so it can only spot private windows by their titles, and Arc can't be recorded."
+                localized: "Accessibility is off for Elodie, so it can only spot private windows by their titles, and Arc can't be recorded."
             )
         case .browserNotResponding(let bundleID):
             let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
                 .deletingPathExtension().lastPathComponent ?? bundleID
             settings.privateBrowsingWarning = String(
-                localized: "\(name) isn't responding to Remind, so its windows aren't being recorded right now."
+                localized: "\(name) isn't responding to Elodie, so its windows aren't being recorded right now."
             )
         case nil:
             settings.privateBrowsingWarning = nil
@@ -1270,7 +1270,7 @@ final class AppController: NSObject {
                     self?.overlay?.open(at: hit.capturedAt, display: hit.display)
                 }
             }
-            askWindow = makeWindow(title: "Ask Remind", content: view, size: NSSize(width: 560, height: 680))
+            askWindow = makeWindow(title: "Ask Elodie", content: view, size: NSSize(width: 560, height: 680))
         }
         show(askWindow)
     }
@@ -1387,7 +1387,7 @@ final class AppController: NSObject {
                 if let error {
                     // The new copy didn't start, so this one stays and says so.
                     let alert = NSAlert()
-                    alert.messageText = String(localized: "Remind couldn't reopen")
+                    alert.messageText = String(localized: "Elodie couldn't reopen")
                     alert.informativeText = String(localized: "Quit it and open it again. \(error.localizedDescription)")
                     alert.runModal()
                 } else {
@@ -1593,7 +1593,7 @@ extension AppController: SettingsActions {
 
     private func requireCore() throws -> LiveCore {
         guard let core else {
-            throw NSError(domain: "Remind", code: 1, userInfo: [
+            throw NSError(domain: "Elodie", code: 1, userInfo: [
                 NSLocalizedDescriptionKey: String(localized: "Your recordings aren't open."),
             ])
         }
@@ -1658,16 +1658,16 @@ extension AppController: SettingsActions {
 
     private func promptToSave(_ key: Data) {
         let panel = NSSavePanel()
-        panel.nameFieldStringValue = "Remind recovery key.txt"
+        panel.nameFieldStringValue = "Elodie recovery key.txt"
         panel.message = String(localized: "Keep this somewhere safe. Anyone with this key and your files can read your recordings.")
         NSApp.activate()
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let text = """
-        Remind recovery key
+        Elodie recovery key
 
         \(RecoveryKey.text(for: key))
 
-        This decrypts your recordings. To use it, open Remind on a Mac where the key is missing,
+        This decrypts your recordings. To use it, open Elodie on a Mac where the key is missing,
         and enter it when asked. Keep it somewhere safe and private.
 
         """
@@ -1716,7 +1716,7 @@ extension AppController: SettingsActions {
             settings.namesMeetingsFromCalendar = allowed
             if !allowed {
                 showAlert(
-                    String(localized: "Remind can't read your calendar"),
+                    String(localized: "Elodie can't read your calendar"),
                     detail: String(localized: "You can allow it in System Settings, under Privacy & Security, then Calendars.")
                 )
             }
@@ -1766,8 +1766,8 @@ extension AppController: SettingsActions {
 struct ShortcutsTab: View {
     var body: some View {
         Form {
-            KeyboardShortcuts.Recorder("Search Remind:", name: .search)
-            KeyboardShortcuts.Recorder("Ask Remind:", name: .ask)
+            KeyboardShortcuts.Recorder("Search Elodie:", name: .search)
+            KeyboardShortcuts.Recorder("Ask Elodie:", name: .ask)
             KeyboardShortcuts.Recorder("Daily Recap:", name: .dailyRecap)
             KeyboardShortcuts.Recorder("Star moment:", name: .starMoment)
             KeyboardShortcuts.Recorder("Audio capture:", name: .toggleAudio)

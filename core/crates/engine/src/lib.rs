@@ -27,8 +27,8 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crossbeam_channel::{Sender, TrySendError, bounded, unbounded};
-use remind_store::{DbKey, schema};
-use remind_vault::{MasterKey, VaultError};
+use elodie_store::{DbKey, schema};
+use elodie_vault::{MasterKey, VaultError};
 use rusqlite::Connection;
 
 pub use ocr::{OcrBatchOptions, OcrJob, OcrResult};
@@ -39,9 +39,9 @@ pub use read::{
 pub use recovery::RecoveryReport;
 pub use search::SearchSession;
 pub use transcript::{SpokenWord, TranscriptLine};
-pub use remind_store::FrameContext;
-pub use remind_text::{OcrLine, Rect, RunPolicy};
-pub use remind_timeline::{ActivityBlock, AppTime, Recap, Run as TimelineRun, Timeline};
+pub use elodie_store::FrameContext;
+pub use elodie_text::{OcrLine, Rect, RunPolicy};
+pub use elodie_timeline::{ActivityBlock, AppTime, Recap, Run as TimelineRun, Timeline};
 
 use appender::AppendRequest;
 
@@ -207,12 +207,12 @@ impl Engine {
         let db_key = master.database_key();
         let db_path = root.join("vault.db");
 
-        let mut writer_conn = remind_store::open_writer(&db_path, &DbKey(db_key))?;
+        let mut writer_conn = elodie_store::open_writer(&db_path, &DbKey(db_key))?;
         schema::migrate(&mut writer_conn)?;
 
         let report = recovery::recover(root, &master, &mut writer_conn)?;
 
-        let reader = remind_store::open_reader(&db_path, &DbKey(db_key))?;
+        let reader = elodie_store::open_reader(&db_path, &DbKey(db_key))?;
         let shared = Arc::new(Shared::default());
 
         let (sample_tx, sample_rx) = bounded(config.sample_queue);

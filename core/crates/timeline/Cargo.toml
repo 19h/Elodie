@@ -1,5 +1,5 @@
 [package]
-name = "remind-timeline"
+name = "elodie-timeline"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,5 +12,5 @@ workspace = true
 rusqlite.workspace = true
 
 [dev-dependencies]
-remind-store.workspace = true
+elodie-store.workspace = true
 tempfile.workspace = true
