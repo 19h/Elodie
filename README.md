@@ -355,7 +355,7 @@ Elodie also adjusts by itself:
 | ⌥⇧Space | Open Ask. |
 | Open Elodie again while it's running | Open search, or setup or the recovery key if they need you first. |
 
-You can change the two key combinations in Settings → Shortcuts. A default is saved the first time it's used, so a Mac that ran an earlier build keeps ⌘⇧- for Ask until you change it there. You can also assign shortcuts there for Daily Recap, Star moment, and Audio capture, which have none by default.
+You can change the two key combinations in Settings → Shortcuts. You can also assign shortcuts there for Daily Recap, Star moment, and Audio capture, which have none by default.
 
 **In the timeline**
 
@@ -498,6 +498,8 @@ These promises are checked against the code. `make check-privacy` runs as part o
 - The cloud model is used
 - An analytics or crash-reporting framework is imported
 - The Rust core links network calls or depends on a networking crate
+
+Both release scripts also run `scripts/check-bundle.sh` on the finished app. It fails if the bundle has an updater, networking, test code, or private symbols. For the App Store edition, it also fails without the sandbox, or with Accessibility, an event tap, or a launch agent.
 
 ## How it works
 
@@ -742,7 +744,7 @@ open -n $APP --args --spike capture --out /path/to/report.txt
 open -n $APP --args --sandbox /path/to/folder
 ```
 
-- **Scenarios:** `timeline`, `timeline-zoom`, `timeline-break`, `timeline-break-hover`, `timeline-break-crossed`, `timeline-break-range`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `overflow-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`.
+- **Scenarios:** `timeline`, `timeline-zoom`, `timeline-break`, `timeline-break-hover`, `timeline-break-crossed`, `timeline-break-range`, `display-picker`, `coach-marks`, `jump-to-date`, `forget-confirm`, `slice-hover`, `slice-selected`, `slice-range`, `slice-confirm`, `search-compact`, `search-expanded`, `search-starred`, `search-apps`, `ask`, `recap`, `transcripts`, `transcript`, `meeting-prompt`, `notice-card`, `recovery`, `status-menu`, `overflow-menu`, `onboarding-welcome`, `onboarding-how`, `onboarding-permissions`, `onboarding-ready`, `settings-general`, `-screen`, `-audio`, `-meetings`, `-storage`, `-shortcuts`, `contrast-white`, `-black`, `-noisy`, `-saturated`, and `bench`. `overlay-input` and `overlay-swipe` take over the screen and keyboard, so run those through `make interaction-test`. Timeline and search scenarios also take `--window <width>x<height>`, which is how the App Store screenshots get the shape they need.
 - **Spikes:** `capture` and `endtoend` need no permission, and work only on windows the harness draws. `privacy`, `energy`, `browsers`, and `sharing` need Screen Recording. `sharing` puts up a small panel with the overlay's settings, after an ordinary panel as a control, and starts a second copy of the app to capture the whole display as a screen share would and look for it, including with the system's `screencapture` tool. It counts only marker-coloured pixels where the panel sits. It examines frames in memory, except that the tool's picture goes in a temporary file that's deleted straight away. `login-item` needs no permission and captures nothing. It reports the login item's status and which permissions the app has, and `--action on` or `--action off` registers or unregisters the login item for real, which starts the real app rather than a sandbox. `sharing-hold` also needs no permission. It holds up a marker panel on every display, ordinary and then with the overlay's setting, for 8 seconds each, so that something outside the app can try capturing them.
 
 `settings-screen` lists the apps installed on your Mac, and `make scenarios` draws it too, so check it before sharing the picture.
@@ -826,6 +828,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 - **Only one display records at a time:** the one your pointer is on.
 - **The interface is English only.** Strings are marked for localisation, but no translations exist yet.
 - **Apple Silicon only.** Builds are `arm64`.
+- **Recordings made under the app's old name can't be opened.** Its key labels, file header, and search tokenizer changed with the name. Those files aren't touched, but Elodie starts again with a new vault and settings, and macOS asks for its permissions again.
 
 **Not yet tested with real hardware or people:** how the swipe feels on a real trackpad and mouse, and its scroll speed. With synthetic events through the real event tap, none reached the app underneath. Also the login item across a restart, words from a real microphone, dragging a frame out, input methods in search, the overlay over full-screen apps and in Stage Manager, haptics, and the Control Center switch in Control Center itself. The [release checklist](docs/release-checklist.md) has the full list.
 
