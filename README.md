@@ -499,7 +499,7 @@ These promises are checked against the code. `make check-privacy` runs as part o
 - An analytics or crash-reporting framework is imported
 - The Rust core links network calls or depends on a networking crate
 
-Both release scripts also run `scripts/check-bundle.sh` on the finished app. It fails if the bundle has an updater, networking, test code, or private symbols. For the App Store edition, it also fails without the sandbox, or with Accessibility, an event tap, or a launch agent.
+Both release scripts also run `scripts/check-bundle.sh` on the finished app. It fails if the bundle has an updater, networking, test code, or private symbols. For the App Store edition, it also fails without the sandbox, with Accessibility, an event tap, or a launch agent, or if it was built with a beta Xcode or SDK, which Apple refuses with error 90301.
 
 ## How it works
 

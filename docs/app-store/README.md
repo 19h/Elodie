@@ -69,6 +69,9 @@ Upload `build/app-store/export/Elodie.pkg`, using Transporter, or archive the **
 Xcode. The **Elodie** scheme is the direct download, which has no sandbox, so Apple refuses it with "App sandbox
 not enabled". In Transporter, remove any earlier attempt and add the package again.
 
+Apple also refuses a build made with a beta Xcode or SDK, with error 90301, so it needs a release Xcode.
+`scripts/check-bundle.sh` fails on a beta build before you get as far as uploading it.
+
 ## What only you can do
 
 1. **Answer the encryption question for each build.** The build doesn't declare anything, so App Store
