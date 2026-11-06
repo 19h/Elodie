@@ -94,6 +94,7 @@ enum AppEnvironment {
 
     #if DEBUG
     /// Starts a driven run's save panels somewhere harmless, under a name that doesn't change.
+    @MainActor
     static func aim(_ panel: NSSavePanel, named name: String) {
         let arguments = CommandLine.arguments
         guard let flag = arguments.firstIndex(of: "--save-to"), arguments.indices.contains(flag + 1) else { return }
