@@ -22,7 +22,7 @@ error -25204. So this edition has none of that code.
 
 ## What's been checked
 
-`scripts/check-bundle.sh`, which `make app-store` and `make release` both run, fails if the bundle has
+`scripts/check-bundle.sh`, which `make app-store`, `make release`, and `make distribute` all run, fails if the bundle has
 an updater, test code, networking calls, a network entitlement, a symbol outside the public SDK, a
 private framework, or no privacy manifest. For the App Store edition it also fails without the
 sandbox, or with a temporary exception, Accessibility, an event tap, or a launch agent.

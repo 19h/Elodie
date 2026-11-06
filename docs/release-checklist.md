@@ -10,12 +10,13 @@
       licence may restrict that. This repository keeps that material out, and uses its own code and
       wording, but that doesn't settle the question.
 - [x] **Licence** for Elodie itself: MIT.
-- [ ] **Hosting** for the disk image, if there's a direct download as well as the App Store.
+- [ ] **Hosting** for the zip or disk image, if there's a direct download as well as the App Store.
 - [ ] **Export compliance.** See [app-store.md](app-store/README.md).
 
 ## Setup
 
-- [ ] Store notarization credentials: `xcrun notarytool store-credentials`.
+- [ ] Only for a notarized disk image: store credentials with `xcrun notarytool store-credentials`.
+      `make distribute` uses Xcode's sign-in instead.
 - [ ] Decide on the keychain. The data protection keychain needs a provisioning profile and a
       registered App ID, and it would add "this device only, after first unlock" protection. The
       login keychain works today. See docs/spikes.md.

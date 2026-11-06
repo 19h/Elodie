@@ -792,7 +792,7 @@ make app-store                               # The sandboxed App Store edition, 
 scripts/app-store.sh --export                # The same, then makes the package to upload
 ```
 
-Release builds need a Developer ID Application identity. Notarizing needs a profile stored with `xcrun notarytool store-credentials`. Nothing is uploaded except for notarization, and only when you ask for it.
+Release builds need a Developer ID Application identity. `make distribute` notarizes using Xcode's sign-in, and a notarized disk image needs a profile stored with `xcrun notarytool store-credentials` instead. Nothing is uploaded except for notarization, and only when you ask for it.
 
 Before any public release, work through [docs/release-checklist.md](docs/release-checklist.md). Several of its checks need a person, a real Mac, and real permission prompts.
 
