@@ -387,6 +387,11 @@ bundle ID that already held them. All other apps were excluded from recording.
 | Transcribing the computer's audio, with the Mac muted | Test speech came back as words |
 | The microphone, with nobody speaking | 2,819 buffers, and 523,650 frames reached recognition, with no words |
 | Pausing and resuming through Control Center's notifications, from another process | Worked, and the state went 1, 2, 1 |
+| A swipe of synthetic trackpad events, with no event tap and no permissions | Opened the timeline and moved back to 14 seconds ago, after the keys were let go and through momentum |
+| An open panel, choosing a text file outside the sandbox | Read it |
+| An open panel for choosing an app | Comes up, and stayed up for 12 seconds until cancelled. Its list isn't reachable by automation, so Open wasn't pressed |
+| `SMAppService.mainApp` | Registered as enabled and unregistered cleanly, without starting a copy. It reports "not found" before the first registration |
+| Exporting for the App Store, without letting Xcode change the account | Stops on the two missing distribution certificates and the provisioning profile, and nothing else |
 | Keychain add, read, and delete, without a provisioning profile | Worked |
 | Global hotkey, Darwin notifications, starting a copy of itself, reading other apps' bundles | Worked |
 | On-device model and speech, available | Yes, 45 languages for speech, 9 installed |
@@ -403,9 +408,13 @@ The overlay closes when another app comes to the front, by design, which kept cl
 while someone was working at this Mac. So a driven run can now open it on the display the pointer isn't on,
 with `--overlay-away`.
 
+A panel that seemed to cancel itself was someone at this Mac dismissing it, as far as this could tell: one
+left alone stayed up for over 30 seconds.
+
 **Not run in the sandbox:** the switch in Control Center itself, a real voice through the microphone, the
-swipe, an open panel, and opening at login across a restart. Whether an event tap works with Input Monitoring
-in place of Accessibility hasn't been tried either, because it needs someone to switch that on.
+swipe on real fingers, pressing Open on a chosen app, and opening at login across a restart. `--test-swipe-keys`
+uses ⌃⌥, so it can run beside a copy holding ⌘⇧. Whether an event tap works with Input Monitoring in place of
+Accessibility hasn't been tried either, because it needs someone to switch that on.
 
 ## Open items
 

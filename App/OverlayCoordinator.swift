@@ -180,7 +180,10 @@ final class OverlayCoordinator {
             }
             return
         }
-        let displayOverride = display
+        var displayOverride = display
+        #if DEBUG
+        displayOverride = displayOverride ?? debugDisplayOverride
+        #endif
         let display = activeDisplayID()
         guard let overlay = prepared[display] ?? makeMissingOverlay(for: display) else { return }
         active = overlay
@@ -214,7 +217,12 @@ final class OverlayCoordinator {
     func handleScroll(_ event: NSEvent) {
         if !isOpen {
             let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            guard flags.contains(.command), flags.contains(.shift),
+            var keys: NSEvent.ModifierFlags = [.command, .shift]
+            #if DEBUG
+            // Another copy running here takes ⌘⇧ for itself, and the test needs to see it.
+            if Self.usesTestSwipeKeys { keys = [.control, .option] }
+            #endif
+            guard flags.isSuperset(of: keys),
                   event.momentumPhase.isEmpty,
                   event.scrollingDeltaY > 0
             else { return }
@@ -225,6 +233,8 @@ final class OverlayCoordinator {
 
     #if DEBUG
     static let opensAwayFromPointer = CommandLine.arguments.contains("--overlay-away")
+    static let usesTestSwipeKeys = CommandLine.arguments.contains("--test-swipe-keys")
+    var debugDisplayOverride: UUID?
     var debugDismissReason = "none"
     var debugLastResult = "none"
     func debugSaveImage() { saveImage() }

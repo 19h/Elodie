@@ -55,7 +55,7 @@ enum LiveSpikes {
                 case "browsers": try await Self.browserTitles()
                 case "endtoend": try await Self.endToEnd()
                 case "login-item":
-                    let agent = SMAppService.agent(plistName: "app.elodie.Elodie.agent.plist")
+                    let agent = Edition.loginItem
                     switch value(after: "--action") {
                     case "on": try agent.register()
                     case "off": try await agent.unregister()

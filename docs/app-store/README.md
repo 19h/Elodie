@@ -40,13 +40,16 @@ Real runs of the sandboxed edition on this Mac, with screen recording granted:
 | Transcribing the computer's audio | Test speech came back as words, labelled Others |
 | The microphone | 2,819 buffers arrived, and recognition got 523,650 frames. Nobody was speaking, so it produced no words |
 | Control Center's signalling, and the state it reads | Pause and resume worked from another process, and the state went 1, 2, 1 |
+| The swipe, with synthetic trackpad events and no permissions | Opened the timeline and moved back to 14 seconds ago, carrying on after the keys were let go and through momentum |
+| Choosing a file in an open panel | Read a text file from outside the sandbox. The panel for choosing an app also comes up and stays up |
+| Opening at login | Registers as enabled, and unregisters cleanly, without starting a copy |
 | Keychain, hotkeys, the on-device model | Worked |
 | Connecting to the internet | Blocked |
 
 **Still needs a person:** seeing the switch in Control Center's gallery and flipping it, a real voice
-through the microphone, and the swipe itself. That last one couldn't run here while another copy was
-holding the same gesture, though watching scrolls worked in the sandbox with no permissions. Choosing
-a file in an open panel hasn't been tried, and neither has opening at login across a restart.
+through the microphone, how the swipe feels on real fingers with ⌘⇧ (the test used other keys, because
+another copy was holding those), pressing Open on a chosen app, whose list can't be reached by
+automation, and opening at login across a restart.
 
 ## What only you can do
 
@@ -58,8 +61,10 @@ a file in an open panel hasn't been tried, and neither has opening at login acro
 2. **Get the rest of the legal review:** a trademark search on "Elodie", the decompiled reference app,
    and recording law. See [release-checklist.md](../release-checklist.md).
 3. **Sign in to Xcode with your developer account,** then run `scripts/app-store.sh --export`. That has
-   Xcode create what's missing, because this Mac has no Apple Distribution or Mac Installer certificate.
-   This step hasn't been run, and registers `app.elodie.Elodie` and `app.elodie.Elodie.controls`.
+   Xcode create what's missing. It changes your developer account, by creating certificates and registering
+   `app.elodie.Elodie` and `app.elodie.Elodie.controls`, so it hasn't been run. Without permission to do that,
+   the export stops on exactly three things: a Mac App Distribution certificate, a Mac Installer Distribution
+   certificate, and a provisioning profile.
 4. **Create the app in App Store Connect,** and declare your EU trader status. It's required, and if
    you're a trader your address, phone number, and email go on the product page in the EU.
 5. **Upload** from Xcode's Organizer or Transporter, try it through TestFlight, and submit it.

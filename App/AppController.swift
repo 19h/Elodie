@@ -237,12 +237,23 @@ final class AppController: NSObject {
     }
 
     private func registerShortcuts() {
+        #if DEBUG
+        // Only the swipe, with keys another copy isn't listening for. See `handleScroll`.
+        if OverlayCoordinator.usesTestSwipeKeys {
+            startScrollMonitor()
+            return
+        }
+        #endif
         guard !AppEnvironment.isGuestBesideRealCopy else { return }
         KeyboardShortcuts.onKeyDown(for: .search) { [weak self] in self?.showSearch() }
         KeyboardShortcuts.onKeyDown(for: .ask) { [weak self] in self?.openAsk() }
         KeyboardShortcuts.onKeyDown(for: .dailyRecap) { [weak self] in self?.openRecap() }
         KeyboardShortcuts.onKeyDown(for: .starMoment) { [weak self] in self?.starMoment() }
         KeyboardShortcuts.onKeyDown(for: .toggleAudio) { [weak self] in self?.toggleTranscribing() }
+        startScrollMonitor()
+    }
+
+    private func startScrollMonitor() {
         let monitor = ScrollToOpen { [weak self] event in self?.overlay?.handleScroll(event) }
         monitor.start()
         scrollMonitor = monitor
@@ -1567,6 +1578,20 @@ extension AppController {
                 overlay?.debugSaveImage()
             case "panelRecovery":
                 saveRecoveryKey()
+            case "panelOpen":
+                // What the recovery window and the excluded apps list do with a chosen file.
+                let panel = NSOpenPanel()
+                panel.allowedContentTypes = argument.hasSuffix(".app") ? [.applicationBundle] : [.plainText, .text]
+                panel.directoryURL = URL(filePath: argument)
+                NSApp.activate()
+                guard panel.runModal() == .OK, let url = panel.url else { return "cancelled" }
+                if url.pathExtension == "app" {
+                    return "chose \(url.lastPathComponent), bundle ID \(Bundle(url: url)?.bundleIdentifier ?? "unreadable")"
+                }
+                let contents = try String(contentsOf: url, encoding: .utf8)
+                return "chose \(url.lastPathComponent), read \(contents.utf8.count) bytes"
+            case "useRecordedDisplay":
+                overlay?.debugDisplayOverride = try core?.displays().first?.id
             case "coreExport":
                 // The last minute of a display, into the folder this run was given.
                 guard let core, let sandbox = AppEnvironment.sandbox, let display = try core.displays().first else { return "nothing" }
