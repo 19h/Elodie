@@ -24,7 +24,7 @@ enum Edition {
     }
     static let accessibility: AccessibilityAccess? = AccessibilityProbe.access
     /// Starts with the Mac, and launchd brings it back after a crash.
-    static var loginItem: SMAppService { .agent(plistName: "app.elodie.Elodie.agent.plist") }
+    static var loginItem: SMAppService { .agent(plistName: "com.kenansulayman.Elodie.agent.plist") }
     static let privateWindowNote = String(
         localized: "Accessibility is off for Elodie, so it can only spot private windows by their titles, and Arc can't be recorded."
     )

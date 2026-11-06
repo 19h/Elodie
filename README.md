@@ -73,7 +73,7 @@ Capture, encoding, text recognition, search, transcription, and answers all run 
 | **Version** | 0.1.0, unreleased |
 | **Download** | None yet. Build from source. |
 | **Name** | Elodie. It hasn't had a trademark check yet. |
-| **Bundle ID** | `app.elodie.Elodie`, and `app.elodie.Elodie.dev` for development builds. |
+| **Bundle ID** | `com.kenansulayman.Elodie`, and `com.kenansulayman.Elodie.dev` for development builds. |
 | **Editions** | A direct download, and a sandboxed App Store build that can't read web addresses. See [Two editions](#two-editions). |
 | **Updates** | Nothing in the app checks for them. The App Store build gets its updates from the App Store, and a direct download is replaced by a newer one. |
 | **Tested on** | Benchmarks have only run on an M4 Max with synthetic screens. See [Measurements](#measurements). |
@@ -131,7 +131,7 @@ open build/Elodie/Build/Products/Debug/Elodie.app
 `make app` builds the Rust core, generates its Swift bindings, generates the Xcode project, and builds the app. To work in Xcode, run `make project` and open `Elodie.xcodeproj`. The project and the core's framework are generated, so neither is checked in.
 
 > [!WARNING]
-> A development build is the real app. Once you finish setup, it records your actual screen into `~/Library/Application Support/app.elodie.Elodie.dev/vault`. To check a build without recording anything, run `make self-check`, which opens a temporary vault, prints the core's versions, and exits.
+> A development build is the real app. Once you finish setup, it records your actual screen into `~/Library/Application Support/com.kenansulayman.Elodie.dev/vault`. To check a build without recording anything, run `make self-check`, which opens a temporary vault, prints the core's versions, and exits.
 
 ### First run
 

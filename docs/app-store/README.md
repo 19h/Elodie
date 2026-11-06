@@ -62,7 +62,7 @@ automation, and opening at login across a restart.
    and recording law. See [release-checklist.md](../release-checklist.md).
 3. **Sign in to Xcode with your developer account,** then run `scripts/app-store.sh --export`. That has
    Xcode create what's missing. It changes your developer account, by creating certificates and registering
-   `app.elodie.Elodie` and `app.elodie.Elodie.controls`, so it hasn't been run. Without permission to do that,
+   `com.kenansulayman.Elodie` and `com.kenansulayman.Elodie.controls`, so it hasn't been run. Without permission to do that,
    the export stops on exactly three things: a Mac App Distribution certificate, a Mac Installer Distribution
    certificate, and a provisioning profile.
 4. **Create the app in App Store Connect,** and declare your EU trader status. It's required, and if

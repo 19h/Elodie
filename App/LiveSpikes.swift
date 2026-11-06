@@ -275,7 +275,7 @@ enum LiveSpikes {
         try await Task.sleep(for: .milliseconds(300))
 
         let pipeline = try DisplayPipeline(core: core, displayUUID: uuid) { _ in
-            .keep(FrameContext(bundleID: "app.elodie.endtoend", window: "End to end"))
+            .keep(FrameContext(bundleID: "com.kenansulayman.Elodie.endtoend", window: "End to end"))
         }
         let stream = DisplayStream(
             displayID: displayID,

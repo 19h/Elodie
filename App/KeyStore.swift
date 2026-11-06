@@ -21,7 +21,7 @@ enum KeyStore {
     }
 
     /// Test runs pass their own, so they can't touch the real key.
-    nonisolated(unsafe) static var service = "app.elodie.vault"
+    nonisolated(unsafe) static var service = "com.kenansulayman.Elodie.vault"
     private static let account = "master-key"
 
     private static var baseQuery: [CFString: Any] {

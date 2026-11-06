@@ -53,7 +53,7 @@ enum Entry {
         #if DEBUG
         if let flag = arguments.firstIndex(of: "--sandbox"), arguments.indices.contains(flag + 1) {
             AppEnvironment.sandbox = URL(filePath: arguments[flag + 1], directoryHint: .isDirectory)
-            KeyStore.service = "app.elodie.vault.sandbox"
+            KeyStore.service = "com.kenansulayman.Elodie.vault.sandbox"
         } else {
             leaveIfAlreadyRunning(arguments: arguments)
         }
