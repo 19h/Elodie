@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>Label</key>
-	<string>com.kenansulayman.Elodie.agent</string>
+	<string>com.kenansulayman.elodie.agent</string>
 	<key>BundleProgram</key>
 	<string>Contents/MacOS/Elodie</string>
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
-		<string>com.kenansulayman.Elodie</string>
-		<string>com.kenansulayman.Elodie.dev</string>
+		<string>com.kenansulayman.elodie</string>
+		<string>com.kenansulayman.elodie.dev</string>
 	</array>
 	<key>RunAtLoad</key>
 	<true/>

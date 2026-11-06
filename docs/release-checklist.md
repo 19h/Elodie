@@ -4,7 +4,7 @@
 
 - [ ] **Name.** Get a trademark check for "Elodie". A search of the US App Store found no app with that
       name on 2026-11-06, but that isn't a trademark search.
-- [x] **Bundle ID.** `com.kenansulayman.Elodie`, and `.dev` for development builds. Changing it after release
+- [x] **Bundle ID.** `com.kenansulayman.elodie`, and `com.kenansulayman.elodie.dev` for development builds. Changing it after release
       orphans keychain items and permission grants.
 - [ ] **Legal review.** The behaviour was informed by analysing a decompiled commercial app, whose
       licence may restrict that. This repository keeps that material out, and uses its own code and

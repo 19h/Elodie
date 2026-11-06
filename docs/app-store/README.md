@@ -51,6 +51,57 @@ through the microphone, how the swipe feels on real fingers with ⌘⇧ (the tes
 another copy was holding those), pressing Open on a chosen app, whose list can't be reached by
 automation, and opening at login across a restart.
 
+## Identifiers
+
+| | Direct download | App Store |
+|---|---|---|
+| App | `com.kenansulayman.elodie` | `com.kenansulayman.elodie` |
+| Control Center extension | `com.kenansulayman.elodie.controls` | `com.kenansulayman.elodie.widgets` |
+| Keychain service | `com.kenansulayman.elodie.vault` | `com.kenansulayman.elodie.appstore.vault` |
+
+Apple treats IDs that differ only by case as the same one, so the two editions can't both be registered.
+Only the App Store's needs to be, since Developer ID signing doesn't use a registered ID. Its extension is
+`.widgets` because `com.kenansulayman.elodie.controls` was registered first, and it's now unused.
+
+The extension has no provisioning profile. Apple says nested code doesn't need one if it only has
+unrestricted entitlements, like the sandbox, and only the main app has to have one for TestFlight. If an
+upload warns with ITMS-90889 and names the extension, Apple's suggested fix is to add Keychain Sharing to
+that target, which forces a profile.
+
+Don't run both editions at once on one Mac. Their data and keys are separate, but both would record.
+
+## Identifiers
+
+| | Direct download | App Store |
+|---|---|---|
+| App | `com.kenansulayman.elodie` | `com.kenansulayman.elodie` |
+| Control Center extension | `com.kenansulayman.elodie.controls` | `com.kenansulayman.elodie.controls` |
+| Keychain service | `com.kenansulayman.elodie.vault` | `com.kenansulayman.elodie.appstore.vault` |
+
+Apple treats IDs that differ only by case as the same one, so only one of each pair can be registered.
+That's the App Store's, which is the only edition that needs it, because Developer ID signing doesn't use a
+registered ID. The direct download keeps its capital E, because installed copies have recordings and
+permissions tied to it.
+
+The extension has no provisioning profile. Apple says nested code doesn't need one if it only has
+unrestricted entitlements, like the sandbox, and it's the main app that has to have one for TestFlight. If an
+upload warns with ITMS-90889 and names the extension, Apple's suggested fix is to add Keychain Sharing to
+that target, which forces a profile.
+
+Don't run both editions at once on one Mac. Their data and keys are separate, but both would record.
+
+## Identifiers
+
+Both editions are `com.kenansulayman.elodie`, with `com.kenansulayman.elodie.controls` for the Control
+Center extension, and `.dev` on both for development builds. Only those two need registering, and they
+are. The App Store edition keeps its key under `com.kenansulayman.elodie.appstore.vault`, so it never asks
+for the direct download's key on a Mac that has both.
+
+The extension has no provisioning profile. Apple says nested code doesn't need one if it only has
+unrestricted entitlements, like the sandbox, and it's the main app that has to have one for TestFlight. If an
+upload warns with ITMS-90889 and names the extension, Apple's suggested fix is to add Keychain Sharing to
+that target, which forces a profile.
+
 ## What only you can do
 
 1. **Decide on export compliance.** Elodie encrypts with its own libraries, so `ITSAppUsesNonExemptEncryption`
@@ -60,11 +111,10 @@ automation, and opening at login across a restart.
    set the key to `false` if they agree it's exempt.
 2. **Get the rest of the legal review:** a trademark search on "Elodie", the decompiled reference app,
    and recording law. See [release-checklist.md](../release-checklist.md).
-3. **Sign in to Xcode with your developer account,** then run `scripts/app-store.sh --export`. That has
-   Xcode create what's missing. It changes your developer account, by creating certificates and registering
-   `com.kenansulayman.Elodie` and `com.kenansulayman.Elodie.controls`, so it hasn't been run. Without permission to do that,
-   the export stops on exactly three things: a Mac App Distribution certificate, a Mac Installer Distribution
-   certificate, and a provisioning profile.
+3. **Sign in to Xcode with your developer account,** then run `scripts/app-store.sh --export`. It signs with
+   Apple's cloud-managed distribution certificates, so none need installing on this Mac, and leaves the
+   package to upload in `build/app-store/export`. This worked on 2026-11-06, but the package hasn't been
+   uploaded, so Apple hasn't validated it yet.
 4. **Create the app in App Store Connect,** and declare your EU trader status. It's required, and if
    you're a trader your address, phone number, and email go on the product page in the EU.
 5. **Upload** from Xcode's Organizer or Transporter, try it through TestFlight, and submit it.

@@ -112,7 +112,7 @@ enum AppEnvironment {
             return sandbox.appending(path: "vault", directoryHint: .isDirectory)
         }
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return base.appending(path: Bundle.main.bundleIdentifier ?? "com.kenansulayman.Elodie", directoryHint: .isDirectory)
+        return base.appending(path: Bundle.main.bundleIdentifier ?? "com.kenansulayman.elodie", directoryHint: .isDirectory)
             .appending(path: "vault", directoryHint: .isDirectory)
     }
 }

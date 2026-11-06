@@ -26,13 +26,13 @@ settings:
   configs:
     # Can't change after release, because keychain items and permissions depend on it.
     Release:
-      ELODIE_BUNDLE_ID: com.kenansulayman.Elodie
+      ELODIE_BUNDLE_ID: com.kenansulayman.elodie
     AppStore:
-      ELODIE_BUNDLE_ID: com.kenansulayman.Elodie
+      ELODIE_BUNDLE_ID: com.kenansulayman.elodie
     Debug:
-      ELODIE_BUNDLE_ID: com.kenansulayman.Elodie.dev
+      ELODIE_BUNDLE_ID: com.kenansulayman.elodie.dev
     AppStoreDebug:
-      ELODIE_BUNDLE_ID: com.kenansulayman.Elodie.dev
+      ELODIE_BUNDLE_ID: com.kenansulayman.elodie.dev
 packages:
   ElodieKit:
     path: Packages/ElodieKit
@@ -66,11 +66,11 @@ targets:
         AppStore:
           CODE_SIGN_ENTITLEMENTS: App/ElodieAppStore.entitlements
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: ELODIE_APP_STORE
-          EXCLUDED_SOURCE_FILE_NAMES: com.kenansulayman.Elodie.agent.plist
+          EXCLUDED_SOURCE_FILE_NAMES: com.kenansulayman.elodie.agent.plist
         AppStoreDebug:
           CODE_SIGN_ENTITLEMENTS: App/ElodieAppStore.entitlements
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ELODIE_APP_STORE
-          EXCLUDED_SOURCE_FILE_NAMES: com.kenansulayman.Elodie.agent.plist
+          EXCLUDED_SOURCE_FILE_NAMES: com.kenansulayman.elodie.agent.plist
     dependencies:
       - package: ElodieKit
         product: CoreAPI

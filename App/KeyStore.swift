@@ -21,7 +21,12 @@ enum KeyStore {
     }
 
     /// Test runs pass their own, so they can't touch the real key.
-    nonisolated(unsafe) static var service = "com.kenansulayman.Elodie.vault"
+    /// Each edition has its own, so one never asks for the other's key on a Mac with both.
+    #if ELODIE_APP_STORE
+    nonisolated(unsafe) static var service = "com.kenansulayman.elodie.appstore.vault"
+    #else
+    nonisolated(unsafe) static var service = "com.kenansulayman.elodie.vault"
+    #endif
     private static let account = "master-key"
 
     private static var baseQuery: [CFString: Any] {
@@ -46,7 +51,10 @@ enum KeyStore {
             }
             return data
         case errSecItemNotFound:
-            guard !vaultExists else { throw .keyMissing }
+            guard !vaultExists else {
+                if let moved = try moveKeyFromOldName() { return moved }
+                throw .keyMissing
+            }
             return try create()
         case errSecInteractionNotAllowed, errSecNotAvailable, errSecNoSuchKeychain:
             // None of these mean the key is gone, so they must not lead to a new key.
@@ -56,6 +64,25 @@ enum KeyStore {
         default:
             throw .keychainUnavailable(status)
         }
+    }
+
+    /// Until 2026-11-06 the bundle ID had a capital E, and keychain lookups care about case,
+    /// where the folder and settings don't. Without this, a copy from then couldn't open its
+    /// recordings. The old key only goes once the new one is safely stored.
+    private static func moveKeyFromOldName() throws(Failure) -> Data? {
+        let oldService = service.replacingOccurrences(of: "com.kenansulayman.elodie", with: "com.kenansulayman.Elodie")
+        guard oldService != service else { return nil }
+        var old = baseQuery
+        old[kSecAttrService] = oldService
+        var query = old
+        query[kSecReturnData] = true
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let key = result as? Data, key.count == 32
+        else { return nil }
+        try restore(key)
+        SecItemDelete(old as CFDictionary)
+        return key
     }
 
     private static func create() throws(Failure) -> Data {
