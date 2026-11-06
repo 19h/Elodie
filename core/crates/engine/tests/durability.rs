@@ -305,6 +305,35 @@ fn a_file_cut_off_inside_its_header_is_removed() {
     engine.close().unwrap();
 }
 
+/// Looking through the vault in Finder leaves a `.DS_Store` in each folder opened.
+#[test]
+fn files_left_by_finder_do_not_stop_the_vault_opening() {
+    let dir = TempDir::new().unwrap();
+    let engine = open(dir.path());
+    for n in 0..4 {
+        engine.append(sample(n, n == 0)).unwrap();
+    }
+    engine.close().unwrap();
+
+    let shard = chunk_files(dir.path())[0].parent().unwrap().to_owned();
+    for folder in [dir.path().to_owned(), dir.path().join("chunks"), shard] {
+        std::fs::write(folder.join(".DS_Store"), b"left by Finder").unwrap();
+    }
+
+    let (engine, _) = Engine::open(dir.path(), master(), config()).unwrap();
+    assert_eq!(frame_count(&engine), 4);
+    engine.close().unwrap();
+
+    // Rebuilding depends on finding every chunk past those files.
+    for name in ["vault.db", "vault.db-wal", "vault.db-shm"] {
+        let _ = std::fs::remove_file(dir.path().join(name));
+    }
+    let (engine, report) = Engine::open(dir.path(), master(), config()).unwrap();
+    assert_eq!(report.frames_replayed, 4);
+    assert_eq!(frame_count(&engine), 4);
+    engine.close().unwrap();
+}
+
 /// Makes every chunk look unsealed, as they would be after a real power cut.
 fn mark_unsealed(root: &Path) {
     let conn = elodie_store::open_writer(

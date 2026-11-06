@@ -117,7 +117,13 @@ fn all_chunk_files(root: &Path) -> std::io::Result<Vec<PathBuf>> {
         return Ok(files);
     };
     for shard in shards {
-        for entry in std::fs::read_dir(shard?.path())? {
+        // Looking through this folder in Finder leaves a .DS_Store here.
+        let entries = match std::fs::read_dir(shard?.path()) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotADirectory => continue,
+            Err(error) => return Err(error),
+        };
+        for entry in entries {
             let path = entry?.path();
             if path.extension().is_some_and(|e| e == "chunk") {
                 files.push(path);
