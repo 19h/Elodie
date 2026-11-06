@@ -97,5 +97,10 @@ Elodie can't open a vault made under the app's old name, because the labels that
 chunk file header, and the search tokenizer's name all changed with the name. That vault's files aren't
 touched.
 
+Each edition keeps its key under its own keychain name, so one never asks for the other's on a Mac with
+both. Keychain lookups care about case, where the folder and settings don't, so a copy from when the bundle
+ID had a capital E finds its key under the old name and moves it across. The old key only goes once the
+new one is stored.
+
 A recovery key restores a lost key. It only goes back in the keychain once it has been shown to open
 the vault, so a wrong key can't do any harm.
