@@ -11,6 +11,9 @@ import FeatureMeetings
 import FeatureOnboarding
 import FeatureRecap
 import FeatureSettings
+#if DEBUG
+import FrameEngine
+#endif
 import Ingest
 import KeyboardShortcuts
 import ServiceManagement
@@ -75,6 +78,17 @@ enum RecordingProblem: Equatable {
 enum AppEnvironment {
     nonisolated(unsafe) static var sandbox: URL?
 
+    /// A throwaway test run next to someone's own copy leaves the shortcuts, the swipe, and
+    /// Control Center to that copy, so they carry on working as usual.
+    static let isGuestBesideRealCopy: Bool = {
+        #if DEBUG
+        guard sandbox != nil, let identifier = Bundle.main.bundleIdentifier else { return false }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: identifier).count > 1
+        #else
+        return false
+        #endif
+    }()
+
     nonisolated(unsafe) static let defaults: UserDefaults = {
         guard sandbox != nil, let suite = UserDefaults(suiteName: "elodie-sandbox") else { return .standard }
         return suite
@@ -99,7 +113,7 @@ final class AppController: NSObject {
     static let criticalDiskBytes: Int64 = 2_000_000_000
 
     let settings = SettingsModel(defaults: AppEnvironment.defaults)
-    private let permissions = PermissionMonitor(defaults: AppEnvironment.defaults)
+    private let permissions = PermissionMonitor(defaults: AppEnvironment.defaults, accessibility: Edition.accessibility)
     private var core: LiveCore?
     private var recording: RecordingController?
     private var ocr: OCRWorker?
@@ -124,7 +138,6 @@ final class AppController: NSObject {
     private let calendar = MeetingCalendar()
     private var transcriptTitle: String?
     private(set) var audioProblem: String?
-    let updater = Updater()
     private(set) var isTranscribing = false
     /// Set once the app is running, so Shortcuts actions and the Control Center button can
     /// reach it.
@@ -142,7 +155,7 @@ final class AppController: NSObject {
     private var windowObservers: [NSWindow: any NSObjectProtocol] = [:]
     private let launchedAt = Date()
     private let crashGuard = CrashGuard(defaults: AppEnvironment.defaults)
-    private static let loginAgent = SMAppService.agent(plistName: "app.elodie.Elodie.agent.plist")
+    private static let loginAgent = Edition.loginItem
     private(set) var problem: RecordingProblem?
     private(set) var isPaused = false
 
@@ -171,7 +184,6 @@ final class AppController: NSObject {
         #if DEBUG
         if let sandbox = AppEnvironment.sandbox { startSandboxDriver(in: sandbox) }
         #endif
-        updater.checksAutomatically = settings.checkForUpdates
         listenForControlCenter()
         NSApp.setActivationPolicy(settings.showInDock ? .regular : .accessory)
         NSApp.mainMenu = MainMenu.make(controller: self)
@@ -212,6 +224,7 @@ final class AppController: NSObject {
     }
 
     private func registerShortcuts() {
+        guard !AppEnvironment.isGuestBesideRealCopy else { return }
         KeyboardShortcuts.onKeyDown(for: .search) { [weak self] in self?.showSearch() }
         KeyboardShortcuts.onKeyDown(for: .ask) { [weak self] in self?.openAsk() }
         KeyboardShortcuts.onKeyDown(for: .dailyRecap) { [weak self] in self?.openRecap() }
@@ -343,7 +356,7 @@ final class AppController: NSObject {
         worker.start()
         ocr = worker
 
-        let recording = RecordingController(core: core, policy: currentPolicy())
+        let recording = RecordingController(core: core, policy: currentPolicy(), readFrontWindow: Edition.readFrontWindow)
         recording.onStateChange = { [weak self] state in
             DispatchQueue.main.async { self?.recordingChanged(state) }
         }
@@ -635,7 +648,7 @@ final class AppController: NSObject {
             // read. Nothing is read unless the microphone is on, so this is rarely asked.
             var url: String?
             if isMicrophoneInUse, window.ownerPID == front, let family = identity.family,
-               case .success(let info) = AccessibilityProbe.frontWindow(pid: window.ownerPID, family: family) {
+               case .success(let info) = Edition.readFrontWindow(window.ownerPID, family) {
                 url = info.url
             }
             return MeetingSignals.Window(bundleID: identity.bundleID, title: window.title, url: url)
@@ -742,6 +755,7 @@ final class AppController: NSObject {
     /// The Control Center button runs in a separate sandboxed process, and it signals
     /// through this notification, which can't carry any data.
     private func listenForControlCenter() {
+        guard !AppEnvironment.isGuestBesideRealCopy else { return }
         let center = CFNotificationCenterGetDarwinNotifyCenter()
         let observer = Unmanaged.passUnretained(self).toOpaque()
         CFNotificationCenterAddObserver(center, observer, { _, _, _, _, _ in
@@ -755,7 +769,7 @@ final class AppController: NSObject {
     /// Tells the Control Center button what's really happening, when that's changed.
     func publishRecordingState() {
         let state: RecordingChannel.State = isRecording ? .recording : .paused
-        guard state != publishedState else { return }
+        guard state != publishedState, !AppEnvironment.isGuestBesideRealCopy else { return }
         publishedState = state
         RecordingChannel.publish(state)
         ControlCenter.shared.reloadControls(ofKind: RecordingChannel.controlKind)
@@ -1159,9 +1173,7 @@ final class AppController: NSObject {
     private func updatePrivacyWarning() {
         switch recording?.privacyCheckTrouble {
         case .accessibilityOff:
-            settings.privateBrowsingWarning = String(
-                localized: "Accessibility is off for Elodie, so it can only spot private windows by their titles, and Arc can't be recorded."
-            )
+            settings.privateBrowsingWarning = Edition.privateWindowNote
         case .browserNotResponding(let bundleID):
             let name = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
                 .deletingPathExtension().lastPathComponent ?? bundleID
@@ -1514,6 +1526,26 @@ extension AppController {
                 return overlay?.debugHits ?? "none"
             case "apps":
                 return try core?.recordedApps().joined(separator: "\n") ?? "none"
+            case "coreSearch":
+                // Straight to the core, for a run with no overlay on anyone's screen.
+                guard let core, let session = try core.search(argument, facets: SearchFacets(), order: .relevance) else { return "no session" }
+                let hits = try session.nextPage().hits
+                return "\(hits.count) hits\n" + hits.prefix(3).map { "\($0.bundleID ?? "?") \($0.window ?? "?") at \($0.capturedAt.timeIntervalSince1970): \($0.snippet)" }.joined(separator: "\n")
+            case "coreDisplays":
+                guard let core else { return "no vault" }
+                return try core.displays().map { display in
+                    let periods = try core.recordedPeriods(display: display.id, minimumGap: 30)
+                    return "\(display.id) \(display.width)x\(display.height), \(periods.count) stretches"
+                }.joined(separator: "\n")
+            case "vaultPath":
+                return vaultDirectory.path
+            case "coreExport":
+                // The last minute of a display, into the folder this run was given.
+                guard let core, let sandbox = AppEnvironment.sandbox, let display = try core.displays().first else { return "nothing" }
+                let url = sandbox.appending(path: "clip.mp4")
+                let summary = try await MP4Exporter.export(core: core, display: display.id, from: Date().addingTimeInterval(-60), to: Date(), to: url)
+                let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+                return "\(summary.frames) frames, \(size) bytes"
             case "lookup":
                 guard let core, let time = Double(argument), let display = overlay?.debugDisplay,
                       let found = try core.lookup(display: display, at: Date(timeIntervalSince1970: time))
@@ -1729,13 +1761,6 @@ extension AppController: SettingsActions {
             NSApp.setActivationPolicy(show ? .regular : .accessory)
         }
     }
-
-    func setChecksForUpdates(_ enabled: Bool) {
-        settings.checkForUpdates = enabled
-        updater.checksAutomatically = enabled
-    }
-
-    var updatesAvailable: Bool { updater.isAvailable }
 
     func setLaunchAtLogin(_ enabled: Bool) {
         guard AppEnvironment.sandbox == nil else { return }

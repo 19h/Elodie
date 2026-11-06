@@ -36,12 +36,18 @@ final class ScrollToOpen: @unchecked Sendable {
     @MainActor
     func start() {
         guard tap == nil else { return }
+        // A sandboxed app can't be given what a tap needs, and asking would only alarm people,
+        // so in the App Store build the first swipe also reaches the app underneath.
+        #if !ELODIE_APP_STORE
         if startTap() {
             if let monitor {
                 NSEvent.removeMonitor(monitor)
                 self.monitor = nil
             }
-        } else if monitor == nil {
+            return
+        }
+        #endif
+        if monitor == nil {
             monitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 guard let self else { return }
                 MainActor.assumeIsolated { self.onScroll(event) }
@@ -49,6 +55,7 @@ final class ScrollToOpen: @unchecked Sendable {
         }
     }
 
+    #if !ELODIE_APP_STORE
     private func startTap() -> Bool {
         let mask = CGEventMask(1 << CGEventType.scrollWheel.rawValue)
         guard let tap = CGEvent.tapCreate(
@@ -79,6 +86,7 @@ final class ScrollToOpen: @unchecked Sendable {
         thread.start()
         return true
     }
+    #endif
 
     private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {

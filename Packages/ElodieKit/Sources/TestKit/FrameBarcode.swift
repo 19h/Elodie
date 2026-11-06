@@ -1,3 +1,5 @@
+// Test support, which has no place in a release build.
+#if DEBUG
 import CoreGraphics
 import CoreVideo
 
@@ -45,3 +47,4 @@ public enum FrameBarcode {
         return value
     }
 }
+#endif

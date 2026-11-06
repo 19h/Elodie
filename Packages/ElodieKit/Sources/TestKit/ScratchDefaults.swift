@@ -1,3 +1,5 @@
+// Test support, which has no place in a release build.
+#if DEBUG
 import Foundation
 
 /// Settings for one test, kept in memory. A real suite of settings is a file in
@@ -34,3 +36,4 @@ private final class InMemoryDefaults: UserDefaults, @unchecked Sendable {
         lock.withLock { values[key] = nil }
     }
 }
+#endif

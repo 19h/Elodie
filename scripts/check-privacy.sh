@@ -18,13 +18,18 @@ matches() {
     --exclude-dir=Generated --exclude=LiveSpikes.swift 2>/dev/null
 }
 
-# Only the updater may use the network. Everything else stays on this Mac.
+# Nothing in Elodie uses the network. Everything stays on this Mac.
 network='URLSession|NWConnection|NWPathMonitor|^import Network|CFSocket|CFStream|WKWebView|URLRequest|NSURLConnection'
 found=$(matches "$network")
-[[ -n "$found" ]] && { print -u2 "$found"; fail "networking outside Sparkle"; }
+[[ -n "$found" ]] && { print -u2 "$found"; fail "code that can use the network"; }
 
-found=$(matches '^import Sparkle' | grep -v 'App/Updater.swift')
-[[ -n "$found" ]] && { print -u2 "$found"; fail "Sparkle used outside App/Updater.swift"; }
+# Updates come from outside the app, so no updater belongs in it.
+found=$(matches '^import Sparkle'; grep -nE 'Sparkle|SUFeedURL|SUPublicEDKey' project.yml App/Info.plist 2>/dev/null)
+[[ -n "$found" ]] && { print -u2 "$found"; fail "an updater is back in the app"; }
+
+# And macOS wouldn't allow it in the App Store build, which has no entitlement for it.
+found=$(grep -lE 'com\.apple\.security\.network' App/*.entitlements Widgets/*.entitlements 2>/dev/null)
+[[ -n "$found" ]] && { print -u2 "$found"; fail "an entitlement allows network access"; }
 
 # Ask runs on the device. The SDK also offers a cloud model, which must never be used.
 found=$(matches 'PrivateCloudCompute')
@@ -65,4 +70,4 @@ if (( failures > 0 )); then
   print -u2 "$failures privacy checks failed"
   exit 1
 fi
-print "Privacy checks passed: networking only in the updater, no cloud model, no telemetry, nothing from the reference app."
+print "Privacy checks passed: no networking, no updater, no cloud model, no telemetry, nothing from the reference app."

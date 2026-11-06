@@ -137,9 +137,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
         menu.addItem(entry("Forget the last 5 minutes…", symbol: "clock.arrow.circlepath", action: #selector(forget), enabled: hasRecordings))
         menu.addItem(.separator())
         menu.addItem(entry("Settings…", action: #selector(settings), key: ","))
-        if controller.updater.isAvailable {
-            menu.addItem(entry("Check for updates…", action: #selector(checkForUpdates)))
-        }
         menu.addItem(.separator())
         menu.addItem(entry("Quit Elodie", action: #selector(quit), key: "q"))
     }
@@ -261,7 +258,6 @@ final class StatusMenu: NSObject, NSMenuDelegate {
     }
 
     @objc private func settings() { controller?.openSettings() }
-    @objc private func checkForUpdates() { controller?.updater.checkNow() }
     @objc private func quit() { NSApp.terminate(nil) }
 }
 

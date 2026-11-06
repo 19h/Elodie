@@ -1,43 +1,30 @@
+#if !ELODIE_APP_STORE
 import ApplicationServices
+import Capture
+import FeatureOnboarding
 import Foundation
-
-/// What Accessibility could read about the front window.
-public struct FrontWindowInfo: Sendable, Equatable {
-    public var title: String?
-    public var url: String?
-    /// The browser itself marked this window as private, which doesn't depend on language.
-    public var isMarkedPrivate: Bool
-
-    public init(title: String? = nil, url: String? = nil, isMarkedPrivate: Bool = false) {
-        self.title = title
-        self.url = url
-        self.isMarkedPrivate = isMarkedPrivate
-    }
-}
 
 /// Reads the front window's title and URL through Accessibility.
 ///
 /// Everything has a deadline, because an app that's hung or busy can leave a call
 /// waiting for seconds, and this runs on the capture path. Only the title and
 /// address bar are read. Page text comes from OCR.
-public enum AccessibilityProbe {
-    public enum Failure: Error, Equatable {
-        case notTrusted
-        case noFocusedWindow
-        case timedOut
-        /// The browser gave an error, so nothing can be said about its window.
-        case failed
-    }
-
-    public static var isTrusted: Bool {
+enum AccessibilityProbe {
+    static var isTrusted: Bool {
         AXIsProcessTrusted()
     }
 
-    public static func frontWindow(
+    /// How the permission is checked and asked for.
+    static let access = AccessibilityAccess(
+        isGranted: { AXIsProcessTrusted() },
+        prompt: { _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) }
+    )
+
+    static func frontWindow(
         pid: pid_t,
         family: BrowserFamily?,
         timeout: TimeInterval = 0.05
-    ) -> Result<FrontWindowInfo, Failure> {
+    ) -> Result<FrontWindowInfo, FrontWindowFailure> {
         guard isTrusted else { return .failure(.notTrusted) }
         let deadline = Date().addingTimeInterval(timeout)
         let app = AXUIElementCreateApplication(pid)
@@ -134,3 +121,4 @@ public enum AccessibilityProbe {
         return nil
     }
 }
+#endif

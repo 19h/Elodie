@@ -125,7 +125,7 @@ enum Scenarios {
     @MainActor
     private static func onboarding(_ step: OnboardingStep) -> AnyView {
         AnyView(OnboardingView(
-            permissions: PermissionMonitor(checkScreenAccess: { false }),
+            permissions: PermissionMonitor(accessibility: Edition.accessibility, checkScreenAccess: { false }),
             step: step,
             appIcon: NSApp.applicationIconImage,
             onRelaunch: {},
@@ -681,11 +681,9 @@ private final class PreviewActions: SettingsActions {
     func applyRetention(_ period: RetentionPeriod) async throws {}
     var loginItemNeedsApproval: Bool { false }
     func openLoginItemSettings() {}
-    var updatesAvailable: Bool { false }
     func saveRecoveryKey() {}
     func revealVault() {}
     func setLaunchAtLogin(_ enabled: Bool) {}
-    func setChecksForUpdates(_ enabled: Bool) {}
     func setShowInDock(_ show: Bool) {}
     func setNamesMeetingsFromCalendar(_ enabled: Bool) {}
     var launchAtLogin: Bool { true }

@@ -1,3 +1,5 @@
+// Test support, which has no place in a release build.
+#if DEBUG
 import CoreGraphics
 import CoreText
 import CoreVideo
@@ -371,3 +373,4 @@ struct SeededGenerator: RandomNumberGenerator {
         return state
     }
 }
+#endif

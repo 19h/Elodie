@@ -1,5 +1,4 @@
 import AppKit
-import ApplicationServices
 import AVFoundation
 import CoreGraphics
 import Observation
@@ -33,6 +32,17 @@ public enum Permission: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// How Accessibility is checked and asked for, in a build that can use it.
+public struct AccessibilityAccess: Sendable {
+    public var isGranted: @Sendable () -> Bool
+    public var prompt: @Sendable () -> Void
+
+    public init(isGranted: @escaping @Sendable () -> Bool, prompt: @escaping @Sendable () -> Void) {
+        self.isGranted = isGranted
+        self.prompt = prompt
+    }
+}
+
 /// Tracks which permissions are granted, updating on its own while it's being watched.
 @MainActor
 @Observable
@@ -44,6 +54,7 @@ public final class PermissionMonitor {
 
     private var timer: Timer?
     private let checkScreenAccess: () async -> Bool
+    private let accessibility: AccessibilityAccess?
     private var isCheckingFreshProcess = false
     @ObservationIgnored nonisolated(unsafe) private let defaults: UserDefaults
 
@@ -58,15 +69,27 @@ public final class PermissionMonitor {
         set { defaults.set(newValue, forKey: "hasAskedForAccessibility") }
     }
 
-    /// - Parameter checkScreenAccess: replaces how a fresh process is asked, for tests.
-    public init(defaults: UserDefaults = .standard, checkScreenAccess: (() async -> Bool)? = nil) {
+    /// - Parameters:
+    ///   - accessibility: how to use Accessibility. A build without it doesn't ask for it.
+    ///   - checkScreenAccess: replaces how a fresh process is asked, for tests.
+    public init(
+        defaults: UserDefaults = .standard,
+        accessibility: AccessibilityAccess? = nil,
+        checkScreenAccess: (() async -> Bool)? = nil
+    ) {
         self.defaults = defaults
+        self.accessibility = accessibility
         self.checkScreenAccess = checkScreenAccess ?? Self.askFreshProcess
         refresh()
     }
 
+    /// Whether this build asks for a permission at all.
+    public func offers(_ permission: Permission) -> Bool {
+        permission != .accessibility || accessibility != nil
+    }
+
     public var allRequiredGranted: Bool {
-        Permission.allCases.filter(\.isRequired).allSatisfy(granted.contains)
+        Permission.allCases.filter { $0.isRequired && offers($0) }.allSatisfy(granted.contains)
     }
 
     public func startWatching() {
@@ -84,7 +107,7 @@ public final class PermissionMonitor {
     public func refresh() {
         var now = Set<Permission>()
         if CGPreflightScreenCaptureAccess() { now.insert(.screenRecording) }
-        if AXIsProcessTrusted() { now.insert(.accessibility) }
+        if accessibility?.isGranted() == true { now.insert(.accessibility) }
         if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized { now.insert(.microphone) }
         if now != granted { granted = now }
 
@@ -121,7 +144,7 @@ public final class PermissionMonitor {
                 NSWorkspace.shared.open(permission.settingsURL)
             } else {
                 hasAskedForAccessibility = true
-                _ = AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+                accessibility?.prompt()
             }
         case .microphone:
             switch AVCaptureDevice.authorizationStatus(for: .audio) {

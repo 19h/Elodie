@@ -1,3 +1,5 @@
+// Test support, which has no place in a release build.
+#if DEBUG
 import CoreAPI
 import Foundation
 
@@ -229,3 +231,4 @@ private struct FakeSearchSession: SearchSession {
     func nextPage() throws -> SearchPage { page }
     func cancel() {}
 }
+#endif

@@ -1,4 +1,5 @@
 import AppKit
+import DesignSystem
 
 /// The menu bar shown while one of Elodie's windows is in front. Its main job is to exist:
 /// without Edit commands, ⌘V and friends don't work in any text field, and without Close,
@@ -12,6 +13,9 @@ enum MainMenu {
         let window = windowMenu()
         bar.addItem(submenu(window, title: String(localized: "Window")))
         NSApp.windowsMenu = window
+        let help = helpMenu()
+        bar.addItem(submenu(help, title: String(localized: "Help")))
+        NSApp.helpMenu = help
         return bar
     }
 
@@ -38,6 +42,17 @@ enum MainMenu {
         menu.addItem(withTitle: String(localized: "Show All"), action: #selector(NSApplication.unhideAllApplications(_:)), keyEquivalent: "")
         menu.addItem(.separator())
         menu.addItem(withTitle: String(localized: "Quit Elodie"), action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        return menu
+    }
+
+    private static func helpMenu() -> NSMenu {
+        let menu = NSMenu()
+        menu.addItem(ActionMenuItem(title: String(localized: "Elodie Privacy Policy")) {
+            NSWorkspace.shared.open(ElodieLinks.privacyPolicy)
+        })
+        menu.addItem(ActionMenuItem(title: String(localized: "Elodie Support")) {
+            NSWorkspace.shared.open(ElodieLinks.support)
+        })
         return menu
     }
 

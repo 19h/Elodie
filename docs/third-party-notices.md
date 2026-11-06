@@ -15,7 +15,6 @@ licence terms from each crate. Check each licence's notice requirements when shi
 | rust-stemmers | Word stems for search | MIT and BSD-3-Clause |
 | unicode-normalization | Text folding | Apache-2.0 or MIT |
 | KeyboardShortcuts | Global shortcuts | MIT |
-| Sparkle | Updates | MIT, with BSD-style components |
 
 The licences above were written from memory and haven't been checked against each package's
 own file. Verify them before relying on this table.

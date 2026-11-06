@@ -1,4 +1,11 @@
 name: Elodie
+# Two editions from one codebase. The direct download uses Accessibility, and the App Store
+# build is sandboxed and has none of that code. See App/Edition.swift.
+configs:
+  Debug: debug
+  Release: release
+  AppStore: release
+  AppStoreDebug: debug
 options:
   deploymentTarget:
     macOS: "26.0"
@@ -14,15 +21,22 @@ settings:
     # A real identity keeps TCC grants stable across rebuilds.
     CODE_SIGN_STYLE: Manual
     CODE_SIGN_IDENTITY: "Apple Development"
+  configs:
+    # Can't change after release, because keychain items and permissions depend on it.
+    Release:
+      ELODIE_BUNDLE_ID: app.elodie.Elodie
+    AppStore:
+      ELODIE_BUNDLE_ID: app.elodie.Elodie
+    Debug:
+      ELODIE_BUNDLE_ID: app.elodie.Elodie.dev
+    AppStoreDebug:
+      ELODIE_BUNDLE_ID: app.elodie.Elodie.dev
 packages:
   ElodieKit:
     path: Packages/ElodieKit
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     from: 2.0.0
-  Sparkle:
-    url: https://github.com/sparkle-project/Sparkle
-    from: 2.6.0
 targets:
   Elodie:
     type: application
@@ -39,9 +53,7 @@ targets:
             subpath: Contents/Library/LaunchAgents
     settings:
       base:
-        # Placeholder until the name is cleared. Changing it after release
-        # orphans Keychain items and permission grants.
-        PRODUCT_BUNDLE_IDENTIFIER: app.elodie.Elodie.dev
+        PRODUCT_BUNDLE_IDENTIFIER: $(ELODIE_BUNDLE_ID)
         INFOPLIST_FILE: App/Info.plist
         CODE_SIGN_ENTITLEMENTS: App/Elodie.entitlements
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -49,6 +61,14 @@ targets:
       configs:
         Release:
           CODE_SIGN_IDENTITY: "Developer ID Application"
+        AppStore:
+          CODE_SIGN_ENTITLEMENTS: App/ElodieAppStore.entitlements
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: ELODIE_APP_STORE
+          EXCLUDED_SOURCE_FILE_NAMES: app.elodie.Elodie.agent.plist
+        AppStoreDebug:
+          CODE_SIGN_ENTITLEMENTS: App/ElodieAppStore.entitlements
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG ELODIE_APP_STORE
+          EXCLUDED_SOURCE_FILE_NAMES: app.elodie.Elodie.agent.plist
     dependencies:
       - package: ElodieKit
         product: CoreAPI
@@ -87,7 +107,6 @@ targets:
       - package: ElodieKit
         product: FeatureRecap
       - package: KeyboardShortcuts
-      - package: Sparkle
       - target: ElodieWidgets
         embed: true
         codeSign: true
@@ -96,7 +115,7 @@ targets:
         basedOnDependencyAnalysis: false
         script: |
           profile=debug
-          [ "$CONFIGURATION" = "Release" ] && profile=release
+          case "$CONFIGURATION" in Release|AppStore) profile=release ;; esac
           "$SRCROOT/scripts/build-core.sh" "$profile"
   ElodieWidgets:
     type: app-extension
@@ -108,7 +127,7 @@ targets:
           - "*.entitlements"
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: app.elodie.Elodie.dev.controls
+        PRODUCT_BUNDLE_IDENTIFIER: $(ELODIE_BUNDLE_ID).controls
         INFOPLIST_FILE: Widgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: Widgets/ElodieWidgets.entitlements
         SKIP_INSTALL: YES
@@ -124,3 +143,11 @@ schemes:
       config: Debug
     archive:
       config: Release
+  Elodie App Store:
+    build:
+      targets:
+        Elodie: all
+    run:
+      config: AppStoreDebug
+    archive:
+      config: AppStore

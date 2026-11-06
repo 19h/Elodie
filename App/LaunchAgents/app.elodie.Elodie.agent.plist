@@ -8,6 +8,7 @@
 	<string>Contents/MacOS/Elodie</string>
 	<key>AssociatedBundleIdentifiers</key>
 	<array>
+		<string>app.elodie.Elodie</string>
 		<string>app.elodie.Elodie.dev</string>
 	</array>
 	<key>RunAtLoad</key>

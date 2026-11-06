@@ -57,6 +57,7 @@ public final class RecordingController: @unchecked Sendable {
     private let settings: PipelineSettings
     private let inventory = WindowInventory()
     private let monitor: ExclusionMonitor
+    private let readFrontWindow: FrontWindowReader
     private let lock = NSLock()
 
     private var stream: DisplayStream?
@@ -72,9 +73,17 @@ public final class RecordingController: @unchecked Sendable {
 
     public var onStateChange: (@Sendable (RecordingState) -> Void)?
 
-    public init(core: any ElodieCore, policy: ExclusionPolicy, settings: PipelineSettings = PipelineSettings()) {
+    /// - Parameter readFrontWindow: how to read a browser's front window. Without one, only
+    ///   the window list is known.
+    public init(
+        core: any ElodieCore,
+        policy: ExclusionPolicy,
+        settings: PipelineSettings = PipelineSettings(),
+        readFrontWindow: @escaping FrontWindowReader = { _, _ in .failure(.notTrusted) }
+    ) {
         self.core = core
         self.settings = settings
+        self.readFrontWindow = readFrontWindow
         monitor = ExclusionMonitor(policy: policy, inventory: inventory)
     }
 
@@ -357,7 +366,7 @@ public final class RecordingController: @unchecked Sendable {
         guard let family = identity.family else {
             return .keep(context)
         }
-        switch AccessibilityProbe.frontWindow(pid: front.ownerPID, family: family) {
+        switch readFrontWindow(front.ownerPID, family) {
         case .success(let info):
             noteBrowserCheck(.answered)
             context.url = info.url

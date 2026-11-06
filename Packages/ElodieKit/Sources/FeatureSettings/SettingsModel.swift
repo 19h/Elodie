@@ -59,7 +59,6 @@ public final class SettingsModel {
 
     public var showInDock: Bool { didSet { defaults.set(showInDock, forKey: "showInDock") } }
     public var remindWhenPaused: Bool { didSet { defaults.set(remindWhenPaused, forKey: "remindWhenPaused") } }
-    public var checkForUpdates: Bool { didSet { defaults.set(checkForUpdates, forKey: "checkForUpdates") } }
     public var excludedApps: Set<String> {
         didSet { defaults.set(Array(excludedApps).sorted(), forKey: "excludedApps") }
     }
@@ -98,7 +97,6 @@ public final class SettingsModel {
         showInDock = bool("showInDock", false)
         remindWhenPaused = bool("remindWhenPaused", true)
         namesMeetingsFromCalendar = bool("namesMeetingsFromCalendar", false)
-        checkForUpdates = bool("checkForUpdates", true)
         excludedApps = Set(defaults.stringArray(forKey: "excludedApps") ?? [])
         // On in every language. Private windows shouldn't depend on system language.
         excludePrivateWindows = bool("excludePrivateWindows", true)
@@ -151,9 +149,6 @@ public protocol SettingsActions: AnyObject {
     /// macOS is waiting for this to be allowed in System Settings.
     var loginItemNeedsApproval: Bool { get }
     func openLoginItemSettings()
-    /// Whether this build can update itself at all.
-    var updatesAvailable: Bool { get }
-    func setChecksForUpdates(_ enabled: Bool)
     func setShowInDock(_ show: Bool)
     func setNamesMeetingsFromCalendar(_ enabled: Bool)
     var runningApps: [AppChoice] { get }

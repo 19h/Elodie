@@ -39,6 +39,12 @@
 	<true/>
 	<key>NSCalendarsFullAccessUsageDescription</key>
 	<string>Elodie uses your calendar to name the meetings you record.</string>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Elodie takes a picture of your screen every few seconds, so you can search and scroll back through what you've seen. Recordings stay encrypted on this Mac.</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright © 2026 Kenan Sulayman. MIT licence.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Elodie can record your microphone so you can search what was said in meetings.</string>
 </dict>

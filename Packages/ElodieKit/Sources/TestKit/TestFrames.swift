@@ -1,3 +1,5 @@
+// Test support, which has no place in a release build.
+#if DEBUG
 import CoreGraphics
 import CoreText
 import CoreVideo
@@ -81,3 +83,4 @@ public enum TestFrames {
         return output!
     }
 }
+#endif

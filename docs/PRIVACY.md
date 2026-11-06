@@ -60,9 +60,9 @@ drive or in APFS snapshots until they're overwritten.
 
 ## The network
 
-Elodie uses the network for one thing: checking for updates, which you can turn off in Settings.
-That check sends your Mac's standard update request and nothing from your recordings. A build check
-(`scripts/check-privacy.sh`) confirms that nothing else in Elodie can use the network.
+Elodie doesn't use the network, and it has no code that could: no account, no telemetry, and no
+update check. A build check (`scripts/check-privacy.sh`) fails if any of that changes. In the App
+Store build macOS enforces it as well, because the app has no permission to make a connection.
 
 macOS downloads its own language models for transcription and Ask. Elodie doesn't send anything in
 that process. Ask uses Apple's on-device model, and your questions and screen text stay on your Mac.

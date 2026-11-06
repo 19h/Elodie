@@ -14,8 +14,6 @@
 
 ## Setup
 
-- [ ] Generate a Sparkle signing key, and set `SUPublicEDKey` and `SUFeedURL` in `App/Info.plist`.
-      Until those are set, builds have no updater.
 - [ ] Store notarization credentials: `xcrun notarytool store-credentials`.
 - [ ] Decide on the keychain. The data protection keychain needs a provisioning profile and a
       registered App ID, and it would add "this device only, after first unlock" protection. The

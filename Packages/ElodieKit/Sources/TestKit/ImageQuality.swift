@@ -1,3 +1,5 @@
+// Test support, which has no place in a release build.
+#if DEBUG
 import CoreVideo
 import Foundation
 import Vision
@@ -50,3 +52,4 @@ public enum TextRecognizer {
         return words
     }
 }
+#endif

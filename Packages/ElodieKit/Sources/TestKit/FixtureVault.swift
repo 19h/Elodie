@@ -1,3 +1,5 @@
+// Test support, which has no place in a release build.
+#if DEBUG
 import CoreAPI
 import Foundation
 import Ingest
@@ -95,3 +97,4 @@ public enum FixtureVault {
         return Recording(display: display, start: start, spacing: spacing, words: words, barcodeY: screen.barcodeY)
     }
 }
+#endif

@@ -51,19 +51,19 @@ public enum MP4Exporter {
             throw ExportError.nothingRecorded
         }
 
-        let partial = url.deletingLastPathComponent().appending(path: ".\(UUID().uuidString).partial.mp4")
-        do {
-            let summary = try await write(core: core, startingAt: first, from: from, to: to, to: partial)
-            if FileManager.default.fileExists(atPath: url.path) {
-                _ = try FileManager.default.replaceItemAt(url, withItemAt: partial)
-            } else {
-                try FileManager.default.moveItem(at: partial, to: url)
-            }
-            return summary
-        } catch {
-            try? FileManager.default.removeItem(at: partial)
-            throw error
+        // Not beside the destination. In the App Sandbox, the save panel only grants the one
+        // file it named, so nothing else can be created in that folder.
+        let directory = FileManager.default.temporaryDirectory
+            .appending(path: "elodie-export-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let partial = directory.appending(path: "partial.mp4")
+        let summary = try await write(core: core, startingAt: first, from: from, to: to, to: partial)
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
         }
+        try FileManager.default.moveItem(at: partial, to: url)
+        return summary
     }
 
     /// What was on screen at `from`: the last frame before it, or if that's so long ago that

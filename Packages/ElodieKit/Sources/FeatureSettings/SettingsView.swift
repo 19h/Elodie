@@ -133,12 +133,13 @@ private struct GeneralTab: View {
                 get: { model.showInDock },
                 set: { actions.setShowInDock($0) }
             ))
-            if actions.updatesAvailable {
-                Toggle("Check for updates automatically", isOn: Binding(
-                    get: { model.checkForUpdates },
-                    set: { actions.setChecksForUpdates($0) }
-                ))
+            LabeledContent("Help:") {
+                HStack(spacing: 14) {
+                    Link("Privacy policy", destination: ElodieLinks.privacyPolicy)
+                    Link("Support", destination: ElodieLinks.support)
+                }
             }
+            .padding(.top, 8)
         }
         .formStyle(.columns)
         .padding(28)
@@ -233,13 +234,18 @@ private struct ScreenTab: View {
 
 /// The apps on this Mac.
 enum InstalledApps {
+    /// In the App Sandbox, `NSHomeDirectory()` is the app's own container, which has no apps.
+    private static var realHomeDirectory: String {
+        getpwuid(getuid()).map { String(cString: $0.pointee.pw_dir) } ?? NSHomeDirectory()
+    }
+
     static func scan() -> [AppChoice] {
         let folders = [
             "/Applications",
             "/Applications/Utilities",
             "/System/Applications",
             "/System/Applications/Utilities",
-            NSHomeDirectory() + "/Applications",
+            realHomeDirectory + "/Applications",
         ]
         let manager = FileManager.default
         return folders.flatMap { folder -> [AppChoice] in

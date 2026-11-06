@@ -682,3 +682,36 @@ private actor CheckCounter {
         #expect(!Permission.microphone.isRequired)
     }
 }
+
+@MainActor
+@Suite struct ABuildWithoutAccessibility {
+    private var defaults: UserDefaults { ScratchDefaults.make() }
+
+    @Test func doesntAskForIt() {
+        let monitor = PermissionMonitor(defaults: defaults, checkScreenAccess: { false })
+        #expect(!monitor.offers(.accessibility))
+        #expect(monitor.offers(.screenRecording))
+        #expect(monitor.offers(.microphone))
+        #expect(!monitor.granted.contains(.accessibility))
+    }
+
+    @Test func aBuildThatHasItAsksForIt() {
+        let access = AccessibilityAccess(isGranted: { true }, prompt: {})
+        let monitor = PermissionMonitor(defaults: defaults, accessibility: access, checkScreenAccess: { false })
+        #expect(monitor.offers(.accessibility))
+        #expect(monitor.granted.contains(.accessibility))
+    }
+
+    @Test func accessibilityStopsBeingRequiredWhenItIsntOffered() {
+        // Without this, the first run could never be finished in the App Store build.
+        let access = AccessibilityAccess(isGranted: { false }, prompt: {})
+        let with = PermissionMonitor(defaults: defaults, accessibility: access, checkScreenAccess: { false })
+        let without = PermissionMonitor(defaults: defaults, checkScreenAccess: { false })
+        if with.granted.contains(.screenRecording) {
+            #expect(!with.allRequiredGranted)
+            #expect(without.allRequiredGranted)
+        } else {
+            #expect(!without.allRequiredGranted)
+        }
+    }
+}

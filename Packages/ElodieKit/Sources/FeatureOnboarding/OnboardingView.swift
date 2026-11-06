@@ -149,12 +149,14 @@ public struct OnboardingView: View {
                     title: "Screen Recording",
                     detail: "Takes a picture of your screen every few seconds, which is how Elodie can search what you've seen."
                 )
-                row(
-                    .accessibility,
-                    symbol: "accessibility",
-                    title: "Accessibility",
-                    detail: "Reads the name of the front window and the current web address, and spots private browser windows."
-                )
+                if permissions.offers(.accessibility) {
+                    row(
+                        .accessibility,
+                        symbol: "accessibility",
+                        title: "Accessibility",
+                        detail: "Reads the name of the front window and the current web address, and spots private browser windows."
+                    )
+                }
                 row(
                     .microphone,
                     symbol: "mic",

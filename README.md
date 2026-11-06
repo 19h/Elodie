@@ -61,7 +61,7 @@ You saw it somewhere: a figure in a spreadsheet, an error message, a flight time
 | **Ask** | Ask a question in plain language. Apple's on-device model answers from your recordings and cites the moments it used. |
 | **Daily Recap** | See where a day went: time per app, activity by the hour, your longest stretches, and your meetings. |
 | **Meetings** | Optionally transcribe your microphone and your computer's audio, labelled You and Others, and search it alongside your screen. The audio itself isn't kept. |
-| **Privacy** | Recordings are encrypted. You can exclude apps, private browser windows are left out, and the only network use is an update check you can turn off. |
+| **Privacy** | Recordings are encrypted. You can exclude apps, private browser windows are left out, and Elodie has no networking code at all. |
 
 Capture, encoding, text recognition, search, transcription, and answers all run on your Mac.
 
@@ -73,7 +73,7 @@ Capture, encoding, text recognition, search, transcription, and answers all run 
 | **Download** | None yet. Build from source. |
 | **Name** | Elodie. It hasn't had a trademark check yet. |
 | **Bundle ID** | `app.elodie.Elodie.dev` is a placeholder. |
-| **Updates** | Sparkle is wired in, but builds have no updater until a feed and signing key are set. |
+| **Updates** | Nothing in the app checks for them. The App Store build gets its updates from the App Store, and a direct download is replaced by a newer one. |
 | **Tested on** | Benchmarks have only run on an M4 Max with synthetic screens. See [Measurements](#measurements). |
 | **Licence** | [MIT](LICENSE) |
 
@@ -99,7 +99,7 @@ To build it:
 ### Build and run
 
 ```sh
-git clone git@github.com:19h/Remind.git
+git clone git@github.com:19h/Elodie.git
 cd Elodie
 ```
 
@@ -377,7 +377,6 @@ The overlay also closes by itself when you switch Spaces or apps, when the scree
 | General | Open Elodie at login | Chosen during setup | It comes back after a crash, but not after you quit. If macOS is waiting for you to allow it, this says so and links to Login Items. |
 | | Remind me when recording is paused | On | Hourly, for pauses with no end time. |
 | | Show in Dock | Off | |
-| | Check for updates automatically | On | Only appears in builds with an updater. |
 | Screen | Exclude apps | None | Choose from installed or running apps, or add one with **+**. |
 | | Don't record private or incognito browser windows | On | Warns here if it can't check right now. |
 | | Text recognition | Standard | Standard reads the languages your Mac uses. Additional languages detects any language, and uses more system resources. |
@@ -472,12 +471,12 @@ Browsers offer no API for this, so Elodie recognises private windows from their 
 
 ### The network
 
-Elodie uses the network for one thing: Sparkle's update check, which you can turn off. It's limited to `App/Updater.swift`, and a build with no update feed and signing key doesn't run it at all. macOS downloads its own language models for transcription and Ask, and Elodie sends nothing in that process.
+Elodie doesn't use the network, and it has no code that could. There's no account, no telemetry, and no update check. macOS downloads its own language models for transcription and Ask, and Elodie sends nothing in that process.
 
 These promises are checked against the code. `make check-privacy` runs as part of `make test` and before every release build, and it fails if:
 
-- Anything outside Sparkle can use the network
-- Sparkle is imported outside `App/Updater.swift`
+- Anything can use the network, or any entitlement allows it
+- An updater is added to the app
 - The cloud model is used
 - An analytics or crash-reporting framework is imported
 - The Rust core links network calls or depends on a networking crate
@@ -487,7 +486,7 @@ These promises are checked against the code. `make check-privacy` runs as part o
 Swift owns every Apple framework. Rust owns data and computation, and it never calls Swift. Feature code sees only the `ElodieCore` protocol, so previews and tests can run on a fake.
 
 ```text
-  App/                 menu bar, overlay coordination, keychain, updater, intents
+  App/                 menu bar, overlay coordination, keychain, intents
    │
    ├── Feature*        Timeline, Search, Ask, Recap, Meetings, Onboarding, Settings
    ├── OverlayShell    the panel and its input            StripRenderer  the Metal strip
@@ -759,7 +758,7 @@ make release                                 # Signed build and disk image in bu
 scripts/release.sh --notarize <profile>      # The same, then sends it to Apple to notarize
 ```
 
-Release builds need a Developer ID Application identity. Notarizing needs a profile stored with `xcrun notarytool store-credentials`. Updates need `SUFeedURL` and `SUPublicEDKey` set in `App/Info.plist`. Nothing is uploaded except for notarization, and only when you ask for it.
+Release builds need a Developer ID Application identity. Notarizing needs a profile stored with `xcrun notarytool store-credentials`. Nothing is uploaded except for notarization, and only when you ask for it.
 
 Before any public release, work through [docs/release-checklist.md](docs/release-checklist.md). Several of its checks need a person, a real Mac, and real permission prompts.
 
@@ -824,7 +823,7 @@ Before any public release, work through [docs/release-checklist.md](docs/release
 
 **Apple frameworks:** ScreenCaptureKit, VideoToolbox, Metal, Vision, Speech, FoundationModels, AVFoundation, EventKit, App Intents, WidgetKit, and Swift Charts.
 
-**Third-party:** SQLCipher, rusqlite, UniFFI, RustCrypto's `chacha20poly1305`, BLAKE3, zstd, rust-stemmers, rayon, crossbeam, KeyboardShortcuts, and Sparkle. [docs/third-party-notices.md](docs/third-party-notices.md) has the details. Its licence table hasn't been verified against each package yet.
+**Third-party:** SQLCipher, rusqlite, UniFFI, RustCrypto's `chacha20poly1305`, BLAKE3, zstd, rust-stemmers, rayon, crossbeam, and KeyboardShortcuts. [docs/third-party-notices.md](docs/third-party-notices.md) has the details. Its licence table hasn't been verified against each package yet.
 
 ## Licence
 
