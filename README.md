@@ -754,8 +754,15 @@ A `--sandbox` run can also be driven from outside, without taking your keyboard 
 - **The timeline:** `open`, `open search`, `dismiss`, `esc`, `back <seconds>`, `star`, `click <x>`, `clickPlayhead`, `deleteSelection`, `exportSelection <path>`
 - **Search:** `search <words>`, `choose`, `filterStarred`, `hits`
 - **The key:** `recoveryKey`, `restore <recovery key>`, `startOver`
+- **Saving:** `panelExport` and `panelImage` save through a real save panel, and so does `panelRecovery`, for the recovery key. `coreExport` needs no panel, and puts the last minute in the run's folder.
 - **Everything else:** `listen`, `pause`, `recap`, `ask`, `transcripts`, `settings`, `quit`
-- **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote. `state` also says which permissions the app has, whether the event tap is running, what the Control Center switch would read, what has arrived from the microphone, and what has reached speech recognition
+- **Checking:** `state`, `apps`, `lookup <time>`, `shootPanel <path>`, `shootWindow <path>`, `vaultPath`, `coreDisplays`, `coreSearch <words>` and `coreTranscript`, which need no overlay on anyone's screen, and `askNow <question>`, which puts the question to the real model and answers with how many sources it used and what it wrote. `state` also says which permissions the app has, whether the event tap is running, what the Control Center switch would read, what has arrived from the microphone, and what has reached speech recognition
+
+A run started beside a copy that's already running leaves the shortcuts, the swipe, and Control Center to that copy. Three more flags help with testing beside someone who's using the Mac:
+
+- `--overlay-away` opens the overlay on the display the pointer isn't on, and it doesn't close when another app comes to the front.
+- `--save-to <folder>` starts save panels in that folder, under a name that doesn't change.
+- `--control-channel` joins Control Center's notifications anyway.
 
 ### Working rules
 
