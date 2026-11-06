@@ -82,5 +82,9 @@ it, and so does the database. A key is only created for a vault that doesn't exi
 exists and its key can't be read, that's an error to show, and a new key is only made if someone
 chooses to start over, because otherwise it would orphan all recorded history.
 
+Elodie can't open a vault made under the app's old name, because the labels that derive its keys, the
+chunk file header, and the search tokenizer's name all changed with the name. That vault's files aren't
+touched.
+
 A recovery key restores a lost key. It only goes back in the keychain once it has been shown to open
 the vault, so a wrong key can't do any harm.
