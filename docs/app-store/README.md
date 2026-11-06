@@ -102,13 +102,21 @@ unrestricted entitlements, like the sandbox, and it's the main app that has to h
 upload warns with ITMS-90889 and names the extension, Apple's suggested fix is to add Keychain Sharing to
 that target, which forces a profile.
 
+## Which build to upload
+
+Upload `build/app-store/export/Elodie.pkg`, using Transporter, or archive the **Elodie App Store** scheme in
+Xcode. The **Elodie** scheme is the direct download, which has no sandbox, so Apple refuses it with "App sandbox
+not enabled". In Transporter, remove any earlier attempt and add the package again.
+
 ## What only you can do
 
-1. **Decide on export compliance.** Elodie encrypts with its own libraries, so `ITSAppUsesNonExemptEncryption`
-   is `true`, the cautious answer, and App Store Connect will ask for documentation. It may qualify as
-   exempt, since encryption only protects your own data and isn't its purpose, but claiming that wrongly
-   is your liability. Apple also names secure storage as something France controls. Ask a lawyer, and
-   set the key to `false` if they agree it's exempt.
+1. **Answer the encryption question for each build.** The build doesn't declare anything, so App Store
+   Connect asks after each upload, and the build shows as missing compliance until you answer. Elodie encrypts
+   with its own libraries, so the honest first answer is yes. It may qualify as exempt, since encryption only
+   protects your own data and isn't its purpose, but claiming that wrongly is your liability, and Apple also
+   names secure storage as something France controls. Ask a lawyer. Once you know, `ITSAppUsesNonExemptEncryption`
+   in `App/Info.plist` can answer it for every build. Don't set it to `true` without Apple's compliance code as
+   well, because the upload is refused with "Invalid Export Compliance Code".
 2. **Get the rest of the legal review:** a trademark search on "Elodie", the decompiled reference app,
    and recording law. See [release-checklist.md](../release-checklist.md).
 3. **Sign in to Xcode with your developer account,** then run `scripts/app-store.sh --export`. It signs with

@@ -25,7 +25,7 @@ print -r -- "$imports" | grep -qE '_OBJC_CLASS_\$_NS(URLSession|URLConnection|St
   && fail "the binary imports networking calls"
 entitlements "$app" | grep -q 'security.network' && fail "an entitlement allows network access"
 [[ -f "$app/Contents/Resources/PrivacyInfo.xcprivacy" ]] || fail "no privacy manifest"
-for key in NSScreenCaptureUsageDescription NSMicrophoneUsageDescription NSCalendarsFullAccessUsageDescription ITSAppUsesNonExemptEncryption; do
+for key in NSScreenCaptureUsageDescription NSMicrophoneUsageDescription NSCalendarsFullAccessUsageDescription; do
   plutil -extract "$key" raw "$app/Contents/Info.plist" >/dev/null 2>&1 || fail "Info.plist has no $key"
 done
 
