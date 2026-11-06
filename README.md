@@ -708,9 +708,9 @@ Development builds optimise the Rust core. Reading recordings means decrypting t
 
 ### Filming Elodie
 
-Every other build hides the timeline from screen capture, so it can't reach a call or a recording. To film it, `make filming-app` builds `build/Elodie/Build/Products/FilmingDebug/Elodie.app`, where QuickTime and other capture apps can see it. A compile check stops this reaching a release build.
+Every other build asks macOS to keep the timeline out of screen capture, apart from a `--sandbox` run, which has to photograph itself. To film it, `make filming-app` builds `build/Elodie/Build/Products/FilmingDebug/Elodie.app`, where QuickTime and other capture apps can see it. A compile check stops this reaching a release build.
 
-It's `com.kenansulayman.elodie.filming`, with its own vault, key, settings, and permissions, so it starts with no history, and a video shows only what that copy has recorded. Quit your everyday copy first, because only one copy can hold the shortcuts. Control Center's button doesn't work in this build, because every build shares its channel and this one stays off it. For stills, `make scenarios` needs no permission and shows only fixture data.
+It's `com.kenansulayman.elodie.filming`, with its own vault, key, settings, and permissions, so it starts with no history, and a video shows only what that copy has recorded. Quit your everyday copy first, because only one copy can hold the shortcuts. Control Center's button doesn't work in this build, because every build shares its channel and this one stays off it. For stills, `make scenarios` needs no permission and shows only fixture data, apart from `settings-screen`, which lists the apps installed on your Mac.
 
 ### Tests
 
